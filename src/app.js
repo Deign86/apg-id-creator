@@ -27,12 +27,18 @@ const FIELD_INPUT = {
 
 // The wizard. `fields` are the keys of problems() that belong to each step,
 // so a step is "done" exactly when none of its fields has a problem.
+// `land` is the control to put the cursor on when the step opens. Taking
+// the first focusable thing in the section instead put the cursor on the
+// year dropdown when the step is about the number, and on the signature
+// pad's Clear button — so arriving and typing went into the wrong field,
+// and arriving and pressing space wiped the signature. null means the
+// step has nothing to type into.
 const STEPS = [
-  { id: 'name',   label: 'Name',      fields: ['last', 'first', 'middle', 'suffix', 'nameFit'] },
+  { id: 'name',   label: 'Name',      fields: ['last', 'first', 'middle', 'suffix', 'nameFit'], land: 'f-last' },
   { id: 'title',  label: 'Job title', fields: ['title', 'title2', 'titleFit'] },
-  { id: 'number', label: 'Number',    fields: ['seq'] },
+  { id: 'number', label: 'Number',    fields: ['seq'], land: 'f-seq' },
   { id: 'photo',  label: 'Photo',     fields: ['photo'] },
-  { id: 'sign',   label: 'Signature', fields: ['signature'] },
+  { id: 'sign',   label: 'Signature', fields: ['signature'], land: null },
   { id: 'check',  label: 'Check',     fields: [] },
 ];
 const LAST_STEP = STEPS.length - 1;
@@ -206,30 +212,95 @@ const stepDone = (i, p) => stepProblems(i, p).length === 0;
 // A step can be opened once every step before it is filled in.
 const stepReachable = (i, p) => STEPS.slice(0, i).every((_, j) => stepDone(j, p));
 
-function goStep(i, { focus = true } = {}) {
-  state.step = Math.max(0, Math.min(LAST_STEP, i));
+/**
+ * The furthest step that may be open: the first one that is not
+ * finished, or the end if they all are.
+ *
+ * Going back is always allowed. Going forward stops here, and this is
+ * the only place that decides it — the chips, the Next button and the
+ * draft that comes back after a reload all go through goStep, so none
+ * of them can route around it. They used to disagree: Next looked only
+ * at the step you were on, so a draft restored onto step 4 with a name
+ * too long for the card walked all the way to Check without ever
+ * mentioning the name.
+ */
+function furthestStep(p = problems()) {
+  const gap = STEPS.findIndex((_, i) => !stepDone(i, p));
+  return gap < 0 ? LAST_STEP : gap;
+}
+
+/**
+ * Open a step. `force` is for the two places that mean it: the finished
+ * example, and cancelling an extra ID to go back to a print that is
+ * already queued. Everything else is capped.
+ */
+function goStep(i, { focus = true, force = false } = {}) {
+  const want = Math.max(0, Math.min(LAST_STEP, i));
+  state.step = force ? want : Math.min(want, furthestStep());
   if (state.step === LAST_STEP) buildReview();
   render();
   if (state.step !== LAST_STEP) state.side = 'front';
   const section = $(`step-${STEPS[state.step].id}`);
   section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  if (focus) {
-    const first = section.querySelector('input:not([type=hidden]):not([hidden]), select, button:not([hidden])');
-    if (first && state.step !== LAST_STEP) first.focus({ preventScroll: true });
+  if (focus && state.step !== LAST_STEP) {
+    const step = STEPS[state.step];
+    const land = 'land' in step
+      ? (step.land && $(step.land))
+      : section.querySelector('input:not([type=hidden]):not([hidden]), select, button:not([hidden])');
+    if (land) land.focus({ preventScroll: true });
   }
 }
 
-/** Move on, or show what this step is still missing. */
+/**
+ * Say that the way on is shut, and why.
+ *
+ * The status line already carries the standing hint, and a live region
+ * whose words do not change announces nothing — so a refusal gets its
+ * own node, its own wording, and is written only when somebody actually
+ * tries. Clearing it first makes a second identical refusal announce
+ * again instead of passing in silence.
+ */
+let blockedAbout = null;      // the step the refusal on screen is about
+
+function sayBlocked(i, p = problems()) {
+  blockedAbout = i;
+  const el = $('blocked');
+  const first = stepProblems(i, p)[0];
+  const text = i === state.step
+    ? `Can’t continue yet. ${p[first] || `Finish ${STEPS[i].label.toLowerCase()}.`}`
+    : `Can’t continue yet. Step ${i + 1}, ${STEPS[i].label}, needs fixing first.`;
+  el.textContent = '';
+  requestAnimationFrame(() => { el.textContent = text; $('status').hidden = true; });
+}
+
+/** Put the cursor on the thing that is missing, if it can be shown. */
+function focusProblem(i, p = problems()) {
+  const target = FIELD_INPUT[stepProblems(i, p)[0]];
+  const el = target && $(target);
+  if (el && !el.hidden && el.offsetParent !== null) el.focus();
+}
+
+/** Move on, or show what is still missing. */
 function nextStep() {
   const p = problems();
+  const stop = furthestStep(p);
+
+  // something behind us came undone — a name that stopped fitting, a
+  // number that turned out to be a duplicate once the register answered
+  if (stop < state.step) {
+    sayBlocked(stop, p);
+    goStep(stop);
+    focusProblem(stop, p);
+    return;
+  }
+
   const missing = stepProblems(state.step, p);
   if (missing.length) {
     for (const f of STEPS[state.step].fields) if (f in state.touched) state.touched[f] = true;
     state.touched.last = state.touched.last || STEPS[state.step].fields.includes('nameFit');
     render();
-    const target = FIELD_INPUT[missing[0]];
-    const el = target && $(target);
-    if (el && !el.hidden) el.focus();
+    sayBlocked(state.step, p);
+    focusProblem(state.step, p);
     return;
   }
   if (state.step < LAST_STEP) goStep(state.step + 1);
@@ -250,22 +321,34 @@ function renderStepBar(p) {
       b.append(num, document.createTextNode(s.label));
       b.addEventListener('click', () => {
         const probs = problems();
-        if (i <= state.step || stepReachable(i, probs)) goStep(i);
-        else {
-          const firstBad = STEPS.findIndex((_, j) => !stepDone(j, probs));
-          goStep(firstBad < 0 ? i : firstBad);
-        }
+        const stop = furthestStep(probs);
+        if (i <= stop) { goStep(i); return; }
+        // locked: go to what is blocking it and say which step that is
+        sayBlocked(stop, probs);
+        goStep(stop);
+        focusProblem(stop, probs);
       });
       li.append(b);
       bar.append(li);
     });
   }
+  const stop = furthestStep(p);
   [...bar.querySelectorAll('.step-chip')].forEach((b, i) => {
+    const locked = i > stop;
     const done = stepDone(i, p) && i !== LAST_STEP;
     b.classList.toggle('is-current', i === state.step);
-    b.classList.toggle('is-done', done && i !== state.step);
-    b.disabled = i > state.step && !stepReachable(i, p);
+    // a step cannot be both finished and out of reach: locked wins, or
+    // the chip claims to be done and refuses to open, which reads as a
+    // broken button rather than as a step that is waiting on another
+    b.classList.toggle('is-done', done && i !== state.step && !locked);
+    b.classList.toggle('is-locked', locked);
+    // aria-disabled, not disabled: a disabled button leaves the tab order
+    // and cannot be asked why it will not open
+    b.setAttribute('aria-disabled', String(locked));
     b.setAttribute('aria-current', i === state.step ? 'step' : 'false');
+    b.setAttribute('aria-label', locked
+      ? `${STEPS[i].label}. Locked until step ${stop + 1}, ${STEPS[stop].label}, is finished.`
+      : `${STEPS[i].label}${done ? '. Finished.' : ''}`);
   });
 }
 
@@ -441,9 +524,23 @@ function render() {
   // one step at a time
   STEPS.forEach((s, i) => { $(`step-${s.id}`).hidden = i !== state.step; });
   renderStepBar(p);
+  // a refusal is about a moment, and the moment ends when the thing it
+  // named is fixed — leaving it up turns it into a standing accusation
+  if (blockedAbout !== null && stepDone(blockedAbout, p)) {
+    $('blocked').textContent = '';
+    blockedAbout = null;
+  }
+  // one line under the buttons, not two saying the same thing: the quiet
+  // standing hint gives way to the refusal while there is one
+  $('status').hidden = blockedAbout !== null;
   $('btn-back').hidden = state.step === 0;
   $('btn-next').hidden = state.step === LAST_STEP;
   $('btn-next').textContent = state.step === LAST_STEP - 1 ? 'Check the card' : 'Next';
+  // Next is never marked unavailable, neither with disabled nor with
+  // aria-disabled. A disabled button is a dead end: it cannot be focused
+  // and it cannot explain itself, so the one thing the operator needs —
+  // what is missing — is the one thing it will not say. Pressing it on an
+  // unfinished step is how you ask, and the refusal answers in #blocked.
   $('btn-next').disabled = !state.templates;
 
   document.body.classList.toggle('checking', state.step === LAST_STEP);
@@ -749,7 +846,7 @@ async function loadExample() {
   pad.setValue(EXAMPLE.signature);
   state.touched = { last: false, first: false, middle: false, suffix: false, title: false, title2: false, seq: false, photo: false, signature: false };
   state.example = true; state.side = 'front';
-  goStep(LAST_STEP, { focus: false });        // the example is complete: show the finished card
+  goStep(LAST_STEP, { focus: false, force: true });   // the example is complete: show the finished card
 }
 if (location.hash === '#example') addEventListener('load', loadExample);
 
@@ -1006,7 +1103,9 @@ function cancelAdding() {
   if (!state.queue.length) return;
   if (startedCard() && !confirm('Discard the ID you have started? The cards already in this print are kept.')) return;
   clearCard({ keepQueue: true });
-  goStep(LAST_STEP, { focus: false });
+  // the card on screen is blank now, so the cap would send us to step 1:
+  // but the print this returns to is already made and waiting
+  goStep(LAST_STEP, { focus: false, force: true });
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1547,13 +1646,8 @@ new ResizeObserver(drawPreview).observe(previewBox);
 $('app-version').textContent = `${APP_NAME} ${APP_VERSION}`;
 $('brand-logo').src = ASSETS.logo;
 buildPrintControls();
-if (restoreDraft()) {
-  $('restored-note').hidden = false;
-  // carry on where the typing stopped
-  const p = problems();
-  const firstGap = STEPS.findIndex((_, i) => !stepDone(i, p));
-  state.step = firstGap < 0 ? 0 : firstGap;
-}
+const restored = restoreDraft();
+if (restored) $('restored-note').hidden = false;
 
 Promise.all([loadTemplates(), loadCardFonts()])
   .then(async ([templates]) => {
@@ -1562,6 +1656,11 @@ Promise.all([loadTemplates(), loadCardFonts()])
     // a design put in earlier is still the one in use
     try { await TemplateStore.restore(); } catch { /* fall back to the built-in */ }
     state.templates = TemplateStore.templates;
+    // Only now: whether a name or a job title fits the card cannot be
+    // answered without the fonts, and until it is answered an unfittable
+    // name counts as finished. Choosing the step before this point is
+    // what used to open step 4 over a broken step 1.
+    if (restored) goStep(furthestStep(), { focus: false });
     updateBatchButton();
     if (state.step === LAST_STEP) buildReview();
     render();

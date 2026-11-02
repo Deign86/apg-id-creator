@@ -34,6 +34,7 @@ and does not do is in **PHOTO-SPEC.md**.
 | `test/golden.mjs` | Renders the example card at 300 DPI and compares it with `test/golden-front.png`, so a code or config change cannot silently move anything. |
 | `test/design.mjs` | `npm run test:design` — moves the map and puts different artwork in the way HR would, and checks that opening the map changes nothing, that the built-in photo cut-out keeps its step when dragged, that the wrong shape is refused, that new artwork reaches the printed card, that a drag moves what is drawn by the amount dragged, and that it all survives a restart. |
 | `test/layout.mjs` | `npm run test:layout` — opens the app at four window sizes in six states and checks that nothing inside the preview tray reaches past it and that the page never scrolls sideways. A column that will not shrink draws the preview across the form; it looks like a z-index problem and it never is. |
+| `test/steps.mjs` | `npm run test:steps` — walks every way forward through the six steps and checks none of them opens a step over an unfinished one, that a refusal names the step and the reason, and that the cursor lands on the field the step is about. |
 | `package.json` | `npm run build`, `npm test`, `npm run dev`. |
 
 ## How the app is built
@@ -86,8 +87,9 @@ the print file are the same drawing.
    in `test/diff-front.png`. If the change was intended, accept it with
    `npm test -- --update` and commit the new golden. `npm run test:map` and
    `npm run test:design` cover the other two ways a card's layout can
-   arrive, and `npm run test:layout` checks the window itself; run all
-   four before a release. On a machine where Playwright is
+   arrive, `npm run test:layout` checks the window itself and
+   `npm run test:steps` the order the form is filled in; run all five
+   before a release. On a machine where Playwright is
    installed somewhere else, point the tests at it with
    `PLAYWRIGHT_MODULE=/path/to/playwright/index.js`.
 4. Open the rebuilt `Alpha Premier ID Maker.html` with **`#example`** on
@@ -141,6 +143,26 @@ Note that the browser keeps the issued-ID register per address, so cards
 issued from the double-clicked file and from `http://localhost` are kept in
 separate lists. The shared Google Sheet register (see `register/README.md`)
 is not affected.
+
+### The step order
+
+Each of the six steps needs the one before it. `furthestStep()` is the
+only place that decides how far you may go — the first step that is not
+finished — and `goStep()` caps every move by it, so the chips, the Next
+button and a draft restored after a reload cannot disagree. They used to:
+Next looked only at the step you were on, and the chips at all of them.
+
+Two things made that visible rather than theoretical. Whether a name or a
+job title fits the card cannot be answered until the fonts have loaded,
+so before that an unfittable name counts as finished — and the draft
+restore used to pick its step before then, opening step 4 over a broken
+step 1. And `refreshDuplicate()` answers from the shared register
+asynchronously, so a number can turn out to be a duplicate after you have
+left the step that asked for it.
+
+`goStep(i, { force: true })` is the way past the cap, for the two places
+that mean it: the worked example, and cancelling an extra ID to return to
+a print that is already queued.
 
 ## How it looks
 
