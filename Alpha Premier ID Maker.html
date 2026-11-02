@@ -3294,7 +3294,7 @@ const ASSETS = {"front":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAn4AAAPsC
    ------------------------------------------------------------------ */
 
 const APP_NAME = 'Alpha Premier ID Maker';
-const APP_VERSION = '1.18.0';          // stamped into every PDF's metadata
+const APP_VERSION = '1.19.0';          // stamped into every PDF's metadata
 
 const CONFIG = {
   card: {
@@ -3764,6 +3764,52 @@ const Register = {
         ? 'That address answered with a web page instead of the register — almost always a Google sign-in page. In Deploy → Manage deployments, set Who has access to “Anyone”.'
         : 'That address answered, but not with register data. Check the web-app address in Deploy → Manage deployments.');
     }
+  },
+
+  /* ---- the shared register, read once ----------------------------
+     Asking the sheet about one number at a time meant a round trip to
+     Google on every keystroke: a second or more each, and until the
+     answer came back the number looked free. Issuing a card that
+     duplicates one somebody else issued is the single worst thing this
+     app can do, so the check cannot be the slowest part of the form.
+
+     The whole register is a few hundred short rows. Read it once, keep
+     it in memory, and every number after that is answered instantly and
+     offline. A card issued here is added to it as it is recorded, so a
+     second card in the same sitting sees the first.
+     ---------------------------------------------------------------- */
+
+  _index: null,        // Map of employee id -> entry, once the sheet has been read
+  _loading: null,      // the read in flight, so ten callers make one request
+
+  /** Read the whole register. Resolves to the index, or throws. */
+  loadIndex({ force = false } = {}) {
+    if (!this.shared) return Promise.resolve(null);
+    if (this._index && !force) return Promise.resolve(this._index);
+    if (this._loading && !force) return this._loading;
+    this._loading = this._fetch(`${this.url}?action=list`, { method: 'GET' })
+      .then((rows) => {
+        if (!Array.isArray(rows)) throw new RegisterError('The register answered, but not with a list of entries.');
+        this._index = new Map(rows.filter((r) => r && r.id).map((r) => [r.id, r]));
+        return this._index;
+      })
+      .finally(() => { this._loading = null; });
+    return this._loading;
+  },
+
+  /**
+   * Shared entry for this number, without asking anybody:
+   * entry, null for definitely not there, or undefined for not known yet.
+   */
+  findSharedNow(year, seq) {
+    if (!this.shared || seq === null) return null;
+    if (!this._index) return undefined;
+    return this._index.get(employeeId(year, seq)) ?? null;
+  },
+
+  /** Keep the index true after issuing a card, without re-reading the sheet. */
+  noteShared(entry) {
+    if (this._index && entry && entry.id) this._index.set(entry.id, entry);
   },
 
   /** Shared entry for this number: entry | null, or undefined when the shared register could not be reached. */
@@ -6464,6 +6510,12 @@ function problems() {
     seq: !state.seq ? 'Enter the employee number HR assigned, such as 124.'
        : seqNumber() === null ? 'Use 1 to 4 digits, such as 124.'
        : duplicate() && !state.reissue ? duplicateMessage()
+       // Not knowing is not the same as knowing it is free. The register
+       // is read once at startup, so this is normally over before it can
+       // be seen — but while it is true, the number is not cleared and
+       // the step does not open. Unreachable is different: that settles
+       // to a warning, because a sheet being down cannot stop HR working.
+       : state.dupShared === 'pending' ? 'Checking the shared register for this number…'
        : '',
     photo: state.photoError || (state.photo ? '' : 'Upload the new hire’s photo.'),
     signature: hasInk(state.signature) ? '' : 'Ask the new hire to sign in the box.',
@@ -6479,7 +6531,12 @@ function queuedDuplicate() {
   const hit = state.queue.find((q) => q.id === id);
   return hit ? { ...hit.entry, queued: true } : null;
 }
-function duplicate() { return queuedDuplicate() || state.dupShared || state.dupLocal || null; }
+// state.dupShared is one of four things: an entry, null for definitely
+// not there, 'pending' for not known yet, or undefined for could not ask.
+// Only an entry is a duplicate — 'pending' is a truthy string and used to
+// sail straight through here as one.
+const sharedDuplicate = () => (state.dupShared && typeof state.dupShared === 'object' ? state.dupShared : null);
+function duplicate() { return queuedDuplicate() || sharedDuplicate() || state.dupLocal || null; }
 function duplicateMessage() {
   const d = duplicate();
   if (d.queued) return `${d.id} is already waiting in this print, for ${d.name}. Use a different number.`;
@@ -6488,16 +6545,52 @@ function duplicateMessage() {
 }
 
 let dupToken = 0;
+
+/**
+ * Is this number already taken? Answered from memory when it can be.
+ *
+ * The register is read whole, once, so this is a Map lookup for every
+ * number after the first — no round trip, no waiting, nothing to debounce.
+ * Only a cold start, or a register that has not been read yet, goes to
+ * the network, and until that answers the number is 'pending' rather
+ * than clean.
+ */
 function refreshDuplicate() {
-  state.dupLocal = Register.find(state.year, seqNumber());
-  state.dupShared = null;
-  if (!Register.shared || seqNumber() === null) return;
+  const seq = seqNumber();
+  state.dupLocal = Register.find(state.year, seq);
+  if (!Register.shared || seq === null) { state.dupShared = null; return; }
+
+  const known = Register.findSharedNow(state.year, seq);
+  if (known !== undefined) { state.dupShared = known; return; }   // already know
+
+  state.dupShared = 'pending';
   const token = ++dupToken;
-  Register.findShared(state.year, seqNumber()).then((hit) => {
-    if (token !== dupToken) return;          // the number changed meanwhile
-    state.dupShared = hit;
-    render();
-  });
+  Register.loadIndex()
+    .then(() => (token === dupToken ? Register.findSharedNow(state.year, seqNumber()) : null))
+    .catch(() => undefined)                  // could not ask: warn, do not block
+    .then((hit) => {
+      if (token !== dupToken) return;
+      state.dupShared = hit;
+      settleDuplicate();
+    });
+}
+
+/**
+ * The register has answered. If it answered late — after the number was
+ * accepted and the form moved on — the step it belongs to is no longer
+ * finished, so go back to it and say why rather than letting a card go
+ * out on a number somebody else already used.
+ */
+function settleDuplicate() {
+  const p = problems();
+  const stop = furthestStep(p);
+  if (stop < state.step) {
+    sayBlocked(stop, p);
+    goStep(stop);
+    focusProblem(stop, p);
+    return;
+  }
+  render();
 }
 
 /* ---- steps ------------------------------------------------------- */
@@ -7281,6 +7374,7 @@ async function downloadPdf() {
       const issued = (plan ? cards : [cards[cards.length - 1]]).filter(Boolean).map((c) => c.entry);
       for (const entry of issued) Register.record(entry);
       state.dupLocal = issued[issued.length - 1] ?? review.entry;
+      for (const entry of issued) Register.noteShared(entry);   // the next card sees this one at once
       (async () => { for (const entry of issued) await Register.recordShared(entry); })();
       state.queue = [];                        // the job has been printed
       renderJob();
@@ -7669,6 +7763,7 @@ async function runBatchUi() {
     downloadBlob(out.fileName, blob);
 
     for (const r of out.good) Register.record(r.entry);
+    for (const r of out.good) Register.noteShared(r.entry);
     if (Register.shared) (async () => { for (const r of out.good) await Register.recordShared(r.entry); })();
     refreshDuplicate();
     render();
@@ -7820,6 +7915,8 @@ async function useUploadedDesign() {
     if (result.error) { msg.textContent = result.error; return; }
 
     state.templates = TemplateStore.templates;
+    // start reading the register now rather than on the first keystroke
+    if (Register.shared) Register.loadIndex().then(refreshDuplicate).then(render).catch(() => render());
     TemplateStore.save();
     msg.textContent = TemplateStore.note || 'In use. Check the map against the new artwork.';
     showContrastWarnings(result.warnings);
@@ -7952,6 +8049,8 @@ Promise.all([loadTemplates(), loadCardFonts()])
     // a design put in earlier is still the one in use
     try { await TemplateStore.restore(); } catch { /* fall back to the built-in */ }
     state.templates = TemplateStore.templates;
+    // start reading the register now rather than on the first keystroke
+    if (Register.shared) Register.loadIndex().then(refreshDuplicate).then(render).catch(() => render());
     // Only now: whether a name or a job title fits the card cannot be
     // answered without the fonts, and until it is answered an unfittable
     // name counts as finished. Choosing the step before this point is

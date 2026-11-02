@@ -168,6 +168,12 @@ function problems() {
     seq: !state.seq ? 'Enter the employee number HR assigned, such as 124.'
        : seqNumber() === null ? 'Use 1 to 4 digits, such as 124.'
        : duplicate() && !state.reissue ? duplicateMessage()
+       // Not knowing is not the same as knowing it is free. The register
+       // is read once at startup, so this is normally over before it can
+       // be seen — but while it is true, the number is not cleared and
+       // the step does not open. Unreachable is different: that settles
+       // to a warning, because a sheet being down cannot stop HR working.
+       : state.dupShared === 'pending' ? 'Checking the shared register for this number…'
        : '',
     photo: state.photoError || (state.photo ? '' : 'Upload the new hire’s photo.'),
     signature: hasInk(state.signature) ? '' : 'Ask the new hire to sign in the box.',
@@ -183,7 +189,12 @@ function queuedDuplicate() {
   const hit = state.queue.find((q) => q.id === id);
   return hit ? { ...hit.entry, queued: true } : null;
 }
-function duplicate() { return queuedDuplicate() || state.dupShared || state.dupLocal || null; }
+// state.dupShared is one of four things: an entry, null for definitely
+// not there, 'pending' for not known yet, or undefined for could not ask.
+// Only an entry is a duplicate — 'pending' is a truthy string and used to
+// sail straight through here as one.
+const sharedDuplicate = () => (state.dupShared && typeof state.dupShared === 'object' ? state.dupShared : null);
+function duplicate() { return queuedDuplicate() || sharedDuplicate() || state.dupLocal || null; }
 function duplicateMessage() {
   const d = duplicate();
   if (d.queued) return `${d.id} is already waiting in this print, for ${d.name}. Use a different number.`;
@@ -192,16 +203,52 @@ function duplicateMessage() {
 }
 
 let dupToken = 0;
+
+/**
+ * Is this number already taken? Answered from memory when it can be.
+ *
+ * The register is read whole, once, so this is a Map lookup for every
+ * number after the first — no round trip, no waiting, nothing to debounce.
+ * Only a cold start, or a register that has not been read yet, goes to
+ * the network, and until that answers the number is 'pending' rather
+ * than clean.
+ */
 function refreshDuplicate() {
-  state.dupLocal = Register.find(state.year, seqNumber());
-  state.dupShared = null;
-  if (!Register.shared || seqNumber() === null) return;
+  const seq = seqNumber();
+  state.dupLocal = Register.find(state.year, seq);
+  if (!Register.shared || seq === null) { state.dupShared = null; return; }
+
+  const known = Register.findSharedNow(state.year, seq);
+  if (known !== undefined) { state.dupShared = known; return; }   // already know
+
+  state.dupShared = 'pending';
   const token = ++dupToken;
-  Register.findShared(state.year, seqNumber()).then((hit) => {
-    if (token !== dupToken) return;          // the number changed meanwhile
-    state.dupShared = hit;
-    render();
-  });
+  Register.loadIndex()
+    .then(() => (token === dupToken ? Register.findSharedNow(state.year, seqNumber()) : null))
+    .catch(() => undefined)                  // could not ask: warn, do not block
+    .then((hit) => {
+      if (token !== dupToken) return;
+      state.dupShared = hit;
+      settleDuplicate();
+    });
+}
+
+/**
+ * The register has answered. If it answered late — after the number was
+ * accepted and the form moved on — the step it belongs to is no longer
+ * finished, so go back to it and say why rather than letting a card go
+ * out on a number somebody else already used.
+ */
+function settleDuplicate() {
+  const p = problems();
+  const stop = furthestStep(p);
+  if (stop < state.step) {
+    sayBlocked(stop, p);
+    goStep(stop);
+    focusProblem(stop, p);
+    return;
+  }
+  render();
 }
 
 /* ---- steps ------------------------------------------------------- */
@@ -985,6 +1032,7 @@ async function downloadPdf() {
       const issued = (plan ? cards : [cards[cards.length - 1]]).filter(Boolean).map((c) => c.entry);
       for (const entry of issued) Register.record(entry);
       state.dupLocal = issued[issued.length - 1] ?? review.entry;
+      for (const entry of issued) Register.noteShared(entry);   // the next card sees this one at once
       (async () => { for (const entry of issued) await Register.recordShared(entry); })();
       state.queue = [];                        // the job has been printed
       renderJob();
@@ -1373,6 +1421,7 @@ async function runBatchUi() {
     downloadBlob(out.fileName, blob);
 
     for (const r of out.good) Register.record(r.entry);
+    for (const r of out.good) Register.noteShared(r.entry);
     if (Register.shared) (async () => { for (const r of out.good) await Register.recordShared(r.entry); })();
     refreshDuplicate();
     render();
@@ -1524,6 +1573,8 @@ async function useUploadedDesign() {
     if (result.error) { msg.textContent = result.error; return; }
 
     state.templates = TemplateStore.templates;
+    // start reading the register now rather than on the first keystroke
+    if (Register.shared) Register.loadIndex().then(refreshDuplicate).then(render).catch(() => render());
     TemplateStore.save();
     msg.textContent = TemplateStore.note || 'In use. Check the map against the new artwork.';
     showContrastWarnings(result.warnings);
@@ -1656,6 +1707,8 @@ Promise.all([loadTemplates(), loadCardFonts()])
     // a design put in earlier is still the one in use
     try { await TemplateStore.restore(); } catch { /* fall back to the built-in */ }
     state.templates = TemplateStore.templates;
+    // start reading the register now rather than on the first keystroke
+    if (Register.shared) Register.loadIndex().then(refreshDuplicate).then(render).catch(() => render());
     // Only now: whether a name or a job title fits the card cannot be
     // answered without the fonts, and until it is answered an unfittable
     // name counts as finished. Choosing the step before this point is

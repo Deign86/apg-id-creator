@@ -1,6 +1,6 @@
 [package]
 name = "apg-id-maker"
-version = "1.18.0"
+version = "1.19.0"
 description = "Alpha Premier ID Maker"
 authors = ["Alpha Premier Group of Companies"]
 edition = "2021"

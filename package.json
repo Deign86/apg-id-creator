@@ -1,6 +1,6 @@
 {
   "name": "alpha-premier-id-maker",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "private": true,
   "description": "Employee ID card maker for Alpha Premier Group of Companies \u2014 single-file offline web app",
   "type": "module",
@@ -11,7 +11,8 @@
     "test:map": "node test/map.mjs",
     "test:design": "node test/design.mjs",
     "test:layout": "node test/layout.mjs",
-    "test:steps": "node test/steps.mjs"
+    "test:steps": "node test/steps.mjs",
+    "test:duplicate": "node test/duplicate.mjs"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

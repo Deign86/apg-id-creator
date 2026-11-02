@@ -1,7 +1,7 @@
 {
   "name": "apg-id-maker-shell",
   "private": true,
-  "version": "1.18.0",
+  "version": "1.19.0",
   "type": "module",
   "description": "Tauri window around the Alpha Premier ID Maker",
   "scripts": {

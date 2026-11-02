@@ -134,6 +134,52 @@ const Register = {
     }
   },
 
+  /* ---- the shared register, read once ----------------------------
+     Asking the sheet about one number at a time meant a round trip to
+     Google on every keystroke: a second or more each, and until the
+     answer came back the number looked free. Issuing a card that
+     duplicates one somebody else issued is the single worst thing this
+     app can do, so the check cannot be the slowest part of the form.
+
+     The whole register is a few hundred short rows. Read it once, keep
+     it in memory, and every number after that is answered instantly and
+     offline. A card issued here is added to it as it is recorded, so a
+     second card in the same sitting sees the first.
+     ---------------------------------------------------------------- */
+
+  _index: null,        // Map of employee id -> entry, once the sheet has been read
+  _loading: null,      // the read in flight, so ten callers make one request
+
+  /** Read the whole register. Resolves to the index, or throws. */
+  loadIndex({ force = false } = {}) {
+    if (!this.shared) return Promise.resolve(null);
+    if (this._index && !force) return Promise.resolve(this._index);
+    if (this._loading && !force) return this._loading;
+    this._loading = this._fetch(`${this.url}?action=list`, { method: 'GET' })
+      .then((rows) => {
+        if (!Array.isArray(rows)) throw new RegisterError('The register answered, but not with a list of entries.');
+        this._index = new Map(rows.filter((r) => r && r.id).map((r) => [r.id, r]));
+        return this._index;
+      })
+      .finally(() => { this._loading = null; });
+    return this._loading;
+  },
+
+  /**
+   * Shared entry for this number, without asking anybody:
+   * entry, null for definitely not there, or undefined for not known yet.
+   */
+  findSharedNow(year, seq) {
+    if (!this.shared || seq === null) return null;
+    if (!this._index) return undefined;
+    return this._index.get(employeeId(year, seq)) ?? null;
+  },
+
+  /** Keep the index true after issuing a card, without re-reading the sheet. */
+  noteShared(entry) {
+    if (this._index && entry && entry.id) this._index.set(entry.id, entry);
+  },
+
   /** Shared entry for this number: entry | null, or undefined when the shared register could not be reached. */
   async findShared(year, seq) {
     if (!this.shared || seq === null) return null;

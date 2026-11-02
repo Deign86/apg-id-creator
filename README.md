@@ -134,7 +134,14 @@ layout back at any time.
 
 **The number box turned red.** That number is already used. The message
 says who has it. Use another, or tick *Replacement card* if you are
-reprinting someone's lost ID.
+reprinting someone's lost ID. You cannot move on from that step until
+the number is one nobody has.
+
+**It says it is checking the shared register.** Only on the first number
+after the app opens, and only for a moment. The whole register is read
+once when the app starts, so every number after that is checked
+instantly. If the sheet cannot be reached at all, the app says so and
+lets you carry on — it still checks against this computer.
 
 **It says the photo is no good.** Common reasons: the background is not
 plain green, the person is wearing something the same colour as the
