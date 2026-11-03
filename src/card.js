@@ -97,6 +97,37 @@ function adjustedPlacement(placement, adjust) {
   };
 }
 
+/**
+ * The photo with its bottom edge faded out.
+ *
+ * Only for a photo too closely cropped to reach the bottom of the
+ * window. Enlarging it until it did was the old answer, and it cost the
+ * head its size; cutting it off square costs the card its looks. Fading
+ * the last few millimetres costs neither, and is what anyone laying this
+ * out by hand would do.
+ */
+function fadedPhoto(photo, pxPerMm, w, h) {
+  const p = photo.placement;
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w));
+  c.height = Math.max(1, Math.round(h));
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(photo.image, p.x * pxPerMm, p.y * pxPerMm, p.w * pxPerMm, p.h * pxPerMm);
+
+  const fadeMm = Math.min(CONFIG.photo.fadeMm, p.h / 3);
+  const bottom = (p.y + p.h) * pxPerMm;
+  const start = bottom - fadeMm * pxPerMm;
+  const grad = g.createLinearGradient(0, start, 0, bottom);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,1)');
+  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = grad;
+  g.fillRect(0, start, c.width, c.height - start);
+  return c;
+}
+
 /* ---- the two sides ----------------------------------------------- */
 
 /**
@@ -113,7 +144,9 @@ function drawFront(ctx, templates, pxPerMm, data = null, options = {}) {
 
   if (data?.photo) {
     const p = data.photo.placement;   // mm
-    const put = (c) => c.drawImage(data.photo.image, p.x * pxPerMm, p.y * pxPerMm, p.w * pxPerMm, p.h * pxPerMm);
+    const put = p.shortBy > 0
+      ? (c) => c.drawImage(fadedPhoto(data.photo, pxPerMm, w, h), 0, 0)
+      : (c) => c.drawImage(data.photo.image, p.x * pxPerMm, p.y * pxPerMm, p.w * pxPerMm, p.h * pxPerMm);
     // A design that brought masks describes itself completely: a zone it
     // left out is a zone it does not have, not a reason to fall back on
     // the built-in card's shapes, which belong to different artwork.

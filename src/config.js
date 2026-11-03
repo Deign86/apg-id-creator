@@ -7,7 +7,7 @@
    ------------------------------------------------------------------ */
 
 const APP_NAME = 'Alpha Premier ID Maker';
-const APP_VERSION = '1.19.0';          // stamped into every PDF's metadata
+const APP_VERSION = '1.20.0';          // stamped into every PDF's metadata
 
 const CONFIG = {
   card: {
@@ -178,9 +178,17 @@ const CONFIG = {
     reachY: 66.466,
     minHeadPx: 180,   // below this the face prints a little soft (warning only)
     maxFileMb: 15,
+    // How much the automatic placement may enlarge a photo beyond the size
+    // that makes the head headWidth wide. It enlarges to stop a closely
+    // cropped photo ending mid-card, which is cosmetic — the head being
+    // the same size on every card is not. Uncapped, a head-and-shoulders
+    // crop came out at 25 mm against the 15 mm asked for, and the manual
+    // control could not pull it back.
+    maxEnlarge: 1.15,
+    fadeMm: 7,        // the bottom edge of a photo that stops short, softened over this much
     // manual adjustment after automatic placement
     nudgeStepMm: 0.5,     // arrow buttons move this much
-    zoomMin: 0.7,         // 70 % … 150 % of the automatic size
+    zoomMin: 0.5,         // 50 % … 150 % of the automatic size
     zoomMax: 1.5,
     zoomStep: 0.05,
   },

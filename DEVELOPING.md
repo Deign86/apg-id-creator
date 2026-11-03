@@ -36,6 +36,7 @@ and does not do is in **PHOTO-SPEC.md**.
 | `test/layout.mjs` | `npm run test:layout` — opens the app at four window sizes in six states and checks that nothing inside the preview tray reaches past it and that the page never scrolls sideways. A column that will not shrink draws the preview across the form; it looks like a z-index problem and it never is. |
 | `test/steps.mjs` | `npm run test:steps` — walks every way forward through the six steps and checks none of them opens a step over an unfinished one, that a refusal names the step and the reason, and that the cursor lands on the field the step is about. |
 | `test/duplicate.mjs` | `npm run test:duplicate` — stubs the register and checks the four answers it can give: taken refuses and names who has it, free opens with no network call, not-yet-known refuses and says it is asking, unreachable warns but lets work carry on. |
+| `test/photo.mjs` | `npm run test:photo` — drawn silhouettes, including one with a spike of hair, checking the head is measured and scaled to `headWidth` whatever the outline does, that a closely cropped photo is not enlarged without limit, and that the built-in example still places exactly where the golden card expects. |
 | `package.json` | `npm run build`, `npm test`, `npm run dev`. |
 
 ## How the app is built
@@ -90,8 +91,9 @@ the print file are the same drawing.
    `npm run test:design` cover the other two ways a card's layout can
    arrive, `npm run test:layout` checks the window itself and
    `npm run test:steps` the order the form is filled in and
-   `npm run test:duplicate` the one check that must never be skipped;
-   run all six before a release. On a machine where Playwright is
+   `npm run test:duplicate` the one check that must never be skipped and
+   `npm run test:photo` the sizing of the face; run all seven before a
+   release. On a machine where Playwright is
    installed somewhere else, point the tests at it with
    `PLAYWRIGHT_MODULE=/path/to/playwright/index.js`.
 4. Open the rebuilt `Alpha Premier ID Maker.html` with **`#example`** on
@@ -184,6 +186,33 @@ working, and the local register still catches repeats from this laptop.
 
 A card issued here is added to the index as it is recorded, so the next
 card in the same sitting sees it without re-reading the sheet.
+
+### Measuring the head
+
+The photo is scaled so the head is `CONFIG.photo.headWidth` wide, which
+is what makes every card match. Getting that measurement wrong is not a
+small error: it is a divisor.
+
+Finding the head used to mean walking down the silhouette, widening
+while the rows widened, and calling the first narrowing the end of the
+head. A head is not reliably convex. One real photo had a tuft of hair
+standing up, and the dip between the tuft and the rest of the hair ended
+the head fifty pixels in — a quarter of its true width, so the photo was
+scaled four times too large to compensate and the face filled the card.
+
+It is read from the other end now. The widest row in the picture is the
+shoulders or the chest; climbing back up from there, the first place the
+silhouette stops narrowing is the neck, and the head is the widest row
+above it. The profile is smoothed over 1.5 % of the height first, because
+single rows of hair and JPEG fringes are not anatomy. On the built-in
+example this gives the same answer as before, to the pixel, which is why
+the golden card did not move.
+
+`CONFIG.photo.maxEnlarge` caps the separate enlargement that stops a
+closely cropped photo ending mid-card — cosmetic, where the head being
+the same size on every card is not. When the cap binds, the photo's
+bottom edge is faded over `CONFIG.photo.fadeMm` rather than cut off
+square against the artwork.
 
 ## How it looks
 

@@ -170,20 +170,52 @@ function findHeadAndPlace(analysis, fullWidth, keyed) {
 
   const rowWidth = (y) => (count[y] < minCount ? 0 : last[y] - first[y] + 1);
 
-  // walk down: head widens to headW, narrows to the neck, then widens fast at the shoulders
-  let headW = 0, narrowing = false, neckY = -1, neckW = Infinity, shoulderY = -1;
-  for (let y = top; y < h; y++) {
-    const rw = rowWidth(y);
-    if (!narrowing) {
-      if (rw > headW) headW = rw;
-      else if (rw < headW * 0.85 && y > top + 3) narrowing = true;
-    }
-    if (narrowing) {
-      if (rw < neckW) { neckW = rw; neckY = y; }
-      if (rw > headW * 1.5) { shoulderY = y; break; }
-    }
+  /* ---- where the head ends and the body begins --------------------
+     This used to walk down from the top, growing headW while the rows
+     got wider and calling the first narrowing the end of the head. A
+     head is not reliably convex: one real photo had a tuft of hair
+     standing up, and the dip between the tuft and the rest of the hair
+     ended the head 50 px in. The head came out four times too small, so
+     the card was scaled four times too large to make it 15 mm — a face
+     filling the whole card, and the manual control could not pull it
+     back far enough to matter.
+
+     Read it from the other end instead. The widest row in the picture
+     is the shoulders or the chest; climb back up from there and the
+     first place the silhouette stops narrowing is the neck. The head is
+     then the widest row above the neck, whatever shape the hair is.
+     ---------------------------------------------------------------- */
+
+  // smoothed, because single rows of hair, stray pixels and jpeg fringes
+  // are not anatomy and a local minimum must not be made of them
+  const smoothBy = Math.max(1, Math.round(h * 0.015));
+  const widths = new Float64Array(h);
+  for (let y = 0; y < h; y++) widths[y] = rowWidth(y);
+  const sums = new Float64Array(h + 1);
+  for (let y = 0; y < h; y++) sums[y + 1] = sums[y] + widths[y];
+  const smooth = (y) => {
+    const a = Math.max(0, y - smoothBy), b = Math.min(h - 1, y + smoothBy);
+    return (sums[b + 1] - sums[a]) / (b - a + 1);
+  };
+
+  let maxW = 0, widestY = top;
+  for (let y = top; y < h; y++) { const v = smooth(y); if (v > maxW) { maxW = v; widestY = y; } }
+
+  let neckY = -1;
+  for (let y = widestY - 1; y > top; y--) {
+    if (smooth(y) < smooth(y + 1)) continue;          // still narrowing on the way up
+    neckY = y + 1;                                    // it stopped: that is the neck
+    break;
   }
-  if (shoulderY < 0 || neckY < 0) {
+  if (neckY < 0) neckY = Math.round((top + widestY) / 2);
+
+  let headW = 0;
+  for (let y = top; y < neckY; y++) if (widths[y] > headW) headW = widths[y];
+
+  let shoulderY = -1;
+  for (let y = neckY; y < h; y++) if (smooth(y) > headW * 1.25) { shoulderY = y; break; }
+
+  if (shoulderY < 0 || !headW) {
     return { ok: false, problem: 'Head and shoulders aren’t both visible. Please upload a chest-up cut-out, facing forward.' };
   }
 
@@ -241,13 +273,29 @@ function findHeadAndPlace(analysis, fullWidth, keyed) {
   const fullW = fullWidth, fullH = h * scale;
   let mmPerPx = P.headWidth / head.width;
   const belowHeadTopPx = fullH - head.top;
+  let shortBy = 0;                      // mm of window the photo cannot fill
   if (P.headTop + belowHeadTopPx * mmPerPx < P.reachY) {
-    // the photo is cropped high: enlarge so the body still disappears behind the band
+    // The photo is cropped high: enlarging it makes the body reach the
+    // bottom of the window instead of stopping in mid-air. That is worth
+    // a little, but not any amount — the head being the same size on
+    // every card is the whole point of measuring it, and this used to
+    // enlarge without limit. A head-and-shoulders crop came out with a
+    // 25 mm head against the 15 mm asked for, half as big again as the
+    // card's own example, and the manual size control bottomed out
+    // before it could undo it.
     const needed = (P.reachY - P.headTop) / belowHeadTopPx;
-    if (needed / mmPerPx > 1.08) {
-      warnings.push('This photo is cropped close, so the head is shown larger than usual. A photo that shows more of the chest gives a more consistent card.');
+    const most = mmPerPx * P.maxEnlarge;
+    if (needed > most) {
+      warnings.push('This photo is cropped too close to fill the card, so it stops short of the bottom. '
+        + 'The face is the right size; a photo showing the chest fills the space properly.');
+      mmPerPx = most;
+      shortBy = P.reachY - (P.headTop + belowHeadTopPx * mmPerPx);
+    } else {
+      if (needed / mmPerPx > 1.08) {
+        warnings.push('This photo is cropped close, so the head is shown slightly larger than usual. A photo that shows more of the chest gives a more consistent card.');
+      }
+      mmPerPx = needed;
     }
-    mmPerPx = needed;
   }
   return {
     ok: true,
@@ -258,6 +306,10 @@ function findHeadAndPlace(analysis, fullWidth, keyed) {
       y: P.headTop - head.top * mmPerPx,
       w: fullW * mmPerPx,
       h: fullH * mmPerPx,
+      // a photo that stops inside the window is cut off square against
+      // the card, which reads as a sticker coming unstuck. Say by how
+      // much, and the card softens the edge instead.
+      shortBy: +Math.max(0, shortBy).toFixed(2),
     },
     warnings,
   };
