@@ -46,7 +46,7 @@ const HEIC = /\.(heic|heif)$/i;
 
 function classifyBackground(img) {
   const { width: w, height: h, data } = img;
-  const idx = [];
+  const idx: number[] = [];
   const step = Math.max(1, Math.floor((w + h) / 400));
   for (let x = 0; x < w; x += step) idx.push(x, (h - 1) * w + x, w + x);   // top two rows + bottom
   for (let y = 0; y < h; y += step) idx.push(y * w, y * w + w - 1);        // left + right columns
@@ -242,7 +242,7 @@ function findHeadAndPlace(analysis, fullWidth, keyed) {
   // the band directly under the shoulders: a torso has to be there
   const shoulderW = Math.max(rowWidth(shoulderY), headW);
   const bandEnd = Math.min(h - 1, shoulderY + headW);
-  const bandWidths = [];
+  const bandWidths: number[] = [];
   for (let y = shoulderY; y <= bandEnd; y++) bandWidths.push(rowWidth(y));
   bandWidths.sort((a, b) => a - b);
   const torsoRatio = bandWidths.length >= MIN_ROWS_TO_JUDGE_BODY
@@ -259,7 +259,7 @@ function findHeadAndPlace(analysis, fullWidth, keyed) {
 
   const sharpness = sharpnessOf(analysis, head.centerX / scale - headW / 2, top, head.centerX / scale + headW / 2, neckY);
 
-  const warnings = [];
+  const warnings: string[] = [];
   if (head.width < P.minHeadPx) warnings.push('This is a small photo, so the face may print slightly soft. A larger photo prints sharper, but this one can be used.');
   if (sharpness < BLUR_VARIANCE) warnings.push('This photo looks blurred. Check the face closely before printing — a sharper photo is better.');
   for (let y = top; y <= neckY; y++) {
@@ -331,10 +331,10 @@ function shrinkImageData(img, maxH) {
   if (k === 1) return img;
   const src = document.createElement('canvas');
   src.width = img.width; src.height = img.height;
-  src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
+  src.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
   const dst = document.createElement('canvas');
   dst.width = Math.max(1, Math.round(img.width * k)); dst.height = Math.max(1, Math.round(img.height * k));
-  const ctx = dst.getContext('2d', { willReadFrequently: true });
+  const ctx = dst.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(src, 0, 0, dst.width, dst.height);
   const out = ctx.getImageData(0, 0, dst.width, dst.height);
   return { width: out.width, height: out.height, data: out.data };
@@ -345,7 +345,7 @@ function analysePhoto(imgEl, url, fileName) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(imgEl.naturalWidth * k));
   canvas.height = Math.max(1, Math.round(imgEl.naturalHeight * k));
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
 

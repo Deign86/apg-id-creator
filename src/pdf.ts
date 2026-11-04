@@ -10,7 +10,7 @@
 
 const MM_TO_PT = 72 / 25.4;
 
-async function zlibDeflate(bytes) {
+async function zlibDeflate(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer> | null> {
   if (typeof CompressionStream === 'undefined') return null;
   const cs = new CompressionStream('deflate');            // zlib-wrapped, what /FlateDecode expects
   const writer = cs.writable.getWriter();
@@ -19,7 +19,7 @@ async function zlibDeflate(bytes) {
   return new Uint8Array(await new Response(cs.readable).arrayBuffer());
 }
 
-function base64ToBytes(b64) {
+function base64ToBytes(b64: string) {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -27,9 +27,9 @@ function base64ToBytes(b64) {
 }
 
 // canvas -> { filter, bytes, width, height }
-async function encodeCanvas(canvas) {
+async function encodeCanvas(canvas: HTMLCanvasElement): Promise<PdfImage> {
   const { width, height } = canvas;
-  const rgba = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+  const rgba = canvas.getContext('2d')!.getImageData(0, 0, width, height).data;
   const rgb = new Uint8Array(width * height * 3);
   for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) { rgb[j] = rgba[i]; rgb[j + 1] = rgba[i + 1]; rgb[j + 2] = rgba[i + 2]; }
   const flate = await zlibDeflate(rgb);
@@ -39,10 +39,10 @@ async function encodeCanvas(canvas) {
 }
 
 // Text string as UTF-16BE hex so names with ñ, é, etc. survive.
-function pdfText(s) {
+function pdfText(s: string) {
   let hex = 'FEFF';
   for (const ch of s) {
-    const cp = ch.codePointAt(0);
+    const cp = ch.codePointAt(0)!;
     const units = cp > 0xffff ? [0xd800 + ((cp - 0x10000) >> 10), 0xdc00 + ((cp - 0x10000) & 0x3ff)] : [cp];
     for (const u of units) hex += u.toString(16).padStart(4, '0');
   }
@@ -50,7 +50,7 @@ function pdfText(s) {
 }
 
 function pdfDate(d = new Date()) {
-  const p = (n) => String(n).padStart(2, '0');
+  const p = (n: number) => String(n).padStart(2, '0');
   return `D:${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
@@ -63,33 +63,33 @@ function pdfDate(d = new Date()) {
  *           to give it its own page size (used by the A4 sheet layout).
  *   opts.onProgress(done, total)
  */
-async function buildPdf(pages, title, opts = {}) {
+async function buildPdf(pages: PdfPageSource[], title: string, opts: { onProgress?: (done: number, total: number) => void } = {}) {
   const enc = new TextEncoder();
   const cardW = (CONFIG.card.widthMm * MM_TO_PT).toFixed(4);
   const cardH = (CONFIG.card.heightMm * MM_TO_PT).toFixed(4);
 
-  const images = [];
+  const images: PdfImage[] = [];
   for (let i = 0; i < pages.length; i++) {
     let page = pages[i];
     if (typeof page === 'function') page = await page();
-    const canvas = page.canvas ?? page;
+    const canvas = (page as PdfSizedPage).canvas ?? (page as HTMLCanvasElement);
     const im = await encodeCanvas(canvas);
-    im.W = page.widthMm ? (page.widthMm * MM_TO_PT).toFixed(4) : cardW;
-    im.H = page.heightMm ? (page.heightMm * MM_TO_PT).toFixed(4) : cardH;
+    im.W = (page as PdfSizedPage).widthMm ? ((page as PdfSizedPage).widthMm! * MM_TO_PT).toFixed(4) : cardW;
+    im.H = (page as PdfSizedPage).heightMm ? ((page as PdfSizedPage).heightMm! * MM_TO_PT).toFixed(4) : cardH;
     images.push(im);
     canvas.width = canvas.height = 0;            // let the bitmap go
     opts.onProgress?.(i + 1, pages.length);
   }
 
-  const parts = [];
+  const parts: Uint8Array<ArrayBuffer>[] = [];
   let length = 0;
-  const offsets = [];
-  const push = (chunk) => {
+  const offsets: number[] = [];
+  const push = (chunk: string | Uint8Array<ArrayBuffer>) => {
     const bytes = typeof chunk === 'string' ? enc.encode(chunk) : chunk;
     parts.push(bytes);
     length += bytes.length;
   };
-  const object = (num, body, stream) => {
+  const object = (num: number, body: string, stream?: Uint8Array<ArrayBuffer>) => {
     offsets[num] = length;
     push(`${num} 0 obj\n${body}\n`);
     if (stream) { push('stream\n'); push(stream); push('\nendstream\n'); }
@@ -129,7 +129,7 @@ const NAME_SUFFIX = /^(jr|sr|ii|iii|iv|v)\.?$/i;
 
 // Guess the surname from a whole name, for CSV rows that have no `last`
 // column: "Christopher Joseph V. Aureo" -> "Aureo", "Juan dela Cruz Jr." -> "Cruz"
-function lastNameForFile(fullName) {
+function lastNameForFile(fullName: string) {
   const parts = collapseSpaces(fullName).split(' ').filter(Boolean);
   while (parts.length > 1 && NAME_SUFFIX.test(parts[parts.length - 1])) parts.pop();
   const last = parts[parts.length - 1] ?? '';
@@ -140,12 +140,12 @@ function lastNameForFile(fullName) {
 //   `who` is { last, … } when the name was entered in separate fields, or a
 //   whole name string (a batch CSV that only has a `name` column), in which
 //   case the surname is guessed.
-function pdfFileName(year, seq, who) {
+function pdfFileName(year: number, seq: number, who: string | { last?: string } | null | undefined) {
   const last = typeof who === 'string' ? lastNameForFile(who) : fileSafeName(who?.last || '');
   return `${employeeId(year, seq)}${last ? `_${last}` : ''}.pdf`;
 }
 
-function downloadBlob(fileName, blob) {
+function downloadBlob(fileName: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = fileName;

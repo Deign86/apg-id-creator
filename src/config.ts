@@ -266,7 +266,7 @@ const collapseSpaces = (s) => s.replace(/\s+/g, ' ').trim();
 /* ---- names ------------------------------------------------------- */
 
 // "Villanueva" -> "V."   (first letter of the first word, plus a period)
-function middleInitial(middle) {
+function middleInitial(middle: string) {
   const word = collapseSpaces(middle).split(' ')[0] ?? '';
   return word ? `${word[0].toLocaleUpperCase('en-US')}.` : '';
 }
@@ -275,7 +275,7 @@ function middleInitial(middle) {
  * The name as it is printed on the card, from its parts.
  * parts: { last, first, middle, suffix } — any may be missing.
  */
-function composeName(parts = {}) {
+function composeName(parts: NameParts = {}) {
   const middle = CONFIG.name.middle === 'none' ? ''
     : CONFIG.name.middle === 'full' ? collapseSpaces(parts.middle || '')
     : middleInitial(parts.middle || '');

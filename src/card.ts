@@ -17,7 +17,7 @@
 
 /* ---- assets ------------------------------------------------------ */
 
-function loadImage(src) {
+function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -36,7 +36,7 @@ const UNICODE_LATIN = 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+
 const UNICODE_LATIN_EXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF';
 
 async function loadCardFonts() {
-  const faces = [];
+  const faces: FontFace[] = [];
   for (const key of Object.keys(ASSETS.fonts)) {
     const { family, weight } = CONFIG.fonts[key];
     const [latin, latinExt] = ASSETS.fonts[key];
@@ -72,21 +72,21 @@ function tracePolygons(ctx, polygons, pxPerMm) {
 }
 
 // Fit decisions are made once, at print resolution, from a scratch context.
-let measureCtx = null;
-function layoutText(data) {
+let measureCtx: CanvasRenderingContext2D | null = null;
+function layoutText(data: CardData) {
   measureCtx ??= document.createElement('canvas').getContext('2d');
   const ppm = printPxPerMm();
   return {
-    name: fitText(measureCtx, geo().text.name, data.name, ppm),
-    title: fitText(measureCtx, geo().text.title, data.title, ppm),
-    employeeNo: fitText(measureCtx, geo().text.employeeNo, employeeNoLine(data.year, data.seq), ppm),
+    name: fitText(measureCtx!, geo().text.name, data.name, ppm),
+    title: fitText(measureCtx!, geo().text.title, data.title, ppm),
+    employeeNo: fitText(measureCtx!, geo().text.employeeNo, employeeNoLine(data.year, data.seq), ppm),
   };
 }
 
 // Apply the user's manual adjustment to an automatic placement.
 //   adjust = { dx, dy } in mm, { zoom } as a factor; zoom is anchored at the
 //   head position so the face stays put while the photo grows or shrinks.
-function adjustedPlacement(placement, adjust) {
+function adjustedPlacement(placement: Rect, adjust: PhotoAdjust | null | undefined): Rect {
   if (!adjust || (adjust.dx === 0 && adjust.dy === 0 && adjust.zoom === 1)) return placement;
   const ax = geo().photo.headCenterX, ay = geo().photo.headTop;
   return {
@@ -106,12 +106,12 @@ function adjustedPlacement(placement, adjust) {
  * the last few millimetres costs neither, and is what anyone laying this
  * out by hand would do.
  */
-function fadedPhoto(photo, pxPerMm, w, h) {
+function fadedPhoto(photo: CardPhoto, pxPerMm: number, w: number, h: number) {
   const p = photo.placement;
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w));
   c.height = Math.max(1, Math.round(h));
-  const g = c.getContext('2d');
+  const g = c.getContext('2d')!;
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = 'high';
   g.drawImage(photo.image, p.x * pxPerMm, p.y * pxPerMm, p.w * pxPerMm, p.h * pxPerMm);
@@ -136,7 +136,7 @@ function fadedPhoto(photo, pxPerMm, w, h) {
  *   options.showGuides: outline the photo area and front-outline polygons
  *   Returns the text layout (so the form can check `fits`).
  */
-function drawFront(ctx, templates, pxPerMm, data = null, options = {}) {
+function drawFront(ctx: CanvasRenderingContext2D, templates: Templates, pxPerMm: number, data: CardData | null = null, options: { showGuides?: boolean } = {}) {
   const { w, h } = prepareCanvas(ctx, pxPerMm);
   ctx.drawImage(templates.front, 0, 0, w, h);
 
@@ -145,8 +145,8 @@ function drawFront(ctx, templates, pxPerMm, data = null, options = {}) {
   if (data?.photo) {
     const p = data.photo.placement;   // mm
     const put = p.shortBy > 0
-      ? (c) => c.drawImage(fadedPhoto(data.photo, pxPerMm, w, h), 0, 0)
-      : (c) => c.drawImage(data.photo.image, p.x * pxPerMm, p.y * pxPerMm, p.w * pxPerMm, p.h * pxPerMm);
+      ? (c: CanvasRenderingContext2D) => c.drawImage(fadedPhoto(data.photo!, pxPerMm, w, h), 0, 0)
+      : (c: CanvasRenderingContext2D) => c.drawImage(data.photo!.image, p.x * pxPerMm, p.y * pxPerMm, p.w * pxPerMm, p.h * pxPerMm);
     // A design that brought masks describes itself completely: a zone it
     // left out is a zone it does not have, not a reason to fall back on
     // the built-in card's shapes, which belong to different artwork.
@@ -196,7 +196,7 @@ function drawFront(ctx, templates, pxPerMm, data = null, options = {}) {
   return layout;
 }
 
-function drawBack(ctx, templates, pxPerMm, rotate180 = false) {
+function drawBack(ctx: CanvasRenderingContext2D, templates: Templates, pxPerMm: number, rotate180 = false) {
   const { w, h } = prepareCanvas(ctx, pxPerMm);
   ctx.save();
   if (rotate180) { ctx.translate(w, h); ctx.rotate(Math.PI); }
@@ -224,7 +224,7 @@ function planSheet(paperName = CONFIG.sheet.defaultPaper, mode = 'pairs') {
   const C = CONFIG.card;
   const pair = mode === 'pairs';
 
-  let best = null;
+  let best: SheetPlan | null = null;
   for (const turned of [false, true]) {                 // the card on its side?
     // one cell holds one card, or a front and a back next to each other
     const cardW = turned ? C.heightMm : C.widthMm;
@@ -255,15 +255,15 @@ function planSheet(paperName = CONFIG.sheet.defaultPaper, mode = 'pairs') {
 }
 
 /** Top-left corner (mm) of every cell, row by row. */
-function sheetCells(plan) {
+function sheetCells(plan: SheetPlan): SheetCell[] {
   const S = CONFIG.sheet;
-  const cells = [];
+  const cells: SheetCell[] = [];
   for (let r = 0; r < plan.rows; r++) {
     for (let c = 0; c < plan.cols; c++) {
       cells.push({
         col: c, row: r,
-        x: plan.left + c * (plan.cellW + S.gapMm),
-        y: plan.top + r * (plan.cellH + S.gapMm),
+        x: plan.left! + c * (plan.cellW + S.gapMm),
+        y: plan.top! + r * (plan.cellH + S.gapMm),
       });
     }
   }
@@ -302,11 +302,11 @@ function placeCard(ctx, card, plan, x, y, pxPerMm) {
   ctx.restore();
 }
 
-function blankSheet(plan, pxPerMm = printPxPerMm()) {
+function blankSheet(plan: SheetPlan, pxPerMm: number = printPxPerMm()) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(plan.pw * pxPerMm);
   canvas.height = Math.round(plan.ph * pxPerMm);
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.fillStyle = '#fff';
@@ -318,7 +318,7 @@ function blankSheet(plan, pxPerMm = printPxPerMm()) {
  * One sheet in 'pairs' mode: each entry is { front, back } and lands as two
  * cards side by side.
  */
-function composePairSheet(entries, plan, { pxPerMm } = {}) {
+function composePairSheet(entries: { front: HTMLCanvasElement; back: HTMLCanvasElement }[], plan: SheetPlan, { pxPerMm }: { pxPerMm?: number } = {}) {
   const { canvas, ctx, pxPerMm: ppm } = blankSheet(plan, pxPerMm);
   const cells = sheetCells(plan);
   entries.slice(0, cells.length).forEach((entry, i) => {
@@ -341,7 +341,7 @@ function composePairSheet(entries, plan, { pxPerMm } = {}) {
  * short edge mirrors top-to-bottom, so the rows reverse instead. The
  * fronts sheet is never mirrored.
  */
-function composeSheet(cards, plan, { mirror = 'none', pxPerMm } = {}) {
+function composeSheet(cards: HTMLCanvasElement[], plan: SheetPlan, { mirror = 'none', pxPerMm }: { mirror?: string; pxPerMm?: number } = {}) {
   const { canvas, ctx, pxPerMm: ppm } = blankSheet(plan, pxPerMm);
   const cells = sheetCells(plan);
   cards.slice(0, cells.length).forEach((card, i) => {
@@ -349,8 +349,8 @@ function composeSheet(cards, plan, { mirror = 'none', pxPerMm } = {}) {
     const col = mirror === 'columns' ? plan.cols - 1 - cell.col : cell.col;
     const row = mirror === 'rows' ? plan.rows - 1 - cell.row : cell.row;
     const target = cells.find((c) => c.row === row && c.col === col);
-    placeCard(ctx, card, plan, target.x, target.y, ppm);
-    drawCropMarks(ctx, target.x, target.y, plan.cardW, plan.cardH, ppm);
+    placeCard(ctx, card, plan, target!.x, target!.y, ppm);
+    drawCropMarks(ctx, target!.x, target!.y, plan.cardW, plan.cardH, ppm);
   });
   return canvas;
 }
@@ -360,8 +360,8 @@ function composeSheet(cards, plan, { mirror = 'none', pxPerMm } = {}) {
  * In duplex mode each sheet becomes two pages, fronts then backs, with the
  * backs mirrored on the axis the printer turns the paper about.
  */
-function sheetPages(entries, plan, { pxPerMm, flip = 'long' } = {}) {
-  const pages = [];
+function sheetPages(entries: { front: HTMLCanvasElement; back: HTMLCanvasElement }[], plan: SheetPlan, { pxPerMm, flip = 'long' }: { pxPerMm?: number; flip?: string } = {}): PageThunk[] {
+  const pages: PageThunk[] = [];
   const per = plan.cols * plan.rows;
   for (let i = 0; i < entries.length; i += per) {
     const group = entries.slice(i, i + per);
@@ -380,7 +380,7 @@ function sheetPages(entries, plan, { pxPerMm, flip = 'long' } = {}) {
 /** Render one side at print resolution (300 DPI) into a fresh canvas. */
 function renderSideCanvas(templates, side, data, rotateBack, pxPerMm = printPxPerMm()) {
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d')!;
   if (side === 'front') drawFront(ctx, templates, pxPerMm, data);
   else drawBack(ctx, templates, pxPerMm, rotateBack);
   return canvas;

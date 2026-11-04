@@ -29,9 +29,9 @@ const BATCH_MAX_ROWS = 200;
 /* ---- CSV --------------------------------------------------------- */
 
 // Minimal RFC-4180 parser: quoted fields, doubled quotes, CR/LF/CRLF.
-function parseCsv(text) {
-  const rows = [];
-  let row = [], field = '', quoted = false;
+function parseCsv(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [], field = '', quoted = false;
   const s = text.replace(/^﻿/, '');
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
@@ -51,7 +51,7 @@ function parseCsv(text) {
   return rows.filter((r) => r.some((v) => v.trim() !== ''));
 }
 
-function csvToObjects(text) {
+function csvToObjects(text: string): { error: string; rows?: undefined } | { rows: CsvRow[]; error?: undefined } {
   const rows = parseCsv(text);
   if (!rows.length) return { error: 'This CSV is empty.' };
   const headers = rows[0].map((h) => h.trim().toLowerCase());
@@ -62,7 +62,7 @@ function csvToObjects(text) {
     return { error: `The CSV needs “last” and “first” columns (or a single “name” column). Found: ${headers.join(', ')}.` };
   }
   const out = rows.slice(1).map((r, i) => {
-    const o = { _line: i + 2 };
+    const o: CsvRow = { _line: i + 2 };
     headers.forEach((h, c) => { o[h] = (r[c] ?? '').trim(); });
     return o;
   });
@@ -80,16 +80,16 @@ const CSV_TEMPLATE = 'last,first,middle,suffix,title,title2,seq,year,photo,signa
 
 // Files are matched on the file name, ignoring case, folders and — as a
 // fallback — the extension, so "Aureo.JPG" finds "aureo.png".
-function fileIndex(fileList) {
-  const byName = new Map(), byStem = new Map();
+function fileIndex(fileList: Iterable<File> | null | undefined) {
+  const byName = new Map<string, File>(), byStem = new Map<string, File>();
   for (const f of fileList ?? []) {
-    const base = f.name.split(/[\\/]/).pop().toLowerCase();
+    const base = f.name.split(/[\\/]/).pop()!.toLowerCase();
     byName.set(base, f);
     const stem = base.replace(/\.[^.]+$/, '');
     if (!byStem.has(stem)) byStem.set(stem, f);
   }
-  return (wanted) => {
-    const w = String(wanted || '').split(/[\\/]/).pop().trim().toLowerCase();
+  return (wanted: string | undefined): File | null => {
+    const w = String(wanted || '').split(/[\\/]/).pop()!.trim().toLowerCase();
     if (!w) return null;
     return byName.get(w) ?? byStem.get(w.replace(/\.[^.]+$/, '')) ?? null;
   };
@@ -97,8 +97,8 @@ function fileIndex(fileList) {
 
 /* ---- one row ----------------------------------------------------- */
 
-async function prepareBatchRow(row, findPhoto, findSignature, seen) {
-  const fail = (problem) => ({ ok: false, problem });
+async function prepareBatchRow(row: CsvRow, findPhoto: (wanted: string | undefined) => File | null, findSignature: (wanted: string | undefined) => File | null, seen: Set<string>) {
+  const fail = (problem: string) => ({ ok: false as const, problem });
   const title = composeTitle(row.title || '', row.title2 || '');
 
   // either separate parts, or a whole name from an older list
@@ -117,7 +117,7 @@ async function prepareBatchRow(row, findPhoto, findSignature, seen) {
   if (!/^[\p{L}\p{M} .,'’-]+$/u.test(name)) return fail('The name has characters the card can’t print.');
   if (!title) return fail('No job title.');
 
-  const seq = /^\d{1,4}$/.test(row.seq) && Number(row.seq) > 0 ? Number(row.seq) : null;
+  const seq = /^\d{1,4}$/.test(row.seq!) && Number(row.seq) > 0 ? Number(row.seq) : null;
   if (seq === null) return fail(`“${row.seq}” is not an employee number (1–4 digits).`);
   const year = /^\d{4}$/.test(row.year || '') ? Number(row.year) : new Date().getFullYear();
   const id = employeeId(year, seq);
@@ -141,7 +141,7 @@ async function prepareBatchRow(row, findPhoto, findSignature, seen) {
   if ('error' in photo) return fail(`${photoFile.name}: ${photo.error}`);
   if (!photo.check.ok) return fail(`${photoFile.name}: ${photo.check.problem}`);
 
-  let signature = null;
+  let signature: Exclude<Awaited<ReturnType<typeof signatureFromImage>>, { error: string }> | null = null;
   if (row.signature) {
     const sigFile = findSignature(row.signature);
     if (!sigFile) return fail(`No signature file named “${row.signature}”.`);
@@ -152,7 +152,7 @@ async function prepareBatchRow(row, findPhoto, findSignature, seen) {
 
   seen.add(id);
   return {
-    ok: true,
+    ok: true as const,
     id, year, seq, name, title, parts: split ? parts : null,
     warnings: photo.check.warnings ?? [],
     noSignature: !signature,
@@ -181,10 +181,10 @@ async function runBatch({ csvText, photos, signatures, templates, rotateBack, la
 
   const findPhoto = fileIndex(photos);
   const findSignature = fileIndex(signatures);
-  const seen = new Set();
-  const results = [];
-  for (const row of parsed.rows) {
-    onProgress?.('check', results.length + 1, parsed.rows.length);
+  const seen = new Set<string>();
+  const results: ({ line: number; label: string } & Awaited<ReturnType<typeof prepareBatchRow>>)[] = [];
+  for (const row of parsed.rows!) {
+    onProgress?.('check', results.length + 1, parsed.rows!.length);
     const r = await prepareBatchRow(row, findPhoto, findSignature, seen);
     const label = collapseSpaces(row.name || [row.last, row.first].filter(Boolean).join(', ')) || `line ${row._line}`;
     results.push({ line: row._line, label, ...r });
@@ -207,7 +207,7 @@ async function runBatch({ csvText, photos, signatures, templates, rotateBack, la
       get front() { return renderSideCanvas(templates, 'front', r.data, false); },
       get back() { return renderSideCanvas(templates, 'back', r.data, rotateBack); },
     }));
-    pages = sheetPages(entries, plan);
+    pages = sheetPages(entries, plan!);
   }
 
   const stamp = new Date().toISOString().slice(0, 10);

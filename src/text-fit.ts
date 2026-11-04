@@ -39,7 +39,7 @@ function balancedLines(ctx, words, n) {
     if (w === undefined) { w = ctx.measureText(s).width; widths.set(s, w); }
     return w;
   };
-  let best = null;
+  let best = null as { lines: string[]; width: number } | null;
   const walk = (start, left, lines, widest) => {
     if (best && widest >= best.width) return;          // prune
     if (left === 1) {

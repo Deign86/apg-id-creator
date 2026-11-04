@@ -56,7 +56,7 @@ const MASK_KEYS = ['photo', 'front'];
  */
 function nearest_(r, g, b, a) {
   if (a < 128) return null;
-  let best = null, bestD = Infinity, secondD = Infinity;
+  let best: string | null = null, bestD = Infinity, secondD = Infinity;
   for (const key of Object.keys(MAP_COLOURS)) {
     const [cr, cg, cb] = MAP_COLOURS[key];
     const d = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
@@ -78,16 +78,16 @@ function readTemplateMap(image, cardWidthMm = CONFIG.card.widthMm, cardHeightMm 
   const h = image.naturalHeight || image.height;
   const src = document.createElement('canvas');
   src.width = w; src.height = h;
-  src.getContext('2d').drawImage(image, 0, 0);
-  const px = src.getContext('2d').getImageData(0, 0, w, h).data;
+  src.getContext('2d')!.drawImage(image, 0, 0);
+  const px = src.getContext('2d')!.getImageData(0, 0, w, h).data;
 
-  const masks = {};
+  const masks: Record<string, { canvas: HTMLCanvasElement; data: ImageData; count: number }> = {};
   for (const key of MASK_KEYS) {
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
-    masks[key] = { canvas: c, data: c.getContext('2d').createImageData(w, h), count: 0 };
+    masks[key] = { canvas: c, data: c.getContext('2d')!.createImageData(w, h), count: 0 };
   }
-  const bounds = {};   // key -> [minX, minY, maxX, maxY]
+  const bounds: Record<string, number[]> = {};   // key -> [minX, minY, maxX, maxY]
 
   for (let i = 0, p = 0; i < px.length; i += 4, p++) {
     const key = nearest_(px[i], px[i + 1], px[i + 2], px[i + 3]);
@@ -145,10 +145,10 @@ function readTemplateMap(image, cardWidthMm = CONFIG.card.widthMm, cardHeightMm 
     return { x: mmX(b[0]), y: mmY(b[1]), w: mmX(b[2] - b[0] + 1), h: mmY(b[3] - b[1] + 1) };
   };
 
-  const out = { width: w, height: h, masks: {}, boxes: {}, head: null, found: Object.keys(bounds) };
+  const out: TemplateMap = { width: w, height: h, masks: {}, boxes: {}, head: null, found: Object.keys(bounds) };
   for (const key of MASK_KEYS) {
     if (!masks[key].count) continue;
-    masks[key].canvas.getContext('2d').putImageData(masks[key].data, 0, 0);
+    masks[key].canvas.getContext('2d')!.putImageData(masks[key].data, 0, 0);
     out.masks[key] = masks[key].canvas;
   }
   for (const key of ['name', 'title', 'employeeNo', 'signature', 'qr']) {
@@ -169,8 +169,8 @@ function readTemplateMap(image, cardWidthMm = CONFIG.card.widthMm, cardHeightMm 
  * The geometry the card should be drawn with: the map's answers where it
  * has them, CONFIG's where it does not.
  */
-function templateGeometry(map) {
-  const g = {
+function templateGeometry(map: TemplateMap | null): TemplateGeometry {
+  const g: TemplateGeometry = {
     text: CONFIG.text,
     photo: CONFIG.photo,
     qr: CONFIG.qr,
@@ -179,7 +179,7 @@ function templateGeometry(map) {
   };
   if (!map) return g;
   g.masks = map.masks;
-  const text = {};
+  const text = {} as typeof CONFIG.text;
   for (const key of Object.keys(CONFIG.text)) {
     text[key] = map.boxes[key] ? { ...CONFIG.text[key], box: map.boxes[key] } : CONFIG.text[key];
   }
@@ -213,7 +213,7 @@ function templateGeometry(map) {
 function mapFromConfig(w = 638, h = 1011) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
+  const ctx = c.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
   const sx = w / CONFIG.card.widthMm, sy = h / CONFIG.card.heightMm;
   const rgb = (k) => `rgb(${MAP_COLOURS[k].join(',')})`;
@@ -245,7 +245,7 @@ function mapFromConfig(w = 638, h = 1011) {
 
 /* ---- the geometry in force -------------------------------------- */
 
-let TEMPLATE_GEO = null;
+let TEMPLATE_GEO: TemplateGeometry | null = null;
 
 /** Where the card's parts go. CONFIG until a map says otherwise. */
 function geo() {
@@ -254,7 +254,7 @@ function geo() {
 }
 
 /** Hand the app a map (or null to go back to CONFIG). */
-function useTemplateMap(map) {
+function useTemplateMap(map: TemplateMap | null) {
   TEMPLATE_GEO = templateGeometry(map);
   return TEMPLATE_GEO;
 }
@@ -264,11 +264,11 @@ function useTemplateMap(map) {
  * mask is opaque. This is what replaces clipping to a traced polygon, and
  * why a template's band can be any shape the designer likes.
  */
-function throughMask(ctx, mask, w, h, draw) {
+function throughMask(ctx: CanvasRenderingContext2D, mask: CanvasImageSource, w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) {
   const layer = document.createElement('canvas');
   layer.width = Math.max(1, Math.round(w));
   layer.height = Math.max(1, Math.round(h));
-  const lc = layer.getContext('2d');
+  const lc = layer.getContext('2d')!;
   lc.imageSmoothingEnabled = true;
   lc.imageSmoothingQuality = 'high';
   draw(lc);
@@ -302,14 +302,14 @@ function contrast_(a, b) {
  * — so the caller can say it in one sentence instead of four. Empty
  * means the card will read.
  */
-function checkTemplateContrast(map, frontImage, minRatio = 3) {
+function checkTemplateContrast(map: TemplateMap | null, frontImage: any, minRatio = 3) {
   if (!map) return [];
   const w = frontImage.naturalWidth || frontImage.width;
   const h = frontImage.naturalHeight || frontImage.height;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
-  c.getContext('2d').drawImage(frontImage, 0, 0, w, h);
-  const ctx = c.getContext('2d');
+  c.getContext('2d')!.drawImage(frontImage, 0, 0, w, h);
+  const ctx = c.getContext('2d')!;
 
   const ink = {
     name: CONFIG.text.name.color,
@@ -318,9 +318,9 @@ function checkTemplateContrast(map, frontImage, minRatio = 3) {
     signature: CONFIG.signature.color,
   };
   const label = { name: 'name', title: 'job title', employeeNo: 'employee number', signature: 'signature' };
-  const hex = (s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+  const hex = (s: string): [number, number, number] => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
 
-  const out = [];
+  const out: { key: string; label: string; ink: string; ratio: number; need: number }[] = [];
   for (const key of Object.keys(ink)) {
     const box = map.boxes[key];
     if (!box) continue;

@@ -8,10 +8,11 @@
                                network to open it
 
    "/" serves the built "Alpha Premier ID Maker.html"; "/src/" serves the
-   development page. No dependencies — plain Node, works offline.
+   development page. Needs `npm install` (esbuild, to serve src/*.ts); works offline.
    ------------------------------------------------------------------ */
 import { createServer } from 'node:http';
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync } from 'node:fs';
+import { transformSync } from 'esbuild';
 import { join, extname, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
@@ -59,6 +60,13 @@ const server = createServer((req, res) => {
   let stat;
   try { stat = statSync(target); } catch { res.writeHead(404).end('Not found'); return; }
   if (stat.isDirectory()) { res.writeHead(301, { Location: `${path}/` }).end(); return; }
+
+  // the development page loads src/*.ts directly; strip the types on the way out
+  if (extname(target) === '.ts') {
+    const { code } = transformSync(readFileSync(target, 'utf8'), { loader: 'ts', target: 'es2022', sourcefile: path });
+    res.writeHead(200, { 'Content-Type': TYPES['.js'], 'Cache-Control': 'no-store' }).end(code);
+    return;
+  }
 
   res.writeHead(200, {
     'Content-Type': TYPES[extname(target).toLowerCase()] ?? 'application/octet-stream',

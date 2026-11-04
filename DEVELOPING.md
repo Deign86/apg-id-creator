@@ -279,7 +279,9 @@ same either way, and `npm test` governs it in both.
   needs Rust and Microsoft's C++ build tools on the machine that builds
   it; `app/README.md` has the steps. This is step one of moving to
   Tauri + React + TypeScript, and the app inside the window does not
-  have to change for it.
+  have to change for it. Step two has started: the DOM-free modules in
+  `src/` are TypeScript (`npm run typecheck`), still loaded as classic
+  scripts sharing one scope; esbuild strips the types at build time.
 - **`desktop/`** is the original C# WinForms shell plus a `.cmd`
   installer. It needs the .NET SDK instead.
 

@@ -8,7 +8,7 @@
    ------------------------------------------------------------------ */
 
 const Titles = {
-  _extra: null,
+  _extra: null as string[] | null,
 
   _read() {
     if (this._extra === null) {
@@ -16,7 +16,7 @@ const Titles = {
       catch { this._extra = []; }
       if (!Array.isArray(this._extra)) this._extra = [];
     }
-    return this._extra;
+    return this._extra!;
   },
 
   _write(list) {

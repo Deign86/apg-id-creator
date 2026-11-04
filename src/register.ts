@@ -50,7 +50,7 @@ const Register = {
   },
 
   /* ---- shared (optional) ---- */
-  _url: null,
+  _url: null as string | null,
   get url() {
     if (this._url === null) {
       try { this._url = localStorage.getItem(CONFIG.register.urlStorageKey) || ''; } catch { this._url = ''; }
@@ -83,7 +83,7 @@ const Register = {
   },
 
   /** Check the service is answering: { ok, rows } or { error }. */
-  async ping(url = this.url) {
+  async ping(this: { url: string; _fetch(url: string, init: RequestInit): Promise<any> }, url: string = this.url) {
     if (!url) return { error: 'No address set.' };
     try {
       const data = await this._fetch(`${url}?action=ping`, { method: 'GET' });
@@ -109,7 +109,7 @@ const Register = {
     try {
       r = await fetch(url, { ...init, signal: ctrl.signal, redirect: 'follow' });
     } catch (e) {
-      if (e.name === 'AbortError') {
+      if ((e as Error).name === 'AbortError') {
         throw new RegisterError(`No answer within ${seconds} seconds. Google Apps Script is slow the first time it is woken — try once more.`);
       }
       // a page opened straight from a file reaches the network normally, so
@@ -147,8 +147,8 @@ const Register = {
      second card in the same sitting sees the first.
      ---------------------------------------------------------------- */
 
-  _index: null,        // Map of employee id -> entry, once the sheet has been read
-  _loading: null,      // the read in flight, so ten callers make one request
+  _index: null as Map<string, any> | null,        // Map of employee id -> entry, once the sheet has been read
+  _loading: null as Promise<Map<string, any> | null> | null,      // the read in flight, so ten callers make one request
 
   /** Read the whole register. Resolves to the index, or throws. */
   loadIndex({ force = false } = {}) {
@@ -217,5 +217,5 @@ const Register = {
 
 function formatIssuedAt(iso) {
   const d = new Date(iso);
-  return isNaN(d) ? '' : d.toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' });
+  return isNaN(d as unknown as number) ? '' : d.toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' });
 }

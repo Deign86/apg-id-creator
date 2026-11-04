@@ -6,26 +6,26 @@
    print pixel grid so the code stays crisp at 300 DPI.
    ------------------------------------------------------------------ */
 
-let qrCache = null;
+let qrCache: QrModules | null = null;
 
-function qrModules() {
+function qrModules(): QrModules {
   const key = `${geo().qr.content}|${geo().qr.errorCorrection}`;
   if (!qrCache || qrCache.key !== key) {
     const qr = qrcode(0 /* auto version */, geo().qr.errorCorrection);
     qr.addData(geo().qr.content);
     qr.make();
     const n = qr.getModuleCount();
-    const dark = new Array(n * n);
+    const dark: boolean[] = new Array(n * n);
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) dark[r * n + c] = qr.isDark(r, c);
     qrCache = { key, size: n, dark };
   }
   return qrCache;
 }
 
-function drawQr(ctx, pxPerMm) {
+function drawQr(ctx: CanvasRenderingContext2D, pxPerMm: number) {
   const { size: n, dark } = qrModules();
   const printPpm = printPxPerMm();
-  const snap = (mm) => Math.round(mm * printPpm) / printPpm;   // to whole print pixels
+  const snap = (mm: number) => Math.round(mm * printPpm) / printPpm;   // to whole print pixels
   const sq = geo().qr.square;
   const x0 = snap(sq.x), y0 = snap(sq.y), side = snap(sq.size);
 

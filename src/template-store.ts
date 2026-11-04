@@ -56,7 +56,7 @@ const PHOTO_BASE = polygonBounds_(CONFIG.photoArea.polygon);
 function shapeMask_(polygons) {
   const c = document.createElement('canvas');
   c.width = TEMPLATE_W; c.height = TEMPLATE_H;
-  const ctx = c.getContext('2d');
+  const ctx = c.getContext('2d')!;
   const sx = TEMPLATE_W / CONFIG.card.widthMm, sy = TEMPLATE_H / CONFIG.card.heightMm;
   ctx.fillStyle = '#fff';
   ctx.beginPath();
@@ -84,9 +84,9 @@ function fitPolygon_(poly, from, to) {
 }
 
 const TemplateStore = {
-  custom: null,     // { name, front, back, boxes, photoRect } — all serialisable
-  images: null,     // the uploaded artwork, decoded; null when the built-in is in use
-  builtIn: null,    // the artwork the app ships with
+  custom: null as CustomTemplate | null,     // { name, front, back, boxes, photoRect } — all serialisable
+  images: null as Templates | null,     // the uploaded artwork, decoded; null when the built-in is in use
+  builtIn: null as Templates | null,    // the artwork the app ships with
   note: '',         // anything the operator should know about the last change
 
   /** Is anything at all different from the card the app was built with? */
@@ -127,7 +127,7 @@ const TemplateStore = {
   asMap() {
     if (!this.custom) return null;
     const { boxes, photoRect } = this.custom;
-    const masks = {};
+    const masks: Record<string, HTMLCanvasElement> = {};
     if (this.custom.front) {
       // uploaded artwork: nothing is known about its shapes, so the
       // photo is a plain window sitting on top of it
@@ -190,7 +190,7 @@ const TemplateStore = {
   _normalise(img) {
     const c = document.createElement('canvas');
     c.width = TEMPLATE_W; c.height = TEMPLATE_H;
-    const ctx = c.getContext('2d');
+    const ctx = c.getContext('2d')!;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, TEMPLATE_W, TEMPLATE_H);
     return c;
@@ -201,7 +201,7 @@ const TemplateStore = {
    * Returns { ok, warnings } or { error }.
    */
   async adopt({ name, frontImage, backImage }) {
-    const resized = [];
+    const resized: string[] = [];
     for (const [side, img] of [['front', frontImage], ['back', backImage]]) {
       const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
       const want = CONFIG.card.widthMm / CONFIG.card.heightMm;
@@ -244,8 +244,8 @@ const TemplateStore = {
       x: +clamp(box.x, 0, W - w).toFixed(3), y: +clamp(box.y, 0, H - h).toFixed(3),
       w: +w.toFixed(3), h: +h.toFixed(3),
     };
-    if (key === 'photo') this.custom.photoRect = fixed;
-    else if (this.custom.boxes[key]) this.custom.boxes[key] = fixed;
+    if (key === 'photo') this.custom!.photoRect = fixed;
+    else if (this.custom!.boxes[key]) this.custom!.boxes[key] = fixed;
     this.apply();
   },
 
@@ -276,7 +276,7 @@ const TemplateStore = {
   },
 
   async restore() {
-    let raw = null;
+    let raw: string | null = null;
     try { raw = localStorage.getItem(TEMPLATE_KEY); } catch { return false; }
     if (!raw) return false;
     try {
@@ -294,7 +294,7 @@ const TemplateStore = {
 
   async _decode() {
     this.images = this.custom?.front
-      ? { front: await loadImage(this.custom.front), back: await loadImage(this.custom.back) }
+      ? { front: await loadImage(this.custom.front), back: await loadImage(this.custom.back!) }
       : null;
   },
 

@@ -24,9 +24,9 @@ if not exist "Alpha Premier ID Maker.html" (
 
 rem --- the version the app itself reports ---
 set "APP_VERSION="
-for /f "tokens=2 delims='" %%v in ('findstr /c:"const APP_VERSION" "src\config.js"') do set "APP_VERSION=%%v"
+for /f "tokens=2 delims='" %%v in ('findstr /c:"const APP_VERSION" "src\config.ts"') do set "APP_VERSION=%%v"
 if not defined APP_VERSION (
-  echo   Could not read APP_VERSION from src\config.js.
+  echo   Could not read APP_VERSION from src\config.ts.
   echo.
   pause
   exit /b 1

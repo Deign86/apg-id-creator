@@ -32,9 +32,9 @@ copyFileSync(app, join(stage, 'Alpha Premier ID Maker.html'));
 // the installer stamps this into the Windows entry, so what Settings >
 // Apps reports is the version actually installed rather than whatever was
 // typed into a batch file months ago
-const cfg = readFileSync(join(root, 'src', 'config.js'), 'utf8');
+const cfg = readFileSync(join(root, 'src', 'config.ts'), 'utf8');
 const version = /APP_VERSION\s*=\s*'([^']+)'/.exec(cfg)?.[1];
-if (!version) { console.error('No APP_VERSION in src/config.js'); process.exit(1); }
+if (!version) { console.error('No APP_VERSION in src/config.ts'); process.exit(1); }
 writeFileSync(join(stage, 'version.txt'), version);
 
 const out = join(here, 'dist', 'Alpha Premier ID Maker - install.zip');

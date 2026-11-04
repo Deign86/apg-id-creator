@@ -8,11 +8,19 @@
 
      node build.mjs
 
-   No dependencies. Node 18 or newer.
+   .ts files are stripped of their types by esbuild (transform only, no
+   bundling), so each stays a classic script in the one shared scope.
+   Node 18 or newer; run `npm install` first.
    ------------------------------------------------------------------ */
 import { readFileSync, writeFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { transformSync } from 'esbuild';
+
+// strip TypeScript types; keep the file a classic script (no format change)
+const toJs = (file, code) => file.endsWith('.ts')
+  ? transformSync(code, { loader: 'ts', target: 'es2022', sourcefile: file }).code
+  : code;
 
 const root = dirname(fileURLToPath(import.meta.url));
 const src = join(root, 'src');
@@ -48,7 +56,7 @@ html = html.replace(/<link rel="stylesheet" href="([^"]+)" \/>/g, (tag, href) =>
 });
 
 html = html.replace(/<script src="([^"]+)"><\/script>/g, (tag, file) => {
-  const body = file === 'assets.dev.js' ? assetsJs : readFileSync(join(src, file), 'utf8');
+  const body = file === 'assets.dev.js' ? assetsJs : toJs(file, readFileSync(join(src, file), 'utf8'));
   return `<script>\n${body.replace(/<\/script/gi, '<\\/script')}\n</script>`;
 });
 

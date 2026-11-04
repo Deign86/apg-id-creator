@@ -20,7 +20,7 @@ if not exist "%FILES%Alpha Premier ID Maker.html" if exist "%SRC%..\Alpha Premie
 
 set "APP_VERSION=unknown"
 if exist "%FILES%version.txt" set /p APP_VERSION=<"%FILES%version.txt"
-if "%APP_VERSION%"=="unknown" if exist "%SRC%..\src\config.js" for /f "tokens=2 delims='" %%v in ('findstr /c:"const APP_VERSION" "%SRC%..\src\config.js"') do set "APP_VERSION=%%v"
+if "%APP_VERSION%"=="unknown" if exist "%SRC%..\src\config.ts" for /f "tokens=2 delims='" %%v in ('findstr /c:"const APP_VERSION" "%SRC%..\src\config.ts"') do set "APP_VERSION=%%v"
 
 echo.
 echo   %APP_NAME%  %APP_VERSION%

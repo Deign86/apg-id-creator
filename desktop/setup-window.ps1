@@ -52,7 +52,7 @@ function Get-InstalledVersion {
 function Get-AvailableVersion {
   $v = Join-Path $here 'version.txt'
   if (Test-Path $v) { return (Get-Content $v -Raw).Trim() }
-  $cfg = Join-Path $root 'src\config.js'
+  $cfg = Join-Path $root 'src\config.ts'
   if (Test-Path $cfg) {
     $m = Select-String -Path $cfg -Pattern "APP_VERSION\s*=\s*'([^']+)'" | Select-Object -First 1
     if ($m) { return $m.Matches[0].Groups[1].Value }
