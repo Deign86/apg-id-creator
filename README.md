@@ -10,8 +10,8 @@ cut.
 
 ## Installing it
 
-1. Download **`AP-ID-Maker-Setup.exe`** from the Releases page of this
-   repository.
+1. Get **`Alpha Premier ID Maker_1.20.0_x64-setup.exe`** (the version in
+   the name changes) from IT or from the Releases page of this repository.
 2. Double-click it.
 3. Windows will say **"Windows protected your PC"**. This is normal — it
    says that about any program it has not seen before. Click **More
@@ -21,8 +21,8 @@ cut.
 You will find **Alpha Premier ID Maker** in the Start menu and on your
 desktop. Right-click it on the taskbar to pin it there.
 
-You need Microsoft Edge, which is already on every Windows computer. The
-installer checks and tells you if it is missing.
+It needs Microsoft's WebView2 Runtime, which is already on every recent
+Windows computer. If it is missing, the installer fetches it.
 
 ---
 

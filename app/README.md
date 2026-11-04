@@ -4,7 +4,8 @@ This is the desktop window around the ID Maker. It draws nothing itself:
 the card, the photo pipeline and the PDF all come from the one HTML file
 built at the top of this repo, exactly as they do in a browser.
 
-It replaces `desktop/shell/`, a WinForms + WebView2 window written in C#.
+It replaced `desktop/shell/`, a WinForms + WebView2 window written in C#
+(removed 4 Nov 2026; see git history).
 On Windows **Tauri renders in WebView2 too**, so the engine under the card
 has not changed — only the window around it. The printed card is governed
 by the same `npm test` as before.

@@ -16,8 +16,7 @@ and does not do is in **PHOTO-SPEC.md**.
 | `BACKLOG.md` | Ideas considered and not built yet, and why. |
 | `PHOTO-SPEC.md` | What the photo pipeline actually does, measured — including its known limits. |
 | `photo-prompt.txt` | The prompt to paste into Gemini / ChatGPT to turn any photo into a green-screen portrait. (The app also shows it under the Photo field.) |
-| `app/` | The Tauri window around the app, and the installer it builds. This is the one to use. See `app/README.md`. |
-| `desktop/` | The older way of shipping it: a per-user `.cmd` installer and a C# WinForms + WebView2 shell. Kept until the Tauri installer has been used in anger. See `desktop/README.md`. |
+| `app/` | The Tauri window around the app, and the installer it builds. See `app/README.md`. |
 | `register/` | Optional shared register: a Google Apps Script (`Code.gs`) and set-up notes, so every HR computer checks duplicates against one Google Sheet. |
 | `assets/front-template.png` | Front of the card, 638 × 1004 px = 54 × 85 mm at 300 DPI. |
 | `assets/back.png` | Back of the card (terms, contacts, CEO signature). Same size. |
@@ -270,29 +269,22 @@ the template artwork, and `npm test` fails if a single pixel of it moves.
 
 ## Shipping it
 
-There are two shells in this repo and they do the same job. Both render
-in **WebView2** — Microsoft Edge's engine — so the printed card is the
-same either way, and `npm test` governs it in both.
+The app ships in a **Tauri** window (`app/`): 79 lines of Rust, rendering
+in **WebView2** — Microsoft Edge's engine — so the printed card is what
+`npm test` checks. `npm run build` in `app/` produces an NSIS installer
+(`app/src-tauri/target/release/bundle/nsis/`) that installs for the
+current user with no administrator prompt. It needs Rust and Microsoft's
+C++ build tools on the machine that builds it; `app/README.md` has the
+steps.
 
-- **`app/`** is a Tauri window: 79 lines of Rust, and an NSIS installer
-  that installs for the current user with no administrator prompt. It
-  needs Rust and Microsoft's C++ build tools on the machine that builds
-  it; `app/README.md` has the steps. This is step one of moving to
-  Tauri + React + TypeScript, and the app inside the window does not
-  have to change for it. Step two has started: the DOM-free modules in
-  `src/` are TypeScript (`npm run typecheck`), still loaded as classic
-  scripts sharing one scope; esbuild strips the types at build time.
-- **`desktop/`** is the original C# WinForms shell plus a `.cmd`
-  installer. It needs the .NET SDK instead.
-
-**Switching a laptop from one to the other empties the issued-ID list on
-that laptop.** Browser storage belongs to an origin, and the two shells
-serve the app from different ones — `https://idmaker.alphapremier.local`
-against `http://tauri.localhost`. One origin cannot read another's
-storage, which is the point of the rule, so there is no migration to
-write. The shared register sheet is the real record and is untouched, so
-duplicate checking keeps working; download the local CSV first if that
-copy is wanted, and expect to set the printer option again.
+The earlier C# WinForms shell and its `.cmd` / Inno Setup installer
+(`desktop/`) were removed on 4 Nov 2026; they are in git history before
+that date. **Moving a laptop off the old app empties its issued-ID list**:
+browser storage belongs to an origin, and the old shell served the app
+from `https://idmaker.alphapremier.local` while Tauri uses
+`http://tauri.localhost`. Download the register CSV from the old app
+before uninstalling it. The shared register sheet is the real record and
+is untouched, so duplicate checking keeps working.
 
 ## Requirements
 
