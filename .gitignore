@@ -5,3 +5,6 @@ Thumbs.db
 desktop/dist/
 desktop/shell/bin/
 desktop/shell/obj/
+
+# local only, never pushed
+JIRA-BOARD.local.md
