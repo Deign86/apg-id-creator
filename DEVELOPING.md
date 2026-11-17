@@ -2,9 +2,9 @@
 
 > **This page describes the web app, which the native Windows app in
 > `windows/` replaces.** For the app as it is now, read
-> **[windows/README.md](windows/README.md)**. This page, `src/`, `app/`
-> and the `test/*.mjs` scripts stay until the native app has been through
-> a real card run, and are then removed together.
+> **[windows/README.md](windows/README.md)**. This page, `src/` and the
+> `test/*.mjs` scripts stay until the native app has been through a real
+> card run, and are then removed together.
 
 Everything technical. The front page is for the people who use the app;
 this is for whoever changes it.
@@ -22,7 +22,6 @@ and does not do is in **PHOTO-SPEC.md**.
 | `BACKLOG.md` | Ideas considered and not built yet, and why. |
 | `PHOTO-SPEC.md` | What the photo pipeline actually does, measured — including its known limits. |
 | `photo-prompt.txt` | The prompt to paste into Gemini / ChatGPT to turn any photo into a green-screen portrait. (The app also shows it under the Photo field.) |
-| `app/` | The Tauri window around the app, and the installer it builds. See `app/README.md`. |
 | `register/` | Optional shared register: a Google Apps Script (`Code.gs`) and set-up notes, so every HR computer checks duplicates against one Google Sheet. |
 | `assets/front-template.png` | Front of the card, 638 × 1004 px = 54 × 85 mm at 300 DPI. |
 | `assets/back.png` | Back of the card (terms, contacts, CEO signature). Same size. |
@@ -275,22 +274,21 @@ the template artwork, and `npm test` fails if a single pixel of it moves.
 
 ## Shipping it
 
-The app ships in a **Tauri** window (`app/`): 79 lines of Rust, rendering
-in **WebView2** — Microsoft Edge's engine — so the printed card is what
-`npm test` checks. `npm run build` in `app/` produces an NSIS installer
-(`app/src-tauri/target/release/bundle/nsis/`) that installs for the
-current user with no administrator prompt. It needs Rust and Microsoft's
-C++ build tools on the machine that builds it; `app/README.md` has the
-steps.
+The web app no longer ships in a desktop window of its own. The Tauri
+window that wrapped it (`app/`) was removed on 17 Nov 2026, as the C#
+WinForms shell before it (`desktop/`) was on 4 Nov; both are in git
+history. What ships now is the native Windows app in `windows/`, which
+releases itself from `main`.
 
-The earlier C# WinForms shell and its `.cmd` / Inno Setup installer
-(`desktop/`) were removed on 4 Nov 2026; they are in git history before
-that date. **Moving a laptop off the old app empties its issued-ID list**:
-browser storage belongs to an origin, and the old shell served the app
-from `https://idmaker.alphapremier.local` while Tauri uses
-`http://tauri.localhost`. Download the register CSV from the old app
-before uninstalling it. The shared register sheet is the real record and
-is untouched, so duplicate checking keeps working.
+The single file `Alpha Premier ID Maker.html` still opens in any browser,
+which is all the web app needs until it is retired.
+
+**Moving a laptop off either old window empties its issued-ID list**:
+browser storage belongs to an origin, and nothing else can read it. Save
+the register from the old app first (*Issued IDs → Download register
+(CSV)*) and bring it into the native app with *Issued IDs → Bring in a
+saved list*. The shared register sheet is the real record and is
+untouched, so duplicate checking keeps working.
 
 ## Requirements
 

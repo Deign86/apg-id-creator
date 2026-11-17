@@ -4,7 +4,7 @@ Alpha Premier ID Maker makes employee ID cards. The app is the native
 Windows program in `windows/` (C#, .NET 8, WPF). Start with
 `windows/README.md`; the people who use the app read `README.md`.
 
-The web app (`src/`, `app/`, `build.mjs`, `test/*.mjs`,
+The web app (`src/`, `build.mjs`, `test/*.mjs`,
 `Alpha Premier ID Maker.html`) is what it replaced. It is kept until the
 native app has been through a real card run. Do not add to it.
 

@@ -5,9 +5,9 @@ with WPF. No browser inside it and no web page: the card, the form, the
 PDF and the signing screen are all Windows' own.
 
 It replaces the web app at the top of this repository (`src/`,
-`Alpha Premier ID Maker.html`) and the Tauri window around it (`app/`).
-Those are still here until this one has been used on a real card run;
-see [What is still to do](#what-is-still-to-do).
+`Alpha Premier ID Maker.html`). The Tauri window that used to wrap the
+web app is gone; the web app itself is still here until this one has
+been used on a real card run. See [What is still to do](#what-is-still-to-do).
 
 The people who use the app want the **[README at the top](../README.md)**.
 This page is for whoever changes it.
@@ -268,7 +268,7 @@ done from the machine this was written on, which is not Windows.
    not been run end to end.
 3. **Print one card at 100%** and measure it against an existing card.
 4. **Try real staff photos** through the background remover.
-5. Then retire the web app: remove `src/`, `app/`, `build.mjs`,
+5. Then retire the web app: remove `src/`, `build.mjs`,
    `serve.mjs`, `test/*.mjs`, `Alpha Premier ID Maker.html` and the web
    half of `DEVELOPING.md`.
 
