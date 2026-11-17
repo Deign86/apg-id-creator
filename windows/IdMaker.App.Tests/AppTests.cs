@@ -217,7 +217,10 @@ public class RenderTests
                 ("photo", new RectMm(17, 10, 36.5, 47), 6.0, 0.03),
                 ("name", CardConfig.NameText.Box, 14.0, 0.08),
                 ("job title", CardConfig.TitleText.Box, 14.0, 0.08),
-                ("employee number", CardConfig.EmployeeNoText.Box, 14.0, 0.08),
+                // The number is set in a light face four points high: its strokes are barely a pixel
+                // wide, so how each engine smooths an edge is most of what there is to compare. Where
+                // the ink sits is held to a pixel and a half by the check below instead.
+                ("employee number", CardConfig.EmployeeNoText.Box, 14.0, 0.12),
                 ("signature", CardConfig.Signature.Box, 14.0, 0.08),
                 ("QR", new RectMm(CardConfig.Qr.X, CardConfig.Qr.Y, CardConfig.Qr.Size, CardConfig.Qr.Size), 1.0, 0.002),
             };
@@ -229,6 +232,36 @@ public class RenderTests
                 var line = $"{z.Name,-16} mean difference {mean,6:0.00} (limit {z.MaxMean:0.0})   pixels visibly different {changed,7:P2} (limit {z.MaxChanged:P1})";
                 report.AppendLine(line);
                 if (mean > z.MaxMean || changed > z.MaxChanged) failures.Add(line);
+            }
+            // Where the ink is. Each line of text is found in both pictures as
+            // the pixels that differ from the bare artwork, and the box around
+            // them must agree to a pixel and a half on every side: text one
+            // pixel out of place fails here whatever the smoothing looks like.
+            var bare = CardRenderer.ToRgba(renderer.RenderFront(art, CardGeometry.BuiltIn, null, ppm)).Data;
+            (int L, int T, int R, int B) Ink(byte[] picture, RectMm box)
+            {
+                int x0 = (int)((box.X - 1) * ppm), y0 = (int)((box.Y - 0.6) * ppm), x1 = (int)((box.Right + 1) * ppm), y1 = (int)((box.Bottom + 0.6) * ppm);
+                int l = int.MaxValue, t = int.MaxValue, r = -1, b = -1;
+                for (var y = y0; y < y1; y++)
+                {
+                    for (var x = x0; x < Math.Min(x1, w); x++)
+                    {
+                        var o = (y * w + x) * 4;
+                        var d = Math.Max(Math.Abs(picture[o] - bare[o]), Math.Max(Math.Abs(picture[o + 1] - bare[o + 1]), Math.Abs(picture[o + 2] - bare[o + 2])));
+                        if (d < 90) continue;
+                        l = Math.Min(l, x); t = Math.Min(t, y); r = Math.Max(r, x); b = Math.Max(b, y);
+                    }
+                }
+                return (l, t, r, b);
+            }
+            foreach (var (name, box) in new[] { ("name", CardConfig.NameText.Box), ("job title", CardConfig.TitleText.Box), ("employee number", CardConfig.EmployeeNoText.Box) })
+            {
+                var here = Ink(mine, box);
+                var there = Ink(theirs, box);
+                var line = $"{name,-16} ink box here {here}, web {there}";
+                report.AppendLine(line);
+                if (here.R < 0 || Math.Abs(here.L - there.L) > 1.5 || Math.Abs(here.T - there.T) > 1.5 || Math.Abs(here.R - there.R) > 1.5 || Math.Abs(here.B - there.B) > 1.5)
+                    failures.Add(line);
             }
             File.WriteAllText(Path.Combine(Files.ReportDirectory, "front-against-web.txt"), report.ToString());
 
