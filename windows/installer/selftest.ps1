@@ -58,12 +58,12 @@ $again = Start-Process -FilePath $Setup -ArgumentList '/VERYSILENT', '/SUPPRESSM
 if ($again.ExitCode -ne 0) { throw "Installing over the top stopped with code $($again.ExitCode)." }
 if (@(Get-AppsEntry).Count -ne 1) { throw 'Installing over the top left two entries under Installed apps.' }
 
-# The app reads the shared register as it starts. A build machine has no
-# business asking the company's sheet for anything, so this computer is
-# pointed at an address nothing answers on, the same way a person would in
-# Issued IDs -> Shared register address.
+# The app asks the shared register for nothing until somebody has signed in
+# on the computer, and nobody signs in on a build machine, so starting it
+# here sends nothing anywhere. One file of the person's own is put down, to
+# check further on that uninstalling leaves it alone.
 New-Item -ItemType Directory -Force -Path $Data | Out-Null
-Set-Content -Path (Join-Path $Data 'register-url.json') -Value 'http://localhost:9/exec' -NoNewline -Encoding utf8
+Set-Content -Path (Join-Path $Data 'titles.json') -Value '["Tester"]' -NoNewline -Encoding utf8
 
 $app = Start-Process -FilePath $Exe -PassThru
 $title = ''
@@ -92,6 +92,6 @@ if (Test-Path $Exe) { throw 'The uninstaller left the app behind.' }
 if (Test-Path $Shortcut) { throw 'The uninstaller left the Start-menu shortcut behind.' }
 if (@(Get-AppsEntry).Count -ne 0) { throw 'The uninstaller left the Installed apps entry behind.' }
 # what the person made with the app is theirs: uninstalling does not take it
-if (-not (Test-Path (Join-Path $Data 'register-url.json'))) { throw "The uninstaller removed the user's own data, which it must leave." }
+if (-not (Test-Path (Join-Path $Data 'titles.json'))) { throw "The uninstaller removed the user's own data, which it must leave." }
 Remove-Item $Data -Recurse -Force
 'Installed, upgraded in place, started, and uninstalled cleanly.'

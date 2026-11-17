@@ -212,13 +212,12 @@ public partial class MainWindow
         Render();
         BtnNewId.Focus();
 
-        var failed = await _session.RecordShared(issued);
-        if (failed.Count > 0)
+        var report = await _session.RecordShared(issued);
+        if (report.Message() is { Length: > 0 } trouble)
         {
-            SavedNote.Text = $"{(failed.Count == 1 ? failed[0].Id + " was" : failed.Count + " cards were")} not written to the shared register, "
-                + "because it could not be reached. They are recorded on this computer and will be sent the next time the app starts with the register in reach. "
-                + "Until then, other computers will not know these numbers are taken.";
+            SavedNote.Text = trouble;
             Show(SavedNote, true);
+            Render();
         }
     }
 
@@ -312,7 +311,7 @@ public partial class MainWindow
         // SAFETY: the four rail buttons carry their tool's name as their Tag in the markup.
         var name = (string)((FrameworkElement)sender).Tag;
         _tool = _tool == name ? null : name;
-        if (_tool == "register") { TxtRegisterUrl.Text = _files.Get("register-url")?.Trim() ?? ""; RegisterUrlMsg.Text = ""; }
+        if (_tool == "register") RegisterUrlMsg.Text = "";
         Render();
     }
 
@@ -393,6 +392,7 @@ public partial class MainWindow
     private void RenderRegister(IReadOnlyList<RegisterEntry> all)
     {
         BtnRegisterCsv.IsEnabled = all.Count > 0;
+        RenderSignIn();
         SetText(RegisterNote, all.Count > 0
             ? "The most recent cards issued on this computer. Each one is also written to the shared register, which is what the duplicate check reads."
             : "Nothing issued yet. Every card you save is listed here, and written to the shared register.");
@@ -451,24 +451,89 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>Who is signed in to the shared register on this computer, and what the register has refused.</summary>
+    private void RenderSignIn()
+    {
+        var shared = _register.Shared;
+        var signedIn = _register.SignedIn;
+        var waiting = _register.WaitingForShared;
+        SetText(RegisterAccount, !shared ? "This copy of the app keeps its own list only."
+            : signedIn ? $"Signed in as {_register.SignedInAs}."
+                + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} still waiting to be written to it." : "")
+            : (_register.SignInProblem.Length > 0 ? _register.SignInProblem + " " : "")
+                + "Sign in with your Keystone account, once on this computer, so numbers are checked against every computer."
+                + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} waiting to be written to it." : ""));
+        Show(SignInForm, shared && !signedIn);
+        Show(SignedInActions, shared && signedIn);
+
+        var refused = _register.Refused;
+        Show(RefusedPanel, refused.Count > 0);
+        SetText(RefusedNote, refused.Count == 0 ? "" : string.Join("\n", refused.Select(r =>
+            $"{r.Card.Id} belongs to {r.Holder.Name}{(r.Holder.IssuedOn.Length > 0 ? $" (issued {r.Holder.IssuedOn})" : "")}. "
+            + $"The card made here for {r.Card.Name} is a duplicate: take it back, and make it again with a number that is free.")));
+    }
+
+    private void BtnRefusedDone_Click(object sender, RoutedEventArgs e)
+    {
+        _register.ClearRefused();
+        Render();
+    }
+
+    private void TxtSignInPassword_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        e.Handled = true;
+        BtnSignIn_Click(sender, e);
+    }
+
+    private async void BtnSignIn_Click(object sender, RoutedEventArgs e)
+    {
+        if (!BtnSignIn.IsEnabled) return;
+        BtnSignIn.IsEnabled = false;
+        RegisterUrlMsg.Text = "Signing in…";
+        try
+        {
+            var result = await _register.SignIn(TxtSignInEmail.Text, TxtSignInPassword.Password);
+            // the password is not kept anywhere, this box included
+            TxtSignInPassword.Clear();
+            if (!result.Ok)
+            {
+                RegisterUrlMsg.Text = result.Error;
+                TxtSignInPassword.Focus();
+                return;
+            }
+            var read = await _register.LoadIndex();
+            // cards saved before anyone signed in are sent now
+            var left = read ? await _register.SendWaiting() : _register.WaitingForShared;
+            _session.RefreshDuplicate();
+            RegisterUrlMsg.Text = !read ? $"Signed in, but the register could not be read just now. {_register.LastProblem}"
+                : left > 0 ? $"Signed in. {left} card{(left == 1 ? "" : "s")} could not be written yet and will be tried again."
+                : "Signed in. This computer now checks every number against the shared register.";
+            Render();
+        }
+        finally { BtnSignIn.IsEnabled = true; }
+    }
+
+    private void BtnSignOut_Click(object sender, RoutedEventArgs e)
+    {
+        _register.SignOut();
+        _session.RefreshDuplicate();
+        RegisterUrlMsg.Text = "Signed out. Numbers are checked against this computer only until somebody signs in.";
+        Render();
+    }
+
     private async void BtnRegisterTest_Click(object sender, RoutedEventArgs e)
     {
-        var url = TxtRegisterUrl.Text.Trim();
-        var wrong = Register.UrlLooksWrong(url);
-        if (wrong.Length > 0) { RegisterUrlMsg.Text = wrong; TxtRegisterUrl.Focus(); return; }
         BtnRegisterTest.IsEnabled = false;
         RegisterUrlMsg.Text = "Asking the register…";
         try
         {
-            // an empty box means the company register the app ships with
-            var ping = await _register.Ping(url.Length > 0 ? url : null);
-            if (!ping.Ok && url.Length > 0) { RegisterUrlMsg.Text = ping.Error; return; }
-            _register.SetUrl(url);
-            await _register.LoadIndex(force: true);
+            var ping = await _register.Ping();
+            if (ping.Ok) await _register.SendWaiting();
             _session.RefreshDuplicate();
             RegisterUrlMsg.Text = ping.Ok
-                ? $"Connected{(ping.Sheet.Length > 0 ? $" to “{ping.Sheet}”" : "")}: {ping.Rows} card{(ping.Rows == 1 ? "" : "s")} in the register."
-                : $"Using the company register, but it is not answering just now. {ping.Error}";
+                ? $"The shared register is answering: {ping.Rows} card{(ping.Rows == 1 ? "" : "s")} in it."
+                : ping.Error;
             Render();
         }
         finally { BtnRegisterTest.IsEnabled = true; }
@@ -605,8 +670,13 @@ public partial class MainWindow
                 + (skipped > 0 ? $" · {skipped} row{(skipped == 1 ? "" : "s")} skipped, see below." : ". Print at 100%.");
             ShowInExplorer(savePath);
 
-            var failed = await _session.RecordShared(issued);
-            if (failed.Count > 0) BatchStatus.Text += $" {failed.Count} could not be written to the shared register; they are recorded on this computer and will be sent when it can be reached.";
+            var report = await _session.RecordShared(issued);
+            if (report.Message() is { Length: > 0 } trouble)
+            {
+                BatchStatus.Text += " " + trouble;
+                _session.RefreshDuplicate();
+                Render();
+            }
         }
         finally
         {

@@ -34,7 +34,8 @@ windows/
     Sheet.cs             how many cards fit on a sheet, and where
     Pdf.cs               writes the PDF by hand, any number of pages
     Qr.cs, QrTables.cs   the QR code
-    Register.cs          issued IDs: this computer's list, the shared sheet
+    Register.cs          issued IDs: this computer's list, the shared register
+                         (Firestore and Firebase Auth over REST), signing in
     Batch.cs             many cards from a CSV
     Store.cs             small named values kept between runs; job titles
   IdMaker.Vision/      background removal (the only outside dependency)
@@ -52,6 +53,7 @@ windows/
     Colors.Light.xaml    the colours in light mode
     Colors.Dark.xaml     the same names, in dark mode
     ThemeManager.cs      reads Windows' light/dark setting and follows it
+    WindowsKeeper.cs     wraps the register sign-in with Windows' DPAPI
     Fonts/               the three card fonts (see its README)
   IdMaker.Tests/       tests that run anywhere (Linux, macOS, Windows)
   IdMaker.App.Tests/   tests that need Windows: the renderer, the window
@@ -311,8 +313,9 @@ Per user, in `%LOCALAPPDATA%\Alpha Premier\ID Maker\`:
 | File | What |
 | --- | --- |
 | `register.json` | cards issued on this computer |
-| `register-outbox.json` | issued cards not yet written to the shared sheet |
-| `register-url.json` | a shared-register address that overrides the built-in one |
+| `register-outbox.json` | issued cards not yet written to the shared register |
+| `register-refused.json` | cards the shared register refused: the number was already somebody else's |
+| `register-signin.json` | this computer's sign-in to the shared register, wrapped by Windows (DPAPI); never the password |
 | `titles.json` | job titles typed under "Other…" |
 | `template.json`, `template-*.png` | a moved map, and own artwork |
 | `rotate-back.json`, `duplex-flip.json`, `print-layout.json` | the printer settings |
@@ -323,7 +326,7 @@ Per user, in `%LOCALAPPDATA%\Alpha Premier\ID Maker\`:
 Moving from the web app: its list of issued IDs lived in the browser and
 cannot be read from here. Save it there (*Issued IDs → Download register
 (CSV)*) and bring it in here with *Issued IDs → Bring in a saved list*.
-The shared sheet is the real record and needs nothing done.
+The shared register is the real record and needs nothing done.
 
 ---
 
@@ -342,11 +345,41 @@ Most changes are numbers in `IdMaker.Core/Config.cs`.
 | New card artwork, built in | replace `assets/front-template.png` and `assets/back.png` at the top of the repository (638 × 1004 or 638 × 1011), re-trace `FrontOutline` and `PhotoArea` if the band or the photo window moved |
 | Change the app's icon | `IdMaker.App/AppIcon.ico`. The logo it is made from is `assets/id-maker-logo.png`, and the editable original is in Canva ("Logo - Employee IDs", page 4) |
 | Restyle the window after a rebrand | `IdMaker.App/Colors.Light.xaml` and `Colors.Dark.xaml`, which must keep the same names. None of them touch the printed card |
-| Point at a different register | the `REGISTER_URL` repository secret, used by the release build; it is never in the source. Treat it as a password; see `register/README.md` |
+| Point at a different register | the `FIREBASE_PROJECT_ID` and `FIREBASE_API_KEY` repository secrets, used by the release build; neither is in the source. See `register/README.md` |
 | The version | `CardConfig.AppVersion`, and `Version` in `IdMaker.App.csproj` and `app.manifest` |
 
 After any change that could move something on the card, run all three
 commands above; the Windows tests are the ones that notice.
+
+---
+
+## The shared register
+
+Issued IDs are written to a list in the company's Firebase project, the
+one APG Keystone uses, and HR signs in to it once on each computer with
+their Keystone account. `register/README.md` has all of it: what is kept,
+why a number cannot be issued twice, where the rules live, and how the
+old Sheet's rows were copied in.
+
+In the code:
+
+- **`Register.cs` talks to it over REST** with `HttpClient`: Firebase
+  Auth to sign in and to renew the hour-long pass, Firestore to read the
+  list and create documents. No Firebase package: the app reads one list
+  and creates documents, and needs neither live updates nor the SDK's
+  offline cache.
+- **Core does not know Windows.** It asks an `ISecretKeeper` to wrap the
+  sign-in; the app's `WindowsKeeper` does it with DPAPI. Without a keeper
+  the sign-in lasts for the run and is never written.
+- **Which project it is comes from the release build**, as assembly
+  metadata read by `CardConfig.Register`. A build without the two
+  secrets (a developer's, a pull request's) has no shared register and
+  keeps its own list.
+- **Nothing is sent until somebody signs in**, so a build machine or a
+  test run that starts the app asks the register for nothing.
+- **Tests use `FakeFirebase`** (`IdMaker.Tests/Support.cs`): sign-in,
+  renewal and the register's list in memory, answering as the real
+  services do and holding to the register's rules.
 
 ---
 

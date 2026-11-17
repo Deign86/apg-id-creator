@@ -91,23 +91,24 @@ jobs:
           & $iscc /? | Select-Object -First 1
           $global:LASTEXITCODE = 0
 
-      - name: Make sure the register address is set
+      - name: Make sure the register's project is set
         if: steps.version.outputs.exists == 'false'
         shell: pwsh
         env:
-          IDMAKER_REGISTER_URL: ${{ secrets.REGISTER_URL }}
+          IDMAKER_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          IDMAKER_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
         run: |
-          $u = "$env:IDMAKER_REGISTER_URL".Trim()
-          if ($u -notmatch '^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$') {
-            throw 'The repository secret REGISTER_URL is missing or is not an Apps Script /exec address. Add it under Settings, Secrets and variables, Actions (see register/README.md). Without it the released app would have no shared register.'
+          if ("$env:IDMAKER_FIREBASE_PROJECT_ID".Trim() -notmatch '^[a-z0-9-]{4,40}$' -or "$env:IDMAKER_FIREBASE_API_KEY".Trim() -notmatch '^[A-Za-z0-9_-]{20,}$') {
+            throw 'The repository secrets FIREBASE_PROJECT_ID and FIREBASE_API_KEY are missing or do not look right. Add them under Settings, Secrets and variables, Actions (see register/README.md). Without them the released app would have no shared register.'
           }
-          'The register address is set.'
+          'The register''s project is set.'
 
       - name: Build the setup program
         if: steps.version.outputs.exists == 'false'
         shell: pwsh
         env:
-          IDMAKER_REGISTER_URL: ${{ secrets.REGISTER_URL }}
+          IDMAKER_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          IDMAKER_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
         run: ./windows/installer/package.ps1
 
       - name: Check it installs, starts and uninstalls like a Windows app
@@ -119,7 +120,8 @@ jobs:
         if: steps.version.outputs.exists == 'false'
         shell: pwsh
         env:
-          IDMAKER_REGISTER_URL: ${{ secrets.REGISTER_URL }}
+          IDMAKER_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          IDMAKER_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
         run: ./windows/installer/portable.ps1
 
       - name: Publish the release

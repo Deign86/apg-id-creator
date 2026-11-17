@@ -22,6 +22,12 @@ It installs like any other Windows app. You will find **Alpha Premier ID
 Maker** in the Start menu; right-click it there to pin it to the taskbar.
 Tick **Put a shortcut on the desktop** during setup if you want one.
 
+**The first time on each computer: sign in.** Open the app, click
+**Issued IDs** on the left, and sign in with your Keystone email and
+password. That connects this computer to the company's register of
+issued IDs, so a number is never given twice. It is asked once. No
+Keystone account yet? Ask the CEO to make one.
+
 **The pen tablet.** If this computer has no tablet driver, setup offers to
 install the **XP-Pen Deco Fun** driver, already ticked. That one step does
 ask for permission ("Do you want to allow this app to make changes"),
@@ -210,8 +216,19 @@ the number is one nobody has.
 **It says it is checking the shared register.** Only on the first number
 after the app opens, and only for a moment. The whole register is read
 once when the app starts, so every number after that is checked
-instantly. If the sheet cannot be reached at all, the app says so and
-lets you carry on — it still checks against this computer.
+instantly. If the register cannot be reached at all, or nobody has signed
+in to it on this computer, the app says so and lets you carry on — it
+still checks against this computer.
+
+**It says to sign in under Issued IDs.** The shared register asks who
+you are, once on each computer. Click **Issued IDs** on the left and sign
+in with your Keystone email and password. No account? Ask the CEO to
+make one in Keystone.
+
+**It says a card is a duplicate and must not be handed out.** Another
+computer issued that number a moment before yours did. Take the card
+back, make it again with a number that is free, then click **These cards
+are dealt with** under **Issued IDs**.
 
 **The cut-out has bits of background in it, or cuts into the person.**
 The background remover works best when the person stands in front of a
@@ -244,17 +261,19 @@ is used to make the card, on this computer, and is then gone. If someone loses t
 reprint it. That is on purpose — there is no store of employee photos to
 protect.
 
-**Every ID you issue is recorded** in the company's register sheet: the
-number, the name, the job title and the date. That is what lets the app
-warn you about a number that has already been used. There is nothing to
-set up; it is already connected.
+**Every ID you issue is recorded** in the company's register: the
+number, the name, the job title, the date and who issued it. That is what
+lets the app warn you about a number that has already been used. The only
+thing to set up is signing in, once on each computer: **Issued IDs** on
+the left, with your Keystone email and password.
 
 If the register cannot be reached when you save a card, the app tells you,
 keeps the card on this computer, and writes it to the register by itself
 the next time it starts with the internet working.
 
 **The register is the real record, not your laptop.** If the laptop is
-replaced or wiped, the sheet still has everything.
+replaced or wiped, the register still has everything. A card in it cannot
+be changed or removed from the app, by anyone.
 
 ---
 

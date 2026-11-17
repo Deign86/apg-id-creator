@@ -68,6 +68,11 @@
                         <Grid>
                             <!-- Issued IDs -->
                             <StackPanel x:Name="ToolRegister" Visibility="Collapsed">
+                                <!-- cards the shared register refused: duplicates that must not be handed out -->
+                                <StackPanel x:Name="RefusedPanel" Visibility="Collapsed" Margin="0,0,0,16">
+                                    <TextBlock x:Name="RefusedNote" Style="{StaticResource Text.Error}" AutomationProperties.LiveSetting="Assertive" />
+                                    <Button x:Name="BtnRefusedDone" Style="{StaticResource Button.Ghost}" Content="These cards are dealt with" Click="BtnRefusedDone_Click" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                                </StackPanel>
                                 <TextBlock x:Name="RegisterNote" Style="{StaticResource Text.Note}" Margin="0,0,0,12" />
                                 <StackPanel x:Name="RegisterList" />
                                 <WrapPanel Margin="0,12,0,0">
@@ -76,11 +81,20 @@
                                 </WrapPanel>
                                 <Border BorderBrush="{DynamicResource Color.Line}" BorderThickness="0,1,0,0" Margin="0,12,0,0" Padding="0,16,0,0">
                                     <StackPanel>
-                                        <TextBlock x:Name="LblRegisterUrl" Text="Shared register address" Style="{StaticResource Text.Label}" />
-                                        <TextBox x:Name="TxtRegisterUrl" Style="{StaticResource Input}" AutomationProperties.LabeledBy="{Binding ElementName=LblRegisterUrl}" />
-                                        <TextBlock Style="{StaticResource Text.Note}" Margin="0,6,0,0"
-                                                   Text="Leave empty to use the company register. Only change this if IT gives you a different address." />
-                                        <Button x:Name="BtnRegisterTest" Style="{StaticResource Button.Ghost}" Content="Test and save" Click="BtnRegisterTest_Click" HorizontalAlignment="Left" Margin="0,12,0,0" />
+                                        <TextBlock Text="Shared register" Style="{StaticResource Text.Label}" />
+                                        <TextBlock x:Name="RegisterAccount" Style="{StaticResource Text.Note}" Margin="0,0,0,12" />
+                                        <!-- asked once on each computer; the account is the one the CEO made in Keystone -->
+                                        <StackPanel x:Name="SignInForm">
+                                            <TextBlock x:Name="LblSignInEmail" Text="Email" Style="{StaticResource Text.Label}" />
+                                            <TextBox x:Name="TxtSignInEmail" Style="{StaticResource Input}" AutomationProperties.LabeledBy="{Binding ElementName=LblSignInEmail}" />
+                                            <TextBlock x:Name="LblSignInPassword" Text="Password" Style="{StaticResource Text.Label}" Margin="0,20,0,6" />
+                                            <PasswordBox x:Name="TxtSignInPassword" Style="{StaticResource Input.Password}" AutomationProperties.LabeledBy="{Binding ElementName=LblSignInPassword}" KeyDown="TxtSignInPassword_KeyDown" />
+                                            <Button x:Name="BtnSignIn" Style="{StaticResource Button.Strong}" Content="Sign in" Click="BtnSignIn_Click" HorizontalAlignment="Left" Margin="0,12,0,0" />
+                                        </StackPanel>
+                                        <WrapPanel x:Name="SignedInActions" Visibility="Collapsed">
+                                            <Button x:Name="BtnRegisterTest" Style="{StaticResource Button.Ghost}" Content="Check the register" Click="BtnRegisterTest_Click" Margin="0,0,8,8" />
+                                            <Button x:Name="BtnSignOut" Style="{StaticResource Button.Ghost}" Content="Sign out" Click="BtnSignOut_Click" Margin="0,0,8,8" />
+                                        </WrapPanel>
                                         <TextBlock x:Name="RegisterUrlMsg" Style="{StaticResource Text.Note}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite" />
                                     </StackPanel>
                                 </Border>

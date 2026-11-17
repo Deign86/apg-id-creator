@@ -438,8 +438,8 @@ public class WindowTests
     private static MainWindow Open(string folder)
     {
         var files = new FileStore(folder);
-        // no shared register: these tests must not write to the company's sheet
-        var window = new MainWindow(files, new Register(files) { BuiltInUrl = "" })
+        // no shared register: these tests must not write to the company's register
+        var window = new MainWindow(files, new Register(files) { Project = null })
         {
             OpenSigningOnArrival = false,
             Confirm = (_, _) => true,
@@ -535,7 +535,7 @@ public class WindowTests
             Assert.Equal(Visibility.Visible, window.SavedStage.Visibility);
             Assert.Equal("card.pdf", window.SavedName.Text);
             Shoot(window, "step-6-saved");
-            var issued = new Register(new FileStore(folder)) { BuiltInUrl = "" }.All();
+            var issued = new Register(new FileStore(folder)) { Project = null }.All();
             Assert.Single(issued);
             Assert.Equal("Ana Reyes", issued[0].Name);
 
@@ -575,7 +575,7 @@ public class WindowTests
             Assert.Equal(Visibility.Visible, window.ReviewError.Visibility);
             Assert.Contains("couldn’t be saved", window.ReviewError.Text);
             Assert.Equal(Visibility.Collapsed, window.SavedStage.Visibility);
-            Assert.Empty(new Register(new FileStore(folder)) { BuiltInUrl = "" }.All());
+            Assert.Empty(new Register(new FileStore(folder)) { Project = null }.All());
             Assert.Single(window.Session.JobCards());                 // …and the card is still there to try again
             window.Close();
         });

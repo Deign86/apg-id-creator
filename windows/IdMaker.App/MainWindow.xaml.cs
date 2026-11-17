@@ -68,7 +68,7 @@ public partial class MainWindow : Window
     internal MainWindow(FileStore files, Register? register)
     {
         _files = files;
-        _register = register ?? new Register(files);
+        _register = register ?? new Register(files, keeper: new WindowsKeeper());
         _templates = new TemplateStore(files);
         _session = new Session(_register, new TitleList(files), files, post: action => Dispatcher.BeginInvoke(action));
         _session.Changed += Render;
@@ -165,6 +165,8 @@ public partial class MainWindow : Window
             // cards saved while the register was out of reach are sent now that it answers
             await _register.SendWaiting();
         }
+        // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
+        if (_register.Refused.Count > 0) _tool = "register";
         _session.RefreshDuplicate();
         Render();
     }
@@ -269,6 +271,7 @@ public partial class MainWindow : Window
             // line here is the check not working.
             var seqHelp = dup is not null && s.Reissue ? $"Replacement for {dup.Value.Entry.Id} ({dup.Value.Entry.Name}, {dup.Value.Entry.IssuedOn})."
                 : !_register.Shared ? "Checked against this computer only."
+                : !_register.SignedIn ? "Checked against this computer only. Sign in under Issued IDs to check every computer."
                 : s.DupShared == SharedAnswer.Unreachable ? "Could not reach the shared register, so only this computer was checked."
                 : "";
             MsgSeq.Style = Theme.Style(seqError.Length > 0 ? "Text.Error" : "Text.Note");
