@@ -130,12 +130,8 @@ public class RenderTests
                     var off = Math.Abs(got - w.Value.GetDouble());
                     worst = Math.Max(worst, off);
                     report.AppendLine($"{key,-10} \"{w.Name}\" web {w.Value.GetDouble():0.000} here {got:0.000}");
-                    // Within half a hundredth of the type size: far less than a
-                    // pixel on the card. The number's font is allowed a little
-                    // more, because Chromium left some of its letter pairs
-                    // un-tucked that Windows tucks together; on the card that is
-                    // under a tenth of a millimetre on one right-aligned line.
-                    if (off >= (font == CardFont.Number ? Math.Max(0.5, w.Value.GetDouble() * 0.02) : 0.5)) wrong.Add($"{key} \"{w.Name}\": web {w.Value.GetDouble():0.000}, here {got:0.000}");
+                    // within a twentieth of a pixel at 100 px: nothing on the card
+                    if (off >= 0.05) wrong.Add($"{key} \"{w.Name}\": web {w.Value.GetDouble():0.000}, here {got:0.000}");
                 }
             }
             File.WriteAllText(Path.Combine(Files.ReportDirectory, "font-metrics.txt"), $"worst width difference at 100 px: {worst:0.0000}\r\n{report}");

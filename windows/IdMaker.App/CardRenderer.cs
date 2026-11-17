@@ -71,10 +71,46 @@ public sealed class WpfTextMeasurer : ITextMeasurer
     public FormattedText Format(CardFont font, double px, string text, Brush brush) =>
         new(text, EnUs, FlowDirection.LeftToRight, _faces[font], px, brush, null, TextFormattingMode.Ideal, 1.0);
 
+    // One word (no spaces in it), measured as Windows shapes it.
+    private double WordWidth(CardFont font, double px, string word)
+    {
+        var key = (font, px, word);
+        if (!_widths.TryGetValue(key, out var w)) _widths[key] = w = Format(font, px, word, Brushes.Black).WidthIncludingTrailingWhitespace;
+        return w;
+    }
+
+    /// <summary>
+    /// A line as the words it is made of and where each starts.
+    ///
+    /// Text is set a word at a time, with a plain space between words.
+    /// That is how the web app's canvas set it: letters are tucked together
+    /// inside a word, but never across a space. Setting the whole line in
+    /// one go lets Windows tuck "V." into the space after it as well, which
+    /// made the employee-number line a little shorter than on every card
+    /// already printed. Word by word, the widths agree with the web app's
+    /// to a thousandth of a pixel in all three fonts.
+    /// </summary>
+    public IEnumerable<(string Word, double X)> Words(CardFont font, double px, string text)
+    {
+        var space = WordWidth(font, px, " ");
+        double x = 0;
+        var first = true;
+        foreach (var word in text.Split(' '))
+        {
+            if (!first) x += space;
+            first = false;
+            if (word.Length == 0) continue;
+            yield return (word, x);
+            x += WordWidth(font, px, word);
+        }
+    }
+
     public double Width(CardFont font, double px, string text)
     {
-        var key = (font, px, text);
-        if (!_widths.TryGetValue(key, out var w)) _widths[key] = w = Format(font, px, text, Brushes.Black).WidthIncludingTrailingWhitespace;
+        var space = WordWidth(font, px, " ");
+        var words = text.Split(' ');
+        double w = (words.Length - 1) * space;
+        foreach (var word in words) if (word.Length > 0) w += WordWidth(font, px, word);
         return w;
     }
 
@@ -277,15 +313,18 @@ public sealed class CardRenderer
         var brush = Solid(spec.Color);
         for (var i = 0; i < fit.Lines.Count; i++)
         {
-            var ft = _measurer.Format(spec.Font, place.Px, fit.Lines[i], brush);
-            var width = ft.WidthIncludingTrailingWhitespace;
+            var width = _measurer.Width(spec.Font, place.Px, fit.Lines[i]);
             var x = spec.Align switch
             {
                 HAlign.Center => place.AnchorX - width / 2,
                 HAlign.Right => place.AnchorX - width,
                 _ => place.AnchorX,
             };
-            dc.DrawText(ft, new Point(x, place.Baselines[i] - ft.Baseline));
+            foreach (var (word, offset) in _measurer.Words(spec.Font, place.Px, fit.Lines[i]))
+            {
+                var ft = _measurer.Format(spec.Font, place.Px, word, brush);
+                dc.DrawText(ft, new Point(x + offset, place.Baselines[i] - ft.Baseline));
+            }
         }
     }
 
