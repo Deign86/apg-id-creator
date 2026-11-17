@@ -12,6 +12,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using IdMaker.App;
 using IdMaker.Core;
+using IdMaker.Tests;
 
 namespace IdMaker.App.Tests;
 
@@ -446,6 +447,156 @@ public class WindowTests
         };
         window.Show();
         return window;
+    }
+
+    /// <summary>The window on a computer whose shared register is the pretend project. Nothing here reaches a real one.</summary>
+    private static MainWindow OpenShared(string folder, FakeFirebase firebase, ISecretKeeper? keeper = null)
+    {
+        var files = new FileStore(folder);
+        var window = new MainWindow(files, new Register(files, firebase.Http, keeper) { Project = FakeFirebase.Project })
+        {
+            OpenSigningOnArrival = false,
+            Confirm = (_, _) => true,
+        };
+        window.Show();
+        return window;
+    }
+
+    /// <summary>Wait for something the window does a moment later (a click's request coming back), without sleeping a fixed time.</summary>
+    private static async Task Until(Func<bool> onWindow, string what)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            if (Ui.Run(onWindow)) return;
+            await Task.Delay(25);
+            Ui.Settle();
+        }
+        Assert.Fail("Waited five seconds for " + what + ".");
+    }
+
+    [Fact]
+    public async Task Signing_in_under_issued_ids_connects_this_computer_to_the_shared_register()
+    {
+        var folder = Files.TempFolder();
+        var year = DateTime.Now.Year;
+        var firebase = new FakeFirebase();
+        firebase.Put(new RegisterEntry { Id = Naming.EmployeeId(year, 124), Year = year, Seq = 124, Name = "Juan dela Cruz", Title = "Driver", IssuedAt = "2026-11-03T02:00:00.000Z" });
+        var window = Ui.Run(() => OpenShared(folder, firebase, new FakeKeeper()));
+        Ui.Settle();
+
+        // nobody has signed in on this computer: the panel asks, and the number is checked here only
+        Ui.Run(() =>
+        {
+            Click(window.RailRegister);
+            Assert.Equal(Visibility.Visible, window.ToolRegister.Visibility);
+            Assert.Equal(Visibility.Visible, window.SignInForm.Visibility);
+            Assert.Equal(Visibility.Collapsed, window.SignedInActions.Visibility);
+            Assert.Equal(Visibility.Collapsed, window.RefusedPanel.Visibility);
+            Assert.Contains("Sign in with your Keystone account", window.RegisterAccount.Text);
+            window.Session.SetSeq("124");
+        });
+        await Until(() => window.Session.DupShared == SharedAnswer.Unreachable, "the form to say the shared register was not checked");
+        Assert.Empty(firebase.Requests);                              // nothing is sent as nobody
+
+        // a wrong password says what to do, keeps nothing, and leaves the form there to try again
+        Ui.Run(() =>
+        {
+            window.TxtSignInEmail.Text = FakeFirebase.Email;
+            window.TxtSignInPassword.Password = "not the password";
+            Click(window.BtnSignIn);
+        });
+        await Until(() => window.BtnSignIn.IsEnabled && window.RegisterUrlMsg.Text.Contains("not right"), "the wrong password to be refused");
+        Ui.Run(() =>
+        {
+            Assert.Contains("email or password is not right", window.RegisterUrlMsg.Text);
+            Assert.Equal("", window.TxtSignInPassword.Password);      // the password does not stay in the box
+            Assert.Equal(Visibility.Visible, window.SignInForm.Visibility);
+            Assert.False(File.Exists(Path.Combine(folder, "register-signin.json")));
+        });
+
+        // the right one signs in, and the number somebody else holds is now known here
+        Ui.Run(() =>
+        {
+            window.TxtSignInPassword.Password = FakeFirebase.Password;
+            Click(window.BtnSignIn);
+        });
+        await Until(() => window.SignedInActions.Visibility == Visibility.Visible, "the sign-in to be accepted");
+        Ui.Run(() =>
+        {
+            Assert.Equal(Visibility.Collapsed, window.SignInForm.Visibility);
+            Assert.Equal($"Signed in as {FakeFirebase.Email}.", window.RegisterAccount.Text);
+            Assert.Contains("Signed in.", window.RegisterUrlMsg.Text);
+            Assert.Equal("", window.TxtSignInPassword.Password);
+            Assert.Equal(SharedAnswer.Taken, window.Session.DupShared);
+            Assert.Contains("already issued to Juan dela Cruz", window.Session.Problems()[Field.Seq]);
+            Shoot(window, "register-signed-in");
+        });
+
+        // what is kept is wrapped, and is not the password
+        var kept = File.ReadAllText(Path.Combine(folder, "register-signin.json"));
+        Assert.DoesNotContain(FakeFirebase.Password, kept);
+        Assert.DoesNotContain("renewal-", kept);
+
+        // asking the register how it is says how many cards it holds
+        Ui.Run(() => Click(window.BtnRegisterTest));
+        await Until(() => window.BtnRegisterTest.IsEnabled && window.RegisterUrlMsg.Text.Contains("answering"), "the register to answer");
+        Ui.Run(() => Assert.Contains("1 card in it", window.RegisterUrlMsg.Text));
+
+        // signing out forgets the sign-in and goes back to asking
+        Ui.Run(() =>
+        {
+            Click(window.BtnSignOut);
+            Assert.Equal(Visibility.Visible, window.SignInForm.Visibility);
+            Assert.Equal(Visibility.Collapsed, window.SignedInActions.Visibility);
+            Assert.False(File.Exists(Path.Combine(folder, "register-signin.json")));
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public async Task A_card_the_register_refused_is_put_in_front_of_the_operator_until_it_is_dealt_with()
+    {
+        var folder = Files.TempFolder();
+        var year = DateTime.Now.Year;
+        var number = Naming.EmployeeId(year, 200);
+        var firebase = new FakeFirebase();
+        var keeper = new FakeKeeper();
+
+        // yesterday: this computer, signed in but offline, issued a card that is still waiting to be written…
+        var before = new Register(new FileStore(folder), firebase.Http, keeper) { Project = FakeFirebase.Project };
+        Assert.True((await before.SignIn(FakeFirebase.Email, FakeFirebase.Password)).Ok);
+        firebase.Offline = true;
+        var mine = new RegisterEntry { Id = number, Year = year, Seq = 200, Name = "Ana Reyes", Title = "HR Associate", IssuedAt = "2026-11-16T08:00:00.000Z" };
+        Assert.Equal(SharedOutcome.Waiting, (await before.RecordShared(mine)).Outcome);
+        // …and meanwhile another computer issued the same number
+        firebase.Offline = false;
+        firebase.Put(new RegisterEntry { Id = number, Year = year, Seq = 200, Name = "Juan dela Cruz", Title = "Driver", IssuedAt = "2026-11-16T08:30:00.000Z" });
+
+        // today the app opens with the register in reach: the waiting card is sent, refused, and shown without being asked for
+        var window = Ui.Run(() => OpenShared(folder, firebase, keeper));
+        await Until(() => window.RefusedPanel.Visibility == Visibility.Visible, "the refused card to be shown");
+        Ui.Run(() =>
+        {
+            Assert.Equal(Visibility.Visible, window.Drawer.Visibility);
+            Assert.Equal(Visibility.Visible, window.ToolRegister.Visibility);
+            Assert.Contains($"{number} belongs to Juan dela Cruz", window.RefusedNote.Text);
+            Assert.Contains("The card made here for Ana Reyes is a duplicate", window.RefusedNote.Text);
+            Assert.Equal(Visibility.Visible, window.SignedInActions.Visibility);
+            Assert.Equal($"Signed in as {FakeFirebase.Email}.", window.RegisterAccount.Text);     // nothing left waiting
+            Shoot(window, "register-refused");
+        });
+        Assert.Equal("Juan dela Cruz", firebase.Get(number)!.Name);   // the first card stands
+        Assert.True(File.Exists(Path.Combine(folder, "register-refused.json")));
+        Assert.False(File.Exists(Path.Combine(folder, "register-outbox.json")));
+
+        // it stays until somebody says it has been dealt with
+        Ui.Run(() =>
+        {
+            Click(window.BtnRefusedDone);
+            Assert.Equal(Visibility.Collapsed, window.RefusedPanel.Visibility);
+            window.Close();
+        });
+        Assert.False(File.Exists(Path.Combine(folder, "register-refused.json")));
     }
 
     [Fact]

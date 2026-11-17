@@ -15,6 +15,8 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
     <ProjectReference Include="..\IdMaker.App\IdMaker.App.csproj" />
     <Using Include="Xunit" />
+    <!-- the pretend Firebase project the Core tests use, so the real window can be driven against the same one -->
+    <Compile Include="..\IdMaker.Tests\FakeFirebase.cs" Link="FakeFirebase.cs" />
     <None Include="..\IdMaker.Tests\Fixtures\web-reference.json" Link="Fixtures\web-reference.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -47,6 +47,38 @@ produced; the native app is held to both.
 - Never commit a password, a key or an `.env` file. Never force-push
   `main`.
 
+## Verification
+
+A change is not done because it was written. It is done when it was run
+and seen to work.
+
+- **Run the change, not only its tests.** For the window, that is the
+  window tests (`IdMaker.App.Tests`, which drive the real window) or the
+  app itself on Windows. For the register, that is a card issued and a
+  duplicate refused.
+- **Three kinds of test are worth the most here.** End to end: the
+  window tests, one per thing an operator does. Property: a statement
+  that must hold for any input, tried against many (`PropertyTests.cs`).
+  Differential: the native app against what the web app produced
+  (`web-reference.json`, `golden-front.png`).
+- **Cheap checks first.** Build and the Core tests before a push; the
+  Windows tests run in CI on the pull request.
+- **Three rounds, then a person.** If a check still fails after three
+  attempts at a fix, stop and say what is failing and what was tried.
+- **A flaky test is a bug.** Never skip it, add a sleep, or run it again
+  until it passes. Find the cause. If the cause cannot be found, delete
+  the test and write down why.
+- **A change does not edit its own judge.** `REVIEW.md` is read from
+  `main`. A pull request that changes a check and the code it checks
+  says so at the top.
+- **Every commit says how it was verified**, in its last lines:
+  `Verified: dotnet test windows/IdMaker.Tests, 125 passed` or
+  `Verified: none (documents only)`. Never claim a run that did not
+  happen.
+- **A miss becomes a rule.** A bug that got past review is added to
+  `REVIEW.md` with what in a diff would have shown it. Rules nobody has
+  needed are pruned.
+
 ## Checks
 
 ```bash
