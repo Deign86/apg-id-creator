@@ -323,7 +323,12 @@ public sealed class CardRenderer
             foreach (var (word, offset) in _measurer.Words(spec.Font, place.Px, fit.Lines[i]))
             {
                 var ft = _measurer.Format(spec.Font, place.Px, word, brush);
-                dc.DrawText(ft, new Point(x + offset, place.Baselines[i] - ft.Baseline));
+                // Filled as outlines rather than drawn as text. Text drawn as
+                // text is nudged onto whole pixels and smoothed according to
+                // the computer's display settings, so the same card would
+                // come out slightly differently from one PC to the next.
+                // Outlines land exactly where they are put, the same everywhere.
+                dc.DrawGeometry(brush, null, ft.BuildGeometry(new Point(x + offset, place.Baselines[i] - ft.Baseline)));
             }
         }
     }
