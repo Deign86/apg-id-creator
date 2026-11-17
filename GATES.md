@@ -7,28 +7,28 @@ Scope: The web ID Maker rebuilt as a native C# / WPF Windows program that prints
 - [x] G1: Every rule about the card passes its tests, held to values captured from the web app (QR module for module, sheet plans, names, the example photo's placement), and the real background-removal model finds the person in an ordinary photo.
   CHECK: dotnet test windows/IdMaker.Tests
   EXPECT: /Passed!\s+- Failed:\s+0, Passed:\s+1\d\d/
-  EVIDENCE: 104 passed, 0 failed, on Linux and on windows-latest (run 43996986781, step "Core tests").
+  EVIDENCE: 104 passed, 0 failed, on Linux and on windows-latest (run 43999369620, step "Core tests").
 
 - [x] G2: The whole solution, including the WPF program and its Windows-only tests, compiles with warnings treated as errors.
   CHECK: dotnet build windows/IdMaker.sln
   EXPECT: Build succeeded
   EVIDENCE: Build succeeded locally (compiled for Windows from Linux) and on windows-latest.
 
-- [ ] G3: On Windows, the natively drawn example card matches the card the web app printed, zone by zone, with the same fonts, line breaks and sizes.
+- [x] G3: On Windows, the natively drawn example card matches the card the web app printed, zone by zone, with the same fonts, line breaks and sizes.
   CHECK: dotnet test windows/IdMaker.App.Tests --filter "FullyQualifiedName~RenderTests"
   EXPECT: /Passed!\s+- Failed:\s+0/
   CWD: .
-  EVIDENCE: pending
+  EVIDENCE: Passed on windows-latest (run 43999369620, job "test"). Card fonts within 0.016 px of the web app's widths at 100 px; QR identical; photo 0.50 mean difference; whole card 0.57; every line's ink box within one pixel of the web app's.
 
-- [ ] G4: On Windows, the real window takes a card from an empty form to a saved PDF, refuses to move on with the reason, issues nothing when the save fails, and every tool opens.
+- [x] G4: On Windows, the real window takes a card from an empty form to a saved PDF, refuses to move on with the reason, issues nothing when the save fails, and every tool opens.
   CHECK: dotnet test windows/IdMaker.App.Tests --filter "FullyQualifiedName~WindowTests"
   EXPECT: /Passed!\s+- Failed:\s+0/
-  EVIDENCE: pending
+  EVIDENCE: Passed on windows-latest (run 43999369620, job "test").
 
-- [ ] G5: The package installs for the signed-in user without an administrator, carries XP-Pen's driver with the pinned checksum, and the installed program starts and shows its window.
+- [x] G5: The package installs for the signed-in user without an administrator, carries XP-Pen's driver with the pinned checksum, and the installed program starts and shows its window.
   CHECK: pwsh -File windows/installer/package.ps1; pwsh -File windows/installer/selftest.ps1
   EXPECT: Installed, started and removed.
-  EVIDENCE: pending
+  EVIDENCE: Passed on windows-latest (run 43999369620, job "package"), and again in the release run 43999867580, which published v2.0.0 with AlphaPremierIdMaker-v2.0.0-setup.zip (127 MB) and SHA256SUMS.txt.
 
 - [ ] G6: Signing with the XP-Pen Deco Fun draws a line that thickens with pressure, with "Windows Ink" both ticked and unticked in the XP-Pen settings, and the pen cannot leave the signing screen.
   EVIDENCE: pending
