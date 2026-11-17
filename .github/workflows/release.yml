@@ -1,0 +1,91 @@
+name: Release
+
+# Every change to the app that reaches main is released by itself: the
+# installer package is built, proved to install and start, and published as
+# a GitHub release named after the app's version.
+#
+# The version is the one in windows/IdMaker.App/IdMaker.App.csproj. A
+# version that has already been released is not released twice: bump it
+# (there, in app.manifest and in CardConfig.AppVersion) when the change is
+# one HR should install.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - 'assets/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Which version is this
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content windows/IdMaker.App/IdMaker.App.csproj
+          $version = ($project.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
+          if (-not $version) { throw 'No <Version> in IdMaker.App.csproj.' }
+          $config = Select-String -Path windows/IdMaker.Core/Config.cs -Pattern 'AppVersion = "([^"]+)"'
+          if ($config.Matches[0].Groups[1].Value -ne $version) {
+            throw "The version in IdMaker.App.csproj ($version) and CardConfig.AppVersion ($($config.Matches[0].Groups[1].Value)) do not agree."
+          }
+          $tag = "v$version"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = $LASTEXITCODE -eq 0
+          $global:LASTEXITCODE = 0
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "exists=$($exists.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          if ($exists) { "::notice::$tag is already released. Bump the version to release this change." } else { "Releasing $tag" }
+
+      - name: Test
+        if: steps.version.outputs.exists == 'false'
+        run: dotnet test windows/IdMaker.sln -c Release
+
+      - name: Package the installer
+        if: steps.version.outputs.exists == 'false'
+        shell: pwsh
+        run: ./windows/installer/package.ps1
+
+      - name: Check the installer installs and the app starts
+        if: steps.version.outputs.exists == 'false'
+        shell: pwsh
+        run: ./windows/installer/selftest.ps1
+
+      - name: Publish the release
+        if: steps.version.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.version.outputs.tag }}'
+          $zip = "windows/dist/AlphaPremierIdMaker-$tag-setup.zip"
+          Copy-Item windows/dist/AlphaPremierIdMaker-setup.zip $zip
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          "$hash  AlphaPremierIdMaker-$tag-setup.zip" | Set-Content windows/dist/SHA256SUMS.txt -Encoding ascii
+          $notes = @"
+          Alpha Premier ID Maker $tag for Windows.
+
+          **To install:** download ``AlphaPremierIdMaker-$tag-setup.zip``, right-click it and choose *Extract All*, then double-click **Install** in the folder that appears. The app needs no administrator. The installer also adds the XP-Pen Deco Fun pen tablet driver if the computer has no tablet driver, and Windows asks for permission for that one step.
+
+          Built from $env:GITHUB_SHA.
+          "@
+          gh release create $tag $zip windows/dist/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Alpha Premier ID Maker $tag" --notes $notes
+          if ($LASTEXITCODE -ne 0) { throw 'The release was not published.' }

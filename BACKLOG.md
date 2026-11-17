@@ -3,34 +3,23 @@
 Ideas considered and deliberately not built yet, with enough detail to pick
 them up later. Shipped work is described in `README.md` and `PROCESS.md`.
 
-## On-device background removal (deferred)
+## On-device background removal (done, in the Windows app)
 
-**Idea.** Replace the "paste this prompt into Gemini / ChatGPT" step with a
-segmentation model running in the browser, so a plain phone photo can be cut
-out without sending the employee's face to a third party.
+Built into the native app (`windows/IdMaker.Vision`): an ordinary photo
+is cut out on the computer by MODNet, a 25 MB portrait-matting model, so
+an employee's face no longer goes to Gemini or ChatGPT to make their ID.
 
-**What was found.** The only candidate that works fully offline is Google's
-**MediaPipe Selfie Segmentation** (`@mediapipe/selfie_segmentation`,
-Apache-2.0, about 4 MB including the WASM runtime and the `.tflite` model);
-everything else — `@imgly/background-removal`, `transformers.js` with
-RMBG/BiRefNet — downloads a 40–170 MB model from a CDN at runtime, which
-defeats the point of a single offline file.
+The open question this item used to carry — whether a 256 × 256
+MediaPipe mask was good enough to print — did not need answering: MODNet
+works at 512 pixels on the short side and returns a soft matte rather
+than a mask, and on the sample portrait over plain and office-like
+backgrounds it overlaps the true outline by 99 %. Bold stripes or busy
+artwork directly behind the person are its weak spot (73–85 %).
 
-**Open question.** MediaPipe's mask is 256 × 256. The head on the card is
-about 177 px wide at 300 DPI, so the mask must be upscaled roughly 2× around
-the hairline. Whether that is clean enough to print, or only good enough as
-a preview, has not been measured on real photos.
-
-**How to decide.** Build a throwaway page that loads the package, runs both
-model variants over a few real staff photos, and writes out the cut-outs;
-compare the hair edge against the same photo put through the current
-green-screen prompt. If the edge holds up, integrate it as a third accepted
-input in `src/photo.js` (alongside `transparent` and `green`/`blue`), keeping
-the prompt workflow as a fallback for awkward photos. If it does not, close
-this item: the prompt plus the manual adjust already covers the cases.
-
-**Cost if adopted.** The single-file app grows from ~1.4 MB to ~5.5 MB, and
-the build has to inline a `.wasm` and a `.tflite` as base64.
+**Still to do:** measure it on real staff photos, which was not possible
+from where it was built. If hair edges disappoint, the next step up is
+BiRefNet-portrait (MIT licence): better edges, but about 1 GB and several
+seconds a photo without a graphics card.
 
 ## Signing on a phone
 

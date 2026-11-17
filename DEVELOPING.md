@@ -1,4 +1,10 @@
-# Developing the ID Maker
+# Developing the ID Maker (the web app)
+
+> **This page describes the web app, which the native Windows app in
+> `windows/` replaces.** For the app as it is now, read
+> **[windows/README.md](windows/README.md)**. This page, `src/`, `app/`
+> and the `test/*.mjs` scripts stay until the native app has been through
+> a real card run, and are then removed together.
 
 Everything technical. The front page is for the people who use the app;
 this is for whoever changes it.

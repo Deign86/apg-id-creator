@@ -1,0 +1,88 @@
+name: Windows app
+
+# Builds the native app, runs every test on a real Windows machine (the
+# renderer and the window need one), and packages an installer.
+on:
+  push:
+    paths:
+      - 'windows/**'
+      - 'assets/**'
+      - 'test/golden-front.png'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+      IDMAKER_REPORT_DIR: ${{ github.workspace }}\report
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build
+        run: dotnet build windows/IdMaker.sln -c Release
+      - name: Core tests
+        run: dotnet test windows/IdMaker.Tests -c Release --no-build
+      - name: Renderer and window tests
+        run: dotnet test windows/IdMaker.App.Tests -c Release --no-build --logger "trx;LogFileName=app.trx" --results-directory report
+      - name: What failed, briefly
+        if: failure()
+        shell: pwsh
+        run: |
+          [xml]$trx = Get-Content report/app.trx
+          foreach ($r in $trx.TestRun.Results.UnitTestResult | Where-Object outcome -ne 'Passed') {
+            "FAILED $($r.testName)"
+            $m = "$($r.Output.ErrorInfo.Message)"
+            $m.Substring(0, [Math]::Min(1500, $m.Length))
+            $t = "$($r.Output.ErrorInfo.StackTrace)" -split "`n" | Where-Object { $_ -match 'IdMaker' } | Select-Object -First 6
+            $t -join "`n"
+            ''
+          }
+      - name: How the native card compares with the web app's
+        if: always()
+        shell: pwsh
+        run: |
+          $fonts = Join-Path $env:IDMAKER_REPORT_DIR 'font-metrics.txt'
+          if (Test-Path $fonts) { Get-Content $fonts | Select-Object -First 1 } else { 'font-metrics.txt was not written' }
+          $card = Join-Path $env:IDMAKER_REPORT_DIR 'front-against-web.txt'
+          if (Test-Path $card) { Get-Content $card } else { 'front-against-web.txt was not written' }
+      - name: Keep the rendered card
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-report
+          path: report
+          if-no-files-found: ignore
+
+  package:
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Package the installer
+        shell: pwsh
+        run: ./windows/installer/package.ps1
+      - name: Check the installer installs and the app starts
+        shell: pwsh
+        run: ./windows/installer/selftest.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlphaPremierIdMaker-setup
+          path: windows/dist/AlphaPremierIdMaker-setup.zip
+          if-no-files-found: error
