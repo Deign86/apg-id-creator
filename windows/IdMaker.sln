@@ -7,6 +7,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IdMaker.Core", "IdMaker.Cor
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IdMaker.Tests", "IdMaker.Tests\IdMaker.Tests.csproj", "{4BFD6311-AC73-4D11-88AD-0BEEE71DB1B3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IdMaker.Vision", "IdMaker.Vision\IdMaker.Vision.csproj", "{23B9A474-FEF0-4ED1-95DE-0AE49866FDB8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IdMaker.App", "IdMaker.App\IdMaker.App.csproj", "{6AD8E437-D024-414E-B7F2-88B74391EDAA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +28,13 @@ Global
 		{4BFD6311-AC73-4D11-88AD-0BEEE71DB1B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4BFD6311-AC73-4D11-88AD-0BEEE71DB1B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4BFD6311-AC73-4D11-88AD-0BEEE71DB1B3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{23B9A474-FEF0-4ED1-95DE-0AE49866FDB8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{23B9A474-FEF0-4ED1-95DE-0AE49866FDB8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{23B9A474-FEF0-4ED1-95DE-0AE49866FDB8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{23B9A474-FEF0-4ED1-95DE-0AE49866FDB8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6AD8E437-D024-414E-B7F2-88B74391EDAA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6AD8E437-D024-414E-B7F2-88B74391EDAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6AD8E437-D024-414E-B7F2-88B74391EDAA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6AD8E437-D024-414E-B7F2-88B74391EDAA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

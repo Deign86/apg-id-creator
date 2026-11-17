@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\IdMaker.Core\IdMaker.Core.csproj" />
+    <ProjectReference Include="..\IdMaker.Vision\IdMaker.Vision.csproj" />
   </ItemGroup>
 
 </Project>

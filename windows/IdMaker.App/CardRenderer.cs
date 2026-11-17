@@ -1,0 +1,535 @@
+// Drawing the card.
+//
+// Front and back are drawn into a bitmap at any pixels-per-millimetre. The
+// preview asks for screen resolution and the PDF for 300 DPI, so what is on
+// screen is what prints.
+//
+// Front, bottom to top:
+//   1. the front artwork
+//   2. the photo, cut to the photo window
+//   3. the artwork again, cut to the band and the gold line, which puts
+//      them back IN FRONT of the person's shoulders
+//   4. name, job title, employee number
+//   5. signature (white)
+//   6. QR code
+
+using System.Globalization;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using IdMaker.Core;
+
+namespace IdMaker.App;
+
+/// <summary>The two sides of the card artwork, decoded.</summary>
+public sealed record CardArt(BitmapSource Front, BitmapSource Back);
+
+/// <summary>Measures text with the real card fonts.</summary>
+public sealed class WpfTextMeasurer : ITextMeasurer
+{
+    private static readonly CultureInfo EnUs = CultureInfo.GetCultureInfo("en-US");
+    private readonly Dictionary<CardFont, Typeface> _faces;
+    private readonly Dictionary<(CardFont, double, string), double> _widths = new();
+    private readonly Dictionary<(CardFont, double, string), (double Ascent, double Descent)> _ink = new();
+
+    public WpfTextMeasurer(Dictionary<CardFont, Typeface> faces) { _faces = faces; }
+
+    /// <summary>Load the three card fonts from the Fonts folder beside the program.</summary>
+    public static WpfTextMeasurer Load(string fontsDirectory)
+    {
+        Typeface One(string file)
+        {
+            var path = Path.Combine(fontsDirectory, file);
+            if (!File.Exists(path)) throw new FileNotFoundException($"The card font {file} is missing from {fontsDirectory}.", path);
+            // The typeface is read from the file itself, so its family and
+            // weight are exactly the file's own and Windows never fakes a bold.
+            return Fonts.GetTypefaces(new Uri(path)).First();
+        }
+        return new WpfTextMeasurer(new Dictionary<CardFont, Typeface>
+        {
+            [CardFont.Name] = One("Poppins-Bold.ttf"),
+            [CardFont.Title] = One("Montserrat-ExtraBold.ttf"),
+            [CardFont.Number] = One("Arimo-Regular.ttf"),
+        });
+    }
+
+    public FormattedText Format(CardFont font, double px, string text, Brush brush) =>
+        new(text, EnUs, FlowDirection.LeftToRight, _faces[font], px, brush, null, TextFormattingMode.Ideal, 1.0);
+
+    public double Width(CardFont font, double px, string text)
+    {
+        var key = (font, px, text);
+        if (!_widths.TryGetValue(key, out var w)) _widths[key] = w = Format(font, px, text, Brushes.Black).WidthIncludingTrailingWhitespace;
+        return w;
+    }
+
+    // How far the ink of `sample` reaches above and below the baseline.
+    //
+    // Rounded up to whole pixels. The web app's canvas reported these
+    // bounds that way, and the cards already printed were laid out from
+    // those numbers, so rounding the same way keeps a name on the same
+    // lines at the same height.
+    private (double Ascent, double Descent) Ink(CardFont font, double px, string sample)
+    {
+        var key = (font, px, sample);
+        if (_ink.TryGetValue(key, out var hit)) return hit;
+        var ft = Format(font, px, sample, Brushes.Black);
+        var bounds = ft.BuildGeometry(new Point(0, 0)).Bounds;
+        var ink = bounds.IsEmpty
+            ? (0.0, 0.0)
+            : (Math.Ceiling(ft.Baseline - bounds.Top - 1e-6), Math.Max(0, Math.Ceiling(bounds.Bottom - ft.Baseline - 1e-6)));
+        return _ink[key] = ink;
+    }
+
+    public double CapHeight(CardFont font, double px) => Ink(font, px, "H").Ascent;
+    public double Descent(CardFont font, double px, bool uppercase) => Ink(font, px, uppercase ? "Q," : "gjpqy").Descent;
+}
+
+public sealed class CardRenderer
+{
+    private readonly WpfTextMeasurer _measurer;
+    // a photo is converted once and kept for as long as its pixels are
+    private readonly ConditionalWeakTable<RgbaImage, BitmapSource> _photos = new();
+    private readonly ConditionalWeakTable<ScannedSignature, BitmapSource> _scans = new();
+    private QrCode? _qr;
+    private string _qrKey = "";
+
+    public CardRenderer(WpfTextMeasurer measurer) { _measurer = measurer; }
+
+    public ITextMeasurer Measurer => _measurer;
+
+    /* ---- pixels in and out ---------------------------------------- */
+
+    /// <summary>Straight RGBA to the premultiplied BGRA Windows draws with.</summary>
+    public static BitmapSource ToBitmap(RgbaImage img)
+    {
+        var bgra = new byte[img.Data.Length];
+        for (var i = 0; i < bgra.Length; i += 4)
+        {
+            int a = img.Data[i + 3];
+            bgra[i] = (byte)(img.Data[i + 2] * a / 255);
+            bgra[i + 1] = (byte)(img.Data[i + 1] * a / 255);
+            bgra[i + 2] = (byte)(img.Data[i] * a / 255);
+            bgra[i + 3] = (byte)a;
+        }
+        var bmp = BitmapSource.Create(img.Width, img.Height, 96, 96, PixelFormats.Pbgra32, null, bgra, img.Width * 4);
+        bmp.Freeze();
+        return bmp;
+    }
+
+    /// <summary>Any decoded picture as straight RGBA.</summary>
+    public static RgbaImage ToRgba(BitmapSource source)
+    {
+        BitmapSource bgra = source.Format == PixelFormats.Bgra32 ? source : new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+        var data = new byte[bgra.PixelWidth * bgra.PixelHeight * 4];
+        bgra.CopyPixels(data, bgra.PixelWidth * 4, 0);
+        for (var i = 0; i < data.Length; i += 4) (data[i], data[i + 2]) = (data[i + 2], data[i]);
+        return new RgbaImage(bgra.PixelWidth, bgra.PixelHeight, data);
+    }
+
+    /// <summary>A finished page as the opaque RGB the PDF stores, on white.</summary>
+    public static PdfPage ToPdfPage(BitmapSource page, double widthMm, double heightMm)
+    {
+        int w = page.PixelWidth, h = page.PixelHeight;
+        BitmapSource pbgra = page.Format == PixelFormats.Pbgra32 ? page : new FormatConvertedBitmap(page, PixelFormats.Pbgra32, null, 0);
+        var data = new byte[w * h * 4];
+        pbgra.CopyPixels(data, w * 4, 0);
+        var rgb = new byte[w * h * 3];
+        for (int i = 0, j = 0; i < data.Length; i += 4, j += 3)
+        {
+            // premultiplied over white: colour + (1 - alpha) * 255
+            var rest = 255 - data[i + 3];
+            rgb[j] = (byte)Math.Min(255, data[i + 2] + rest);
+            rgb[j + 1] = (byte)Math.Min(255, data[i + 1] + rest);
+            rgb[j + 2] = (byte)Math.Min(255, data[i] + rest);
+        }
+        return new PdfPage(w, h, rgb, widthMm, heightMm);
+    }
+
+    private static BitmapSource Render(int w, int h, Action<DrawingContext> draw)
+    {
+        var visual = new DrawingVisual();
+        RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.HighQuality);
+        using (var dc = visual.RenderOpen()) draw(dc);
+        var target = new RenderTargetBitmap(Math.Max(1, w), Math.Max(1, h), 96, 96, PixelFormats.Pbgra32);
+        target.Render(visual);
+        target.Freeze();
+        return target;
+    }
+
+    private static Brush Solid(string hex)
+    {
+        // SAFETY: ConvertFromString returns a boxed Color for any "#RRGGBB" string, and every colour here is one from CardConfig.
+        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Geometry Polygons(IEnumerable<IReadOnlyList<PointMm>> polygons, double pxPerMm)
+    {
+        var g = new StreamGeometry { FillRule = FillRule.Nonzero };
+        using (var ctx = g.Open())
+        {
+            foreach (var poly in polygons)
+            {
+                if (poly.Count < 3) continue;
+                ctx.BeginFigure(new Point(poly[0].X * pxPerMm, poly[0].Y * pxPerMm), true, true);
+                for (var i = 1; i < poly.Count; i++) ctx.LineTo(new Point(poly[i].X * pxPerMm, poly[i].Y * pxPerMm), true, false);
+            }
+        }
+        g.Freeze();
+        return g;
+    }
+
+    /* ---- the two sides -------------------------------------------- */
+
+    public BitmapSource RenderFront(CardArt art, CardGeometry geo, CardData? data, double pxPerMm, bool showGuides = false)
+    {
+        var (w, h) = CardConfig.CardSizePx(pxPerMm);
+        return Render(w, h, dc => DrawFront(dc, art, geo, data, pxPerMm, w, h, showGuides));
+    }
+
+    public BitmapSource RenderBack(CardArt art, double pxPerMm, bool rotate180)
+    {
+        var (w, h) = CardConfig.CardSizePx(pxPerMm);
+        return Render(w, h, dc =>
+        {
+            if (rotate180) dc.PushTransform(new RotateTransform(180, w / 2.0, h / 2.0));
+            dc.DrawImage(art.Back, new Rect(0, 0, w, h));
+            if (rotate180) dc.Pop();
+        });
+    }
+
+    private void DrawFront(DrawingContext dc, CardArt art, CardGeometry geo, CardData? data, double ppm, int w, int h, bool showGuides)
+    {
+        var full = new Rect(0, 0, w, h);
+        dc.DrawImage(art.Front, full);
+
+        if (data is { Photo: not null, Placement: not null })
+        {
+            var p = data.Placement;
+            dc.PushClip(Polygons(new[] { geo.PhotoClip }, ppm));
+            if (p.ShortBy > 0)
+            {
+                // A photo too closely cropped to reach the bottom of its
+                // window. Enlarging it until it did cost the head its size;
+                // cutting it off square costs the card its looks. Fading the
+                // last few millimetres costs neither.
+                var fade = Math.Min(CardConfig.Photo.FadeMm, p.H / 3);
+                var bottom = (p.Y + p.H) * ppm;
+                var mask = new LinearGradientBrush(Colors.White, Colors.Transparent, new Point(0, bottom - fade * ppm), new Point(0, bottom))
+                {
+                    MappingMode = BrushMappingMode.Absolute,
+                };
+                mask.Freeze();
+                dc.PushOpacityMask(mask);
+            }
+            dc.DrawImage(_photos.GetValue(data.Photo, ToBitmap), new Rect(p.X * ppm, p.Y * ppm, p.W * ppm, p.H * ppm));
+            if (p.ShortBy > 0) dc.Pop();
+            dc.Pop();
+        }
+
+        // the band and the gold line, back on top of the photo
+        if (geo.FrontClip.Count > 0)
+        {
+            dc.PushClip(Polygons(geo.FrontClip, ppm));
+            dc.DrawImage(art.Front, full);
+            dc.Pop();
+        }
+
+        if (showGuides)
+        {
+            var thick = Math.Max(1, ppm * 0.12);
+            dc.DrawGeometry(null, new Pen(Solid("#D0167A"), thick), Polygons(new[] { geo.PhotoClip }, ppm));
+            if (geo.FrontClip.Count > 0) dc.DrawGeometry(null, new Pen(Solid("#00B3FF"), thick), Polygons(geo.FrontClip, ppm));
+        }
+
+        if (data is null) return;
+
+        var layout = TextFit.Layout(_measurer, geo, data.Name, data.Title, data.Year, data.Seq);
+        DrawText(dc, geo.Name, layout.Name, ppm);
+        DrawText(dc, geo.Title, layout.Title, ppm);
+        DrawText(dc, geo.EmployeeNo, layout.EmployeeNo, ppm);
+
+        if (data.Signature is { HasInk: true }) DrawSignature(dc, data.Signature, geo.Signature, ppm);
+        DrawQr(dc, geo.Qr, ppm);
+    }
+
+    private void DrawText(DrawingContext dc, TextSpec spec, FittedText fit, double ppm)
+    {
+        if (fit.Lines.Count == 0) return;
+        var place = TextFit.Place(_measurer, spec, fit, ppm);
+        var brush = Solid(spec.Color);
+        for (var i = 0; i < fit.Lines.Count; i++)
+        {
+            var ft = _measurer.Format(spec.Font, place.Px, fit.Lines[i], brush);
+            var width = ft.WidthIncludingTrailingWhitespace;
+            var x = spec.Align switch
+            {
+                HAlign.Center => place.AnchorX - width / 2,
+                HAlign.Right => place.AnchorX - width,
+                _ => place.AnchorX,
+            };
+            dc.DrawText(ft, new Point(x, place.Baselines[i] - ft.Baseline));
+        }
+    }
+
+    /* ---- signature ------------------------------------------------ */
+
+    /// <summary>Draw strokes: x' = ox + x * scale. Shared by the card and the pad on screen.</summary>
+    public static void DrawInk(DrawingContext dc, IReadOnlyList<InkSegment> segments, Brush brush, double ox, double oy, double scale, double widthScale)
+    {
+        foreach (var s in segments)
+        {
+            if (s.Dot)
+            {
+                var r = s.Width * widthScale / 2;
+                dc.DrawEllipse(brush, null, new Point(ox + s.X1 * scale, oy + s.Y1 * scale), r, r);
+                continue;
+            }
+            var g = new StreamGeometry();
+            using (var ctx = g.Open())
+            {
+                ctx.BeginFigure(new Point(ox + s.X1 * scale, oy + s.Y1 * scale), false, false);
+                ctx.BezierTo(
+                    new Point(ox + s.C1X * scale, oy + s.C1Y * scale),
+                    new Point(ox + s.C2X * scale, oy + s.C2Y * scale),
+                    new Point(ox + s.X2 * scale, oy + s.Y2 * scale), true, true);
+            }
+            g.Freeze();
+            var pen = new Pen(brush, s.Width * widthScale) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };
+            pen.Freeze();
+            dc.DrawGeometry(null, pen, g);
+        }
+    }
+
+    /// <summary>A scan's ink as a picture in one colour.</summary>
+    public static BitmapSource TintedScan(ScannedSignature scan, Color color)
+    {
+        var data = new byte[scan.Width * scan.Height * 4];
+        for (var i = 0; i < scan.Alpha.Length; i++)
+        {
+            int a = scan.Alpha[i];
+            data[i * 4] = (byte)(color.B * a / 255);
+            data[i * 4 + 1] = (byte)(color.G * a / 255);
+            data[i * 4 + 2] = (byte)(color.R * a / 255);
+            data[i * 4 + 3] = (byte)a;
+        }
+        var bmp = BitmapSource.Create(scan.Width, scan.Height, 96, 96, PixelFormats.Pbgra32, null, data, scan.Width * 4);
+        bmp.Freeze();
+        return bmp;
+    }
+
+    private void DrawSignature(DrawingContext dc, Signature signature, SignatureSpec spec, double ppm)
+    {
+        if (signature is ScannedSignature scan)
+        {
+            var fit = SignatureInk.FitInto(spec, 0, 0, scan.Width, scan.Height);
+            // SAFETY: as in Solid(): a "#RRGGBB" string from CardConfig always converts to a Color.
+            var white = _scans.GetValue(scan, s => TintedScan(s, (Color)ColorConverter.ConvertFromString(spec.Color)));
+            dc.DrawImage(white, new Rect(fit.Left * ppm, fit.Top * ppm, scan.Width * fit.Scale * ppm, scan.Height * fit.Scale * ppm));
+            return;
+        }
+        if (signature is not DrawnSignature drawn) return;
+        var (minX, minY, inkW, inkH) = SignatureInk.Bounds(drawn);
+        var f = SignatureInk.FitInto(spec, minX, minY, inkW, inkH);
+        // Widths are asked for in pad units that come out as StrokeMm on the
+        // card: a width of v mm is v / Scale pad units.
+        var segments = SignatureInk.Segments(drawn, spec.MinStrokeMm / f.Scale, spec.StrokeMm / f.Scale);
+        var scale = f.Scale * ppm;
+        DrawInk(dc, segments, Solid(spec.Color), (f.Left - minX * f.Scale) * ppm, (f.Top - minY * f.Scale) * ppm, scale, scale);
+    }
+
+    /* ---- QR -------------------------------------------------------- */
+
+    private void DrawQr(DrawingContext dc, QrSpec spec, double ppm)
+    {
+        var key = spec.Content + "|" + spec.ErrorCorrection;
+        if (_qr is null || _qrKey != key) { _qr = QrCode.Encode(spec.Content, spec.ErrorCorrection); _qrKey = key; }
+        var n = _qr.Size;
+
+        // Everything is snapped to whole PRINT pixels, so the code stays
+        // crisp at 300 DPI whatever resolution this is being drawn at.
+        var printPpm = CardConfig.PrintPxPerMm;
+        double Snap(double mm) => Math.Floor(mm * printPpm + 0.5) / printPpm;
+        double x0 = Snap(spec.X), y0 = Snap(spec.Y), side = Snap(spec.Size);
+        dc.DrawRectangle(Solid(spec.Background), null, new Rect(x0 * ppm, y0 * ppm, side * ppm, side * ppm));
+
+        // module size: whole print pixels, leaving a two-module quiet zone each side
+        var moduleMm = Math.Max(1, Math.Floor(side * printPpm / (n + 4))) / printPpm;
+        var codeMm = n * moduleMm;
+        double left = Snap(x0 + (side - codeMm) / 2), top = Snap(y0 + (side - codeMm) / 2);
+
+        // one figure for the whole code: neighbouring modules share an edge exactly, so no hairlines between them
+        var g = new StreamGeometry { FillRule = FillRule.Nonzero };
+        using (var ctx = g.Open())
+        {
+            for (var r = 0; r < n; r++)
+            {
+                for (var c = 0; c < n; c++)
+                {
+                    if (!_qr.IsDark(r, c)) continue;
+                    // a run of dark modules along the row becomes one rectangle
+                    var end = c;
+                    while (end + 1 < n && _qr.IsDark(r, end + 1)) end++;
+                    double px = (left + c * moduleMm) * ppm, py = (top + r * moduleMm) * ppm;
+                    double qx = (left + (end + 1) * moduleMm) * ppm, qy = (top + (r + 1) * moduleMm) * ppm;
+                    ctx.BeginFigure(new Point(px, py), true, true);
+                    ctx.LineTo(new Point(qx, py), false, false);
+                    ctx.LineTo(new Point(qx, qy), false, false);
+                    ctx.LineTo(new Point(px, qy), false, false);
+                    c = end;
+                }
+            }
+        }
+        g.Freeze();
+        dc.DrawGeometry(Solid(spec.Color), null, g);
+    }
+
+    /* ---- sheets ---------------------------------------------------- */
+
+    /// <summary>
+    /// One sheet of paper. `front` and `back` draw a card side for an entry;
+    /// each is asked for once per slot and let go straight after, so a sheet
+    /// of twenty-one cards never holds twenty-one 300 DPI bitmaps.
+    /// </summary>
+    public BitmapSource RenderSheet(SheetPlan plan, SheetPage page, double ppm, Func<int, BitmapSource> front, Func<int, BitmapSource> back)
+    {
+        var w = (int)Math.Round(plan.PageWidthMm * ppm, MidpointRounding.AwayFromZero);
+        var h = (int)Math.Round(plan.PageHeightMm * ppm, MidpointRounding.AwayFromZero);
+        return Render(w, h, dc =>
+        {
+            dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, w, h));
+            var marks = new Pen(Brushes.Black, Math.Max(1, 0.1 * ppm));
+            marks.Freeze();
+            foreach (var slot in page.Slots)
+            {
+                var card = slot.Back ? back(slot.Entry) : front(slot.Entry);
+                dc.PushTransform(new TranslateTransform(slot.X * ppm, slot.Y * ppm));
+                if (plan.Turned)
+                {
+                    // the card is drawn upright, then turned into a landscape slot
+                    dc.PushTransform(new TranslateTransform(plan.CardW * ppm, 0));
+                    dc.PushTransform(new RotateTransform(90));
+                }
+                dc.DrawImage(card, new Rect(0, 0, CardConfig.CardWidthMm * ppm, CardConfig.CardHeightMm * ppm));
+                if (plan.Turned) { dc.Pop(); dc.Pop(); }
+                dc.Pop();
+                foreach (var (x1, y1, x2, y2) in Sheets.CropMarks(slot.X, slot.Y, plan.CardW, plan.CardH))
+                    dc.DrawLine(marks, new Point(x1 * ppm, y1 * ppm), new Point(x2 * ppm, y2 * ppm));
+            }
+        });
+    }
+
+    /// <summary>
+    /// The pages of a print as PDF page thunks: each is rendered at 300 DPI
+    /// when the PDF writer asks for it.
+    /// </summary>
+    public List<Func<PdfPage>> SheetPdfPages(CardArt art, CardGeometry geo, SheetPlan plan, IReadOnlyList<CardData> entries,
+        IReadOnlyList<SheetPage> pages, bool backUpsideDown)
+    {
+        var ppm = CardConfig.PrintPxPerMm;
+        var result = new List<Func<PdfPage>>();
+        foreach (var page in pages)
+        {
+            result.Add(() => ToPdfPage(
+                RenderSheet(plan, page, ppm, i => RenderFront(art, geo, entries[i], ppm), _ => RenderBack(art, ppm, backUpsideDown)),
+                plan.PageWidthMm, plan.PageHeightMm));
+        }
+        return result;
+    }
+
+    /// <summary>One card per page, front then back, each page the size of the card.</summary>
+    public List<Func<PdfPage>> CardPdfPages(CardArt art, CardGeometry geo, IReadOnlyList<CardData> entries, bool rotateBack)
+    {
+        var ppm = CardConfig.PrintPxPerMm;
+        var result = new List<Func<PdfPage>>();
+        foreach (var data in entries)
+        {
+            result.Add(() => ToPdfPage(RenderFront(art, geo, data, ppm), CardConfig.CardWidthMm, CardConfig.CardHeightMm));
+            result.Add(() => ToPdfPage(RenderBack(art, ppm, rotateBack), CardConfig.CardWidthMm, CardConfig.CardHeightMm));
+        }
+        return result;
+    }
+}
+
+/// <summary>Opening and saving picture files with Windows' own codecs.</summary>
+public static class ImageFiles
+{
+    /// <summary>Open a picture, honouring the way a phone says it was held. The pixels, or why not.</summary>
+    public static (RgbaImage? Image, string Error) Decode(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            BitmapSource frame = decoder.Frames[0];
+            var turn = Orientation(frame);
+            if (turn != Rotation.Rotate0)
+            {
+                var rotated = new TransformedBitmap(frame, new RotateTransform(turn switch { Rotation.Rotate90 => 90, Rotation.Rotate180 => 180, _ => 270 }));
+                frame = rotated;
+            }
+            return (CardRenderer.ToRgba(frame), "");
+        }
+        catch (Exception e) when (e is NotSupportedException or FileFormatException or IOException or UnauthorizedAccessException
+                                  or ArgumentException or InvalidOperationException or System.Runtime.InteropServices.COMException or OverflowException)
+        {
+            var webp = path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase);
+            return (null, webp
+                ? "This WebP picture couldn’t be opened on this computer. Save it as PNG or JPG and try again."
+                : "This file couldn’t be opened as a picture. Try saving it again as PNG or JPG.");
+        }
+    }
+
+    // A phone stores a portrait photo sideways and notes which way up it
+    // goes (EXIF tag 274). Ignoring the note lays the person on their side.
+    private static Rotation Orientation(BitmapSource frame)
+    {
+        try
+        {
+            if (frame.Metadata is not BitmapMetadata meta) return Rotation.Rotate0;
+            var value = meta.GetQuery("/app1/ifd/{ushort=274}") ?? meta.GetQuery("/ifd/{ushort=274}");
+            return value is ushort o
+                ? o switch { 3 => Rotation.Rotate180, 6 => Rotation.Rotate90, 8 => Rotation.Rotate270, _ => Rotation.Rotate0 }
+                : Rotation.Rotate0;
+        }
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException or IOException)
+        {
+            return Rotation.Rotate0;         // no orientation that can be read is no orientation
+        }
+    }
+
+    public static BitmapSource Load(string path)
+    {
+        var bmp = new BitmapImage();
+        bmp.BeginInit();
+        bmp.CacheOption = BitmapCacheOption.OnLoad;
+        bmp.UriSource = new Uri(path);
+        bmp.EndInit();
+        bmp.Freeze();
+        return bmp;
+    }
+
+    public static void SavePng(BitmapSource bitmap, string path)
+    {
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var stream = File.Create(path);
+        encoder.Save(stream);
+    }
+
+    /// <summary>A picture drawn at exactly this many pixels, for artwork stored at the printing size.</summary>
+    public static BitmapSource Resize(BitmapSource source, int width, int height)
+    {
+        var visual = new DrawingVisual();
+        RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.HighQuality);
+        using (var dc = visual.RenderOpen()) dc.DrawImage(source, new Rect(0, 0, width, height));
+        var target = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        target.Render(visual);
+        target.Freeze();
+        return target;
+    }
+}
