@@ -357,9 +357,9 @@ public partial class MainWindow : Window
             // as its colour: thick for finished and for the step you are on,
             // a hairline for the ones to come. Gold marks only where you are.
             chip.BorderThickness = new Thickness(0, done || current ? 3 : 1, 0, 0);
-            Theme.Paint(chip, Control.BorderBrushProperty, current ? "Color.AccentSolid" : done ? "Color.Strong" : "Color.ControlBorder");
+            // A locked step keeps readable words; only its rule fades to the panel's own line.
+            Theme.Paint(chip, Control.BorderBrushProperty, current ? "Color.AccentSolid" : done ? "Color.Strong" : locked ? "Color.Line" : "Color.ControlBorder");
             Theme.Paint(chip, Control.ForegroundProperty, current || done ? "Color.Text" : "Color.TextMuted");
-            chip.Opacity = locked ? 0.55 : 1;
             chip.FontWeight = current ? FontWeights.SemiBold : FontWeights.Normal;
             // not disabled: a locked step can still be asked why it will not open
             var name = locked ? $"{label}. Locked until step {stop + 1}, {Session.Steps[stop].Label}, is finished."
