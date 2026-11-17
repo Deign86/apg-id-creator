@@ -135,14 +135,14 @@ public partial class MainWindow
                 if (c.Current)
                 {
                     var tag = new TextBlock { Text = "on screen", FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
-                    Theme.Paint(tag, TextBlock.ForegroundProperty, "Color.AccentSolid");
+                    Theme.Paint(tag, TextBlock.ForegroundProperty, "Color.StageMuted");
                     DockPanel.SetDock(tag, Dock.Right);
                     row.Children.Add(tag);
                 }
                 else
                 {
                     var index = i;
-                    var remove = new Button { Style = Theme.Style("Button.OnTray"), Content = "Remove", MinHeight = 32, Padding = new Thickness(10, 4, 10, 4), FontSize = 13 };
+                    var remove = new Button { Style = Theme.Style("Button.Ghost"), Content = "Remove", MinHeight = 32, Padding = new Thickness(10, 4, 10, 4), FontSize = 13 };
                     System.Windows.Automation.AutomationProperties.SetName(remove, $"Take {c.Label} out of this print");
                     remove.Click += (_, _) => { var from = _session.StepIndex; _session.RemoveFromQueue(index); AfterMove(from, new MoveResult(true, null)); };
                     DockPanel.SetDock(remove, Dock.Right);
@@ -153,7 +153,7 @@ public partial class MainWindow
                     Text = $"{i + 1}.  {c.Label} · {c.Id}", FontSize = 14,
                     VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = $"{c.Label} · {c.Id}",
                 };
-                Theme.Paint(who, TextBlock.ForegroundProperty, "Color.TrayInk");
+                Theme.Paint(who, TextBlock.ForegroundProperty, "Color.StageInk");
                 row.Children.Add(who);
                 JobList.Children.Add(row);
             }
@@ -368,6 +368,22 @@ public partial class MainWindow
         if (_tool == "design") RenderDesign();
         // the form stands down while the boxes are being dragged
         FormPanel.IsEnabled = !EditingMap;
+        FitColumns();
+    }
+
+    // What the four columns need side by side: the rail, an open tool, the
+    // least the card can be shown in, and the form, with the gaps between.
+    private const double RoomForAllFour = 176 + 12 + 320 + 12 + 300 + 12 + 440;
+
+    /// <summary>
+    /// In a window too narrow for all four columns, an open tool takes the
+    /// form's place, and closing it brings the form back. The card is never
+    /// the one to give way: every tool is used while looking at it.
+    /// </summary>
+    private void FitColumns()
+    {
+        var crowded = _tool is not null && Columns.ActualWidth > 0 && Columns.ActualWidth < RoomForAllFour;
+        Show(FormPanel, !crowded);
     }
 
     /* ---- issued IDs ----------------------------------------------- */

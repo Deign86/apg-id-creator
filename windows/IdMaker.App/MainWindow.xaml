@@ -10,54 +10,59 @@
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
 
     <!--
-      Four columns: the rail of occasional tools, whichever one is open, the
-      card, and the form. The card's size comes from the window's height, so
-      the whole job fits on one screen without scrolling.
+      Four columns: the rail (the product's name, the occasional tools),
+      whichever tool is open, the card, and the form. There is no title bar
+      of our own and no footer: the card's size comes from the window's
+      height, so every row not spent on chrome goes to the card.
+
+      When the window is too narrow for all four, an open tool takes the
+      form's place until it is closed (MainWindow.FitColumns).
     -->
-    <Grid Margin="16,12,16,12">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
-        <!-- masthead -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-            <Border Width="40" Height="40" CornerRadius="11" Background="{DynamicResource Color.Tray}" Padding="4">
-                <Image x:Name="BrandLogo" Stretch="Uniform" />
-            </Border>
-            <TextBlock Text="Alpha Premier ID Maker" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Color.Text}"
-                       VerticalAlignment="Center" Margin="12,0,0,0" />
-        </StackPanel>
-
-        <Grid Grid.Row="1">
+    <Grid Margin="12">
+        <Grid x:Name="Columns">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" MinWidth="320" />
-                <ColumnDefinition Width="440" />
+                <ColumnDefinition Width="*" MinWidth="300" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <!-- ============ tools ============ -->
-            <StackPanel Grid.Column="0" Width="176" Margin="0,0,12,0" KeyboardNavigation.TabNavigation="Local">
-                <ToggleButton x:Name="RailRegister" Style="{StaticResource Button.Rail}" Click="Rail_Click" Tag="register">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Issued IDs" />
-                        <Border x:Name="RailRegisterBadge" Background="{DynamicResource Color.Tray}" CornerRadius="9" Padding="7,1" Margin="8,0,0,0" Visibility="Collapsed">
-                            <TextBlock x:Name="RailRegisterCount" FontSize="13" Foreground="{DynamicResource Color.TrayInk}" />
-                        </Border>
+            <!-- ============ the rail ============ -->
+            <DockPanel x:Name="Rail" Grid.Column="0" Width="176" Margin="0,0,12,0">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,4,0,24">
+                    <Border Width="36" Height="36" CornerRadius="8" Background="{DynamicResource Color.Tray}" Padding="4">
+                        <Image x:Name="BrandLogo" Stretch="Uniform" />
+                    </Border>
+                    <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Alpha Premier" FontSize="13" Foreground="{DynamicResource Color.TextMuted}" />
+                        <TextBlock Text="ID Maker" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource Color.Text}" />
                     </StackPanel>
-                </ToggleButton>
-                <ToggleButton x:Name="RailBatch" Style="{StaticResource Button.Rail}" Click="Rail_Click" Tag="batch" Content="Batch from CSV" />
-                <ToggleButton x:Name="RailPrinter" Style="{StaticResource Button.Rail}" Click="Rail_Click" Tag="printer" Content="Printer setting" />
-                <ToggleButton x:Name="RailDesign" Style="{StaticResource Button.Rail}" Click="Rail_Click" Tag="design" Content="Card design" />
-            </StackPanel>
+                </StackPanel>
 
-            <Border x:Name="Drawer" Grid.Column="1" Width="340" Margin="0,0,12,0" Style="{StaticResource Panel}" Visibility="Collapsed">
+                <TextBlock x:Name="AppVersion" DockPanel.Dock="Bottom" Style="{StaticResource Text.Note}" Margin="12,8,0,4" />
+
+                <StackPanel KeyboardNavigation.TabNavigation="Local">
+                    <TextBlock Text="Tools" Style="{StaticResource Text.Note}" Margin="12,0,0,6" />
+                    <ToggleButton x:Name="RailRegister" Style="{StaticResource Button.Rail}" Click="Rail_Click" Tag="register">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Issued IDs" />
+                            <!-- a plain count: it is a total, not something waiting to be dealt with -->
+                            <Border x:Name="RailRegisterBadge" Margin="8,0,0,0" Visibility="Collapsed">
+                                <TextBlock x:Name="RailRegisterCount" FontSize="13" FontWeight="Normal" Foreground="{DynamicResource Color.TextMuted}" VerticalAlignment="Center" />
+                            </Border>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="RailBatch" Style="{StaticResource Button.Rail}" Click="Rail_Click" Tag="batch" Content="Batch from CSV" />
+                    <ToggleButton x:Name="RailPrinter" Style="{StaticResource Button.Rail}" Click="Rail_Click" Tag="printer" Content="Printer setting" />
+                    <ToggleButton x:Name="RailDesign" Style="{StaticResource Button.Rail}" Click="Rail_Click" Tag="design" Content="Card design" />
+                </StackPanel>
+            </DockPanel>
+
+            <Border x:Name="Drawer" Grid.Column="1" Width="320" Margin="0,0,12,0" Style="{StaticResource Panel}" Visibility="Collapsed">
                 <DockPanel Margin="20,16,8,16">
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,12,12">
-                        <Button x:Name="DrawerClose" DockPanel.Dock="Right" Style="{StaticResource Button.Ghost}" Content="Close" Click="DrawerClose_Click" />
-                        <TextBlock x:Name="DrawerTitle" Style="{StaticResource Text.Title}" FontSize="18" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <Button x:Name="DrawerClose" DockPanel.Dock="Right" Style="{StaticResource Button.Link}" Content="Close" Click="DrawerClose_Click" />
+                        <TextBlock x:Name="DrawerTitle" Style="{StaticResource Text.Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                     </DockPanel>
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,12,0" Focusable="False">
                         <Grid>
@@ -111,7 +116,7 @@
                                     <ComboBox x:Name="CmbBatchPaper" Style="{StaticResource Select}" SelectionChanged="BatchLayout_Changed" AutomationProperties.LabeledBy="{Binding ElementName=LblBatchPaper}" />
                                 </StackPanel>
 
-                                <Button x:Name="BtnBatch" Style="{StaticResource Button.Primary}" Content="Make the batch" Click="BtnBatch_Click" HorizontalAlignment="Left" />
+                                <Button x:Name="BtnBatch" Style="{StaticResource Button.Strong}" Content="Make the batch" Click="BtnBatch_Click" HorizontalAlignment="Left" />
                                 <TextBlock x:Name="BatchStatus" Style="{StaticResource Text.Note}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite" />
                                 <StackPanel x:Name="BatchReport" Margin="0,8,0,0" />
                             </StackPanel>
@@ -137,7 +142,7 @@
                                 </TextBlock>
 
                                 <StackPanel x:Name="DesignHome">
-                                    <Button x:Name="BtnTplMap" Style="{StaticResource Button.Primary}" Content="Show the map" Click="BtnTplMap_Click" HorizontalAlignment="Left" />
+                                    <Button x:Name="BtnTplMap" Style="{StaticResource Button.Strong}" Content="Show the map" Click="BtnTplMap_Click" HorizontalAlignment="Left" />
                                     <TextBlock Style="{StaticResource Text.Note}" Margin="0,8,0,20"
                                                Text="The boxes for the photo, name, job title, number, signature and QR, drawn over the card. Drag them anywhere." />
 
@@ -156,7 +161,7 @@
                                                Text="Drag a box to move it, its corner to resize it. With a box selected, the arrow keys move it by a quarter of a millimetre, and Shift with an arrow key resizes it. Tab moves between boxes." />
                                     <TextBlock x:Name="DesignReadout" Style="{StaticResource Text.Body}" Margin="0,12,0,12" AutomationProperties.LiveSetting="Polite" />
                                     <WrapPanel>
-                                        <Button x:Name="BtnTplDone" Style="{StaticResource Button.Primary}" Content="Keep this map" Click="BtnTplDone_Click" Margin="0,0,8,8" />
+                                        <Button x:Name="BtnTplDone" Style="{StaticResource Button.Strong}" Content="Keep this map" Click="BtnTplDone_Click" Margin="0,0,8,8" />
                                         <Button x:Name="BtnTplCancel" Style="{StaticResource Button.Ghost}" Content="Discard changes" Click="BtnTplCancel_Click" Margin="0,0,8,8" />
                                     </WrapPanel>
                                     <Button x:Name="BtnTplDefaults" Style="{StaticResource Button.Link}" Content="Put the boxes back where the built-in design has them" Click="BtnTplDefaults_Click" Margin="-8,4,0,0" />
@@ -176,47 +181,47 @@
             </Border>
 
             <!-- ============ the card ============ -->
-            <Border Grid.Column="2" Background="{DynamicResource Color.Tray}" CornerRadius="14" Margin="0,0,12,0">
+            <Border x:Name="Stage" Grid.Column="2" Background="{DynamicResource Color.Stage}" CornerRadius="8">
                 <DockPanel Margin="20,16,20,16">
                     <StackPanel x:Name="SideTabs" DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,12">
-                        <RadioButton x:Name="SideFront" GroupName="side" Style="{StaticResource Chip.OnTray}" Content="Front" IsChecked="True" Click="Side_Click" />
-                        <RadioButton x:Name="SideBack" GroupName="side" Style="{StaticResource Chip.OnTray}" Content="Back" Click="Side_Click" />
+                        <RadioButton x:Name="SideFront" GroupName="side" Style="{StaticResource Chip.Side}" Content="Front" IsChecked="True" Click="Side_Click" />
+                        <RadioButton x:Name="SideBack" GroupName="side" Style="{StaticResource Chip.Side}" Content="Back" Click="Side_Click" />
                     </StackPanel>
 
                     <!-- what is already waiting to print with this card -->
-                    <Border x:Name="QueueStrip" DockPanel.Dock="Bottom" Background="{DynamicResource Color.TrayRaised}" CornerRadius="10" Padding="14,10" Margin="0,12,0,0" Visibility="Collapsed">
+                    <Border x:Name="QueueStrip" DockPanel.Dock="Bottom" Background="{DynamicResource Color.StageRaised}" BorderBrush="{DynamicResource Color.Line}" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,12,0,0" Visibility="Collapsed">
                         <StackPanel>
                             <DockPanel>
-                                <TextBlock x:Name="JobCount" DockPanel.Dock="Right" FontSize="13" Foreground="{DynamicResource Color.TrayMuted}" VerticalAlignment="Center" />
-                                <TextBlock Text="In this print" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Color.TrayInk}" />
+                                <TextBlock x:Name="JobCount" DockPanel.Dock="Right" FontSize="13" Foreground="{DynamicResource Color.StageMuted}" VerticalAlignment="Center" />
+                                <TextBlock Text="In this print" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Color.StageInk}" />
                             </DockPanel>
                             <ScrollViewer MaxHeight="132" VerticalScrollBarVisibility="Auto" Margin="0,6,0,0" Focusable="False">
                                 <StackPanel x:Name="JobList" />
                             </ScrollViewer>
-                            <TextBlock x:Name="JobNote" FontSize="13" Foreground="{DynamicResource Color.TrayMuted}" TextWrapping="Wrap" Margin="0,6,0,0" />
-                            <Button x:Name="BtnCancelAdd" Style="{StaticResource Button.OnTray}" Content="Stop adding and go back to the print" Click="BtnCancelAdd_Click"
+                            <TextBlock x:Name="JobNote" FontSize="13" Foreground="{DynamicResource Color.StageMuted}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            <Button x:Name="BtnCancelAdd" Style="{StaticResource Button.Ghost}" Content="Stop adding and go back to the print" Click="BtnCancelAdd_Click"
                                     HorizontalAlignment="Left" Margin="0,8,0,0" Visibility="Collapsed" />
                         </StackPanel>
                     </Border>
 
-                    <TextBlock x:Name="Caption" DockPanel.Dock="Bottom" FontSize="13" Foreground="{DynamicResource Color.TrayMuted}" TextAlignment="Center"
+                    <TextBlock x:Name="Caption" DockPanel.Dock="Bottom" FontSize="13" Foreground="{DynamicResource Color.StageMuted}" TextAlignment="Center"
                                TextWrapping="Wrap" Margin="0,10,0,0" />
 
                     <StackPanel x:Name="SheetNav" DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0" Visibility="Collapsed">
-                        <Button x:Name="PrevPage" Style="{StaticResource Button.OnTray}" Content="Previous page" Click="PrevPage_Click" />
-                        <TextBlock x:Name="PreviewCaption" FontSize="13" Foreground="{DynamicResource Color.TrayInk}" VerticalAlignment="Center" Margin="14,0" />
-                        <Button x:Name="NextPage" Style="{StaticResource Button.OnTray}" Content="Next page" Click="NextPage_Click" />
+                        <Button x:Name="PrevPage" Style="{StaticResource Button.Ghost}" Content="Previous page" Click="PrevPage_Click" />
+                        <TextBlock x:Name="PreviewCaption" FontSize="13" Foreground="{DynamicResource Color.StageInk}" VerticalAlignment="Center" Margin="14,0" />
+                        <Button x:Name="NextPage" Style="{StaticResource Button.Ghost}" Content="Next page" Click="NextPage_Click" />
                     </StackPanel>
 
                     <Grid>
-                        <TextBlock x:Name="CardLoading" Text="Loading the card…" Foreground="{DynamicResource Color.TrayInk}" FontSize="15"
+                        <TextBlock x:Name="CardLoading" Text="Loading the card…" Foreground="{DynamicResource Color.StageMuted}" FontSize="14"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
                         <!-- the card, as large as the space allows; the map boxes sit exactly on top of it -->
                         <Viewbox x:Name="CardBox" Stretch="Uniform" Visibility="Collapsed">
                             <Grid x:Name="CardSurface" Width="540" Height="856" Background="Transparent"
                                   MouseLeftButtonDown="Card_MouseDown" MouseMove="Card_MouseMove" MouseLeftButtonUp="Card_MouseUp" MouseWheel="Card_MouseWheel">
                                 <Image x:Name="CardImage" Stretch="Fill" />
-                                <Border BorderBrush="#1AFFFFFF" BorderThickness="1" IsHitTestVisible="False" />
+                                <Border BorderBrush="{DynamicResource Color.CardEdge}" BorderThickness="1" IsHitTestVisible="False" />
                                 <local:MapEditor x:Name="MapOverlay" Visibility="Collapsed" />
                             </Grid>
                         </Viewbox>
@@ -226,18 +231,22 @@
             </Border>
 
             <!-- ============ the form ============ -->
-            <Border x:Name="FormPanel" Grid.Column="3" Style="{StaticResource Panel}">
+            <Border x:Name="FormPanel" Grid.Column="3" Width="440" Margin="12,0,0,0" Style="{StaticResource Panel}">
                 <DockPanel Margin="24,20,12,16">
-                    <WrapPanel x:Name="StepsBar" DockPanel.Dock="Top" Margin="0,0,12,16" />
+                    <!-- the six steps, one row, equal widths: 61 + 4 each, so the bar ends on the form's right edge -->
+                    <UniformGrid x:Name="StepsBar" DockPanel.Dock="Top" Rows="1" Margin="0,0,8,20" />
 
-                    <StackPanel DockPanel.Dock="Bottom" Margin="0,12,12,0">
+                    <!-- the way forward stays put under the step, set off by one rule -->
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Color.Line}" BorderThickness="0,1,0,0" Margin="0,12,12,0" Padding="0,16,0,0">
+                      <StackPanel>
                         <StackPanel Orientation="Horizontal">
                             <Button x:Name="BtnBack" Style="{StaticResource Button.Ghost}" Content="Back" Click="BtnBack_Click" Margin="0,0,8,0" MinWidth="88" />
                             <Button x:Name="BtnNext" Style="{StaticResource Button.Primary}" Content="Next" Click="BtnNext_Click" MinWidth="120" />
                         </StackPanel>
                         <TextBlock x:Name="Blocked" Style="{StaticResource Text.Error}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Assertive" Visibility="Collapsed" />
                         <TextBlock x:Name="Status" Style="{StaticResource Text.Note}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite" />
-                    </StackPanel>
+                      </StackPanel>
+                    </Border>
 
                     <ScrollViewer x:Name="StepScroll" VerticalScrollBarVisibility="Auto" Padding="0,0,12,0" Focusable="False">
                         <Grid>
@@ -315,11 +324,11 @@
                             <StackPanel x:Name="StepPhoto" Visibility="Collapsed" AllowDrop="True" Drop="Photo_Drop" DragOver="Photo_DragOver" Background="Transparent">
                                 <TextBlock Style="{StaticResource Text.Heading}" Text="Their photo" />
                                 <StackPanel Orientation="Horizontal">
-                                    <Border Width="72" Height="92" CornerRadius="8" Background="{DynamicResource Color.Bg}" BorderBrush="{DynamicResource Color.Line}" BorderThickness="1" ClipToBounds="True">
+                                    <Border Width="72" Height="92" CornerRadius="6" Background="{DynamicResource Color.Bg}" BorderBrush="{DynamicResource Color.Line}" BorderThickness="1" ClipToBounds="True">
                                         <Image x:Name="PhotoThumb" Stretch="Uniform" />
                                     </Border>
                                     <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                                        <Button x:Name="BtnPhoto" Style="{StaticResource Button.Primary}" Content="Choose a photo" Click="BtnPhoto_Click" HorizontalAlignment="Left" />
+                                        <Button x:Name="BtnPhoto" Style="{StaticResource Button.Strong}" Content="Choose a photo" Click="BtnPhoto_Click" HorizontalAlignment="Left" />
                                         <TextBlock x:Name="PhotoName" Style="{StaticResource Text.Note}" Margin="0,6,0,0" MaxWidth="250" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                                     </StackPanel>
                                 </StackPanel>
@@ -369,14 +378,14 @@
                             <!-- 5. signature -->
                             <StackPanel x:Name="StepSign" Visibility="Collapsed">
                                 <TextBlock Style="{StaticResource Text.Heading}" Text="Their signature" />
-                                <Border x:Name="SigFrame" BorderBrush="{DynamicResource Color.ControlBorder}" BorderThickness="1" CornerRadius="8" ClipToBounds="True" Background="White">
+                                <Border x:Name="SigFrame" BorderBrush="{DynamicResource Color.ControlBorder}" BorderThickness="1" CornerRadius="6" ClipToBounds="True" Background="White">
                                     <Grid>
                                         <local:SignaturePad x:Name="SigPreview" CanDraw="False" Hint="No signature yet" />
                                         <Image x:Name="SigImage" Stretch="Uniform" Margin="12" Visibility="Collapsed" />
                                     </Grid>
                                 </Border>
                                 <WrapPanel Margin="0,12,0,0">
-                                    <Button x:Name="BtnSign" Style="{StaticResource Button.Primary}" Content="Sign now" Click="BtnSign_Click" Margin="0,0,8,8" />
+                                    <Button x:Name="BtnSign" Style="{StaticResource Button.Strong}" Content="Sign now" Click="BtnSign_Click" Margin="0,0,8,8" />
                                     <Button x:Name="BtnSigScan" Style="{StaticResource Button.Ghost}" Content="Use a scan instead" Click="BtnSigScan_Click" Margin="0,0,8,8" />
                                     <Button x:Name="BtnClearSig" Style="{StaticResource Button.Ghost}" Content="Clear" Click="BtnClearSig_Click" Margin="0,0,8,8" />
                                 </WrapPanel>
@@ -396,7 +405,7 @@
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" Width="120" BorderBrush="{DynamicResource Color.Line}" BorderThickness="1" CornerRadius="6" ClipToBounds="True" VerticalAlignment="Top">
+                                        <Border Grid.Column="0" Width="120" BorderBrush="{DynamicResource Color.Line}" BorderThickness="1" CornerRadius="4" ClipToBounds="True" VerticalAlignment="Top">
                                             <Image x:Name="SummaryImage" Stretch="Uniform" />
                                         </Border>
                                         <StackPanel Grid.Column="1" Margin="14,0,0,0">
@@ -471,7 +480,5 @@
                 </DockPanel>
             </Border>
         </Grid>
-
-        <TextBlock x:Name="AppVersion" Grid.Row="2" Style="{StaticResource Text.Note}" Margin="0,8,0,0" HorizontalAlignment="Right" />
     </Grid>
 </Window>

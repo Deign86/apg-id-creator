@@ -66,14 +66,16 @@ public partial class ThemeTests
     // things you can use, and the focus ring, 3:1 (WCAG 1.4.11).
     private static readonly (string Fore, string Back, double Need)[] Pairs =
     {
-        ("Text", "Bg", 4.5), ("Text", "Surface", 4.5), ("Text", "Field", 4.5), ("Text", "AccentWash", 4.5),
+        ("Text", "Bg", 4.5), ("Text", "Surface", 4.5), ("Text", "Field", 4.5), ("Text", "Hover", 4.5), ("Text", "Active", 4.5),
         ("TextMuted", "Bg", 4.5), ("TextMuted", "Surface", 4.5), ("TextMuted", "Field", 4.5),
-        ("Accent", "Bg", 4.5), ("Accent", "Surface", 4.5),
         ("Danger", "Bg", 4.5), ("Danger", "Surface", 4.5), ("Warning", "Bg", 4.5), ("Warning", "Surface", 4.5),
         ("OnAccent", "AccentSolid", 4.5), ("OnAccent", "AccentSolidHover", 4.5),
+        ("OnStrong", "Strong", 4.5), ("OnStrong", "StrongHover", 4.5),
+        ("StageInk", "Stage", 4.5), ("StageMuted", "Stage", 4.5), ("StageInk", "StageRaised", 4.5), ("StageMuted", "StageRaised", 4.5),
         ("TrayInk", "Tray", 4.5), ("TrayMuted", "Tray", 4.5), ("TrayInk", "TrayRaised", 4.5), ("TrayMuted", "TrayRaised", 4.5),
-        ("ControlBorder", "Surface", 3), ("ControlBorder", "Field", 3),
-        ("Focus", "Bg", 3), ("Focus", "Surface", 3), ("Focus", "Field", 3),
+        ("ControlBorder", "Surface", 3), ("ControlBorder", "Field", 3), ("ControlBorder", "Stage", 3),
+        ("Strong", "Surface", 3), ("Strong", "Stage", 3),
+        ("Focus", "Bg", 3), ("Focus", "Surface", 3), ("Focus", "Field", 3), ("Focus", "Stage", 3),
         ("ScrollThumb", "Surface", 3), ("AccentSolid", "Tray", 3),
     };
 
@@ -126,5 +128,26 @@ public partial class ThemeTests
         var sources = app.Descendants().Where(e => e.Name.LocalName == "ResourceDictionary" && e.Attribute("Source") is not null)
             .Select(e => (string)e.Attribute("Source")!).ToList();
         Assert.Equal(new[] { "Colors.Light.xaml", "Theme.xaml" }, sources);
+    }
+
+    [Fact]
+    public void Gold_is_kept_for_the_forward_button_and_the_current_step()
+    {
+        // The one hue is spent in two places in the window: Button.Primary and
+        // the rule over the step you are on. A hover, a ticked box, a chosen
+        // chip or a link turning gold again would make it mean nothing.
+        var theme = File.ReadAllText(Path.Combine(AppFolder, "Theme.xaml"));
+        var primary = theme[theme.IndexOf("x:Key=\"Button.Primary\"", StringComparison.Ordinal)..theme.IndexOf("x:Key=\"Button.Ghost\"", StringComparison.Ordinal)];
+        var rest = theme.Replace(primary, "");
+        Assert.Contains("Color.AccentSolid", primary);
+        Assert.DoesNotContain("Color.Accent", rest);
+        Assert.DoesNotContain("Color.Accent", File.ReadAllText(Path.Combine(AppFolder, "MainWindow.xaml")));
+
+        var inCode = Directory.GetFiles(AppFolder, "*.cs")
+            .SelectMany(f => File.ReadAllLines(f).Where(l => l.Contains("\"Color.Accent")).Select(l => $"{Path.GetFileName(f)}: {l.Trim()}"))
+            .Where(l => !l.StartsWith("MapEditor.cs", StringComparison.Ordinal))      // the map's handles are drawn on the card, not the window
+            .ToList();
+        Assert.Single(inCode);
+        Assert.Contains("current ? \"Color.AccentSolid\"", inCode[0]);
     }
 }

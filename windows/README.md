@@ -151,7 +151,7 @@ prove it opens. It carries everything except the pen tablet driver.
 Releases build themselves. When a change to the app reaches `main`,
 `.github/workflows/release.yml` runs every test, builds the package,
 proves it installs and starts, and publishes it as a GitHub release
-named after the version (`v2.0.2`): the setup program, the single
+named after the version (`v2.0.3`): the setup program, the single
 portable `.exe`, and a `SHA256SUMS.txt` for both.
 
 The version is `Version` in `IdMaker.App.csproj`. A version that is
@@ -272,8 +272,34 @@ restarted.
   3:1 for control edges, scroll bars and the focus ring.
 
 What does not change, on purpose: the printed card (its colours are the
-artwork's), the black stage the card sits on, the signing screen (black,
-like the card), and the signature pad (white, like paper).
+artwork's), the signing screen (black, like the card), and the signature
+pad (white, like paper).
+
+### How the window is meant to look
+
+The rules `Theme.xaml` and `MainWindow.xaml` are held to, so the next
+change keeps them:
+
+- **Gold means one thing.** It is spent on the button that moves the job
+  forward (`Button.Primary`: Next, Save the PDF) and on the rule over the
+  step you are on. Anything else that is chosen, ticked, hovered, open or
+  focused uses the text colour (`Color.Strong`, `Color.Focus`) or a tone
+  step of the page (`Color.Hover`, `Color.Active`). `ThemeTests` fails if
+  gold appears anywhere else.
+- **One gold button on screen.** A step's own main action (Choose a
+  photo, Sign now) and a tool's (Make the batch, Keep this map) are
+  `Button.Strong`, the text colour as a fill, and drop to `Button.Ghost`
+  once done.
+- **The card is the biggest thing.** No title bar or footer of our own:
+  the product's name is at the top of the rail, the version at its foot.
+  The card sits on `Color.Stage`, one step from the page, with a hairline
+  round it so its edge shows in either mode.
+- **Flat.** A 1-pixel line or a tone step separates surfaces. No shadows,
+  no gradients, no animation; a press shows as a dip in opacity.
+- **One radius family:** panels 8, controls 6, small marks 4.
+- **Four type sizes:** 13, 14, 16, 20. Fields are 40 high and 20 apart.
+- **In a narrow window** (under 1296 wide) an open tool takes the form's
+  place until it is closed (`FitColumns`); the card never gives way.
 
 **Not done:** Windows' *contrast themes* (high contrast). The app keeps
 its own colours there rather than taking the contrast theme's.
@@ -316,7 +342,7 @@ Most changes are numbers in `IdMaker.Core/Config.cs`.
 | New card artwork, built in | replace `assets/front-template.png` and `assets/back.png` at the top of the repository (638 × 1004 or 638 × 1011), re-trace `FrontOutline` and `PhotoArea` if the band or the photo window moved |
 | Change the app's icon | `IdMaker.App/AppIcon.ico`. The logo it is made from is `assets/id-maker-logo.png`, and the editable original is in Canva ("Logo - Employee IDs", page 4) |
 | Restyle the window after a rebrand | `IdMaker.App/Colors.Light.xaml` and `Colors.Dark.xaml`, which must keep the same names. None of them touch the printed card |
-| Point at a different register | `CardConfig.RegisterUrl`. Treat it as a password; see `register/README.md` |
+| Point at a different register | the `REGISTER_URL` repository secret, used by the release build; it is never in the source. Treat it as a password; see `register/README.md` |
 | The version | `CardConfig.AppVersion`, and `Version` in `IdMaker.App.csproj` and `app.manifest` |
 
 After any change that could move something on the card, run all three

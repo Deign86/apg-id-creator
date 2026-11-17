@@ -251,6 +251,10 @@ buttons).
   nothing queued (`Session.DesignAllowed`): a photo placed against one
   map is wrong for another.
 - I3. While editing, the form is disabled.
+- I4. The form is hidden only while a tool is open and the window is too
+  narrow for rail, tool, card and form together (`FitColumns`, derived on
+  every render and resize, never stored). Closing the tool always brings
+  it back.
 
 | From | Event | Guard | To | Side effects | Code |
 | --- | --- | --- | --- | --- | --- |

@@ -52,7 +52,7 @@ public enum MiddleNameStyle { Initial, Full, None }
 public static class CardConfig
 {
     public const string AppName = "Alpha Premier ID Maker";
-    public const string AppVersion = "2.0.2";          // stamped into every PDF's metadata
+    public const string AppVersion = "2.0.3";          // stamped into every PDF's metadata
 
     // CR80 (ISO/IEC 7810 ID-1): 85.60 x 53.98 mm
     public const double CardWidthMm = 54;
@@ -132,20 +132,26 @@ public static class CardConfig
     public const double CropMarkMm = 3;
     public const double CropMarkOffsetMm = 1;
 
-    // The shared register, built in so nobody has to set it up and nobody
-    // can switch it off by accident.
+    // The shared register's address. The deployment is open to "Anyone", so
+    // this address IS the credential: whoever holds it can read every issued
+    // ID and write new rows. It is therefore not in the source. The release
+    // build puts it in from the repository secret REGISTER_URL (see
+    // register/README.md), as assembly metadata on IdMaker.Core.
     //
-    // Read this before copying the pattern. The deployment is open to
-    // "Anyone", so this address IS the credential: whoever holds it can read
-    // every issued ID and write new rows. It is in the source because this
-    // repository is private and one laptop issues the cards. If the
-    // repository is ever made public, or the address leaks, archive the
-    // deployment in Apps Script (Deploy -> Manage deployments) and put the
-    // new address here: the old one stops working the moment it is archived.
+    // A build without it (a developer's, CI's for a pull request) has no
+    // built-in register: it keeps its own list, and an address can still be
+    // saved on a computer (Issued IDs -> Shared register), which always wins.
     //
-    // A different address saved on a computer (Issued IDs -> Shared register)
-    // overrides this one.
-    public const string RegisterUrl = "https://script.google.com/macros/s/AKfycbwkFPDeHpXyb6fmt5ydcJN-peYQjXQnhfozn3iEoRxwfp38Ij9rkcYOq3IP-Pg7Oko/exec";
+    // shortcut: anyone with the released .exe can still dig the address out
+    // of it, since the app must call it; the real fix is a register that
+    // asks who is calling. Revisit if the .exe is ever handed outside the office.
+    public static readonly string RegisterUrl = BuiltInRegisterUrl();
+
+    private static string BuiltInRegisterUrl() =>
+        typeof(CardConfig).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "RegisterUrl")?.Value?.Trim() ?? "";
     public static readonly TimeSpan RegisterTimeout = TimeSpan.FromSeconds(20);   // Apps Script is slow to wake
 
     public static readonly QrSpec Qr = new(2, 66.567, 8.8, "https://alphapremiergroup.com/", 'M', "#FFFFFF", "#000000");
