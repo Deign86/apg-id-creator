@@ -49,11 +49,24 @@ if (-not $version) { throw 'No <Version> in IdMaker.App.csproj.' }
 
 $driverDir = Join-Path $Dist 'driver'
 New-Item -ItemType Directory -Force -Path $driverDir | Out-Null
-$zip = Join-Path $driverDir $Driver.Zip
-Write-Host "Fetching the $($Driver.Name) $($Driver.Version)..."
-Invoke-WebRequest -Uri $Driver.Url -OutFile $zip -UseBasicParsing
-$hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
-if ($hash -ne $Driver.Sha256) { throw "The driver that was downloaded is not the file Driver.psd1 names (checksum $hash). Check XP-Pen's download page and update Driver.psd1." }
+# The driver is downloaded once and kept beside this script (CI keeps the
+# folder between runs). A kept copy is used only if it is still, byte for
+# byte, the file Driver.psd1 names; anything else is fetched again.
+$kept = Join-Path $Here '.cache'
+New-Item -ItemType Directory -Force -Path $kept | Out-Null
+$zip = Join-Path $kept $Driver.Zip
+$hash = if (Test-Path $zip) { (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant() } else { '' }
+if ($hash -eq $Driver.Sha256) {
+    Write-Host "Using the kept copy of the $($Driver.Name) $($Driver.Version)."
+} else {
+    Write-Host "Fetching the $($Driver.Name) $($Driver.Version)..."
+    Invoke-WebRequest -Uri $Driver.Url -OutFile $zip -UseBasicParsing
+    $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
+    if ($hash -ne $Driver.Sha256) {
+        Remove-Item $zip -Force
+        throw "The driver that was downloaded is not the file Driver.psd1 names (checksum $hash). Check XP-Pen's download page and update Driver.psd1."
+    }
+}
 Expand-Archive -Path $zip -DestinationPath $driverDir -Force
 $driverExe = Join-Path $driverDir $Driver.Exe
 if (-not (Test-Path $driverExe)) { throw "The driver package did not contain $($Driver.Exe)." }

@@ -3,3 +3,6 @@ Thumbs.db
 
 # local only, never pushed
 JIRA-BOARD.local.md
+
+# downloads kept between builds (windows/installer/package.ps1)
+windows/installer/.cache/

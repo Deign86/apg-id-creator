@@ -9,6 +9,7 @@ on:
       - 'assets/**'
       - 'test/golden-front.png'
       - '.github/workflows/**'
+      - '!**/*.md'            # a change to the documents alone builds nothing
   workflow_dispatch:
 
 permissions:
@@ -28,9 +29,29 @@ jobs:
       IDMAKER_REPORT_DIR: ${{ github.workspace }}\report
     steps:
       - uses: actions/checkout@v4
+      # The runner image already has a .NET 8 SDK. Installing one again costs
+      # about half a minute a job, so that only happens if the image drops it.
+      - name: Is .NET 8 already here
+        id: sdk
+        shell: pwsh
+        run: |
+          $have = [bool](dotnet --list-sdks | Select-String '^8\.')
+          "have=$($have.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          dotnet --list-sdks
       - uses: actions/setup-dotnet@v4
+        if: steps.sdk.outputs.have != 'true'
         with:
           dotnet-version: 8.0.x
+      # The matting model (25 MB) and the pen driver are two fixed downloads,
+      # each checked against a pinned SHA-256 when used. Keeping them between
+      # runs saves the time and a failure when either site is slow.
+      - name: Keep the two big downloads between runs
+        uses: actions/cache@v4
+        with:
+          path: |
+            windows/IdMaker.Vision/Models
+            windows/installer/.cache
+          key: downloads-${{ hashFiles('windows/IdMaker.Vision/IdMaker.Vision.csproj', 'windows/installer/Driver.psd1') }}
       - name: Build
         run: dotnet build windows/IdMaker.sln -c Release
       - name: Core tests
@@ -66,15 +87,40 @@ jobs:
           path: report
           if-no-files-found: ignore
 
+  # Runs beside the tests, not after them: the two take about the same
+  # time, so the whole check takes as long as the slower one. What it builds
+  # is only kept as a run artifact; nothing is released from here.
   package:
-    needs: test
     runs-on: windows-latest
     timeout-minutes: 25
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
     steps:
       - uses: actions/checkout@v4
+      # The runner image already has a .NET 8 SDK. Installing one again costs
+      # about half a minute a job, so that only happens if the image drops it.
+      - name: Is .NET 8 already here
+        id: sdk
+        shell: pwsh
+        run: |
+          $have = [bool](dotnet --list-sdks | Select-String '^8\.')
+          "have=$($have.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          dotnet --list-sdks
       - uses: actions/setup-dotnet@v4
+        if: steps.sdk.outputs.have != 'true'
         with:
           dotnet-version: 8.0.x
+      # The matting model (25 MB) and the pen driver are two fixed downloads,
+      # each checked against a pinned SHA-256 when used. Keeping them between
+      # runs saves the time and a failure when either site is slow.
+      - name: Keep the two big downloads between runs
+        uses: actions/cache@v4
+        with:
+          path: |
+            windows/IdMaker.Vision/Models
+            windows/installer/.cache
+          key: downloads-${{ hashFiles('windows/IdMaker.Vision/IdMaker.Vision.csproj', 'windows/installer/Driver.psd1') }}
       - name: Make sure Inno Setup is there
         shell: pwsh
         run: |
