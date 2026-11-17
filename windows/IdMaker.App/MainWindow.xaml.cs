@@ -86,7 +86,7 @@ public partial class MainWindow : Window
         _sheetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _sheetTimer.Tick += (_, _) => { _sheetTimer.Stop(); DrawSheetPreview(); };
 
-        AppVersion.Text = $"{CardConfig.AppName} {CardConfig.AppVersion}";
+        AppVersion.Text = $"Version {CardConfig.AppVersion}";
         TxtPrompt.Text = CardConfig.PhotoPrompt;
         SeqPrefix.Text = $"{CardConfig.EmployeePrefix} -";
         foreach (var y in _session.YearsOffered()) CmbYear.Items.Add(y);
@@ -102,6 +102,7 @@ public partial class MainWindow : Window
         PreviewKeyDown += Window_PreviewKeyDown;
         CardSurface.SizeChanged += (_, _) => DrawPreview();
         CardBox.SizeChanged += (_, _) => DrawPreview();
+        Columns.SizeChanged += (_, _) => FitColumns();
         Loaded += (_, _) => Boot();
         // light or dark, as Windows is set, and follow it if it changes while the app is open
         SourceInitialized += (_, _) => ThemeManager.Follow(this);
@@ -332,7 +333,7 @@ public partial class MainWindow : Window
         for (var i = 0; i < Session.Steps.Length; i++)
         {
             var index = i;
-            var chip = new Button { Style = Theme.Style("Button.Ghost"), Margin = new Thickness(0, 0, 6, 6), Padding = new Thickness(10, 6, 12, 6), MinHeight = 36 };
+            var chip = new Button { Style = Theme.Style("Step") };
             chip.Click += (_, _) => AfterMove(_session.StepIndex, _session.ChipPressed(index));
             StepsBar.Children.Add(chip);
             _stepChips.Add(chip);
@@ -351,12 +352,13 @@ public partial class MainWindow : Window
             // a step cannot be both finished and out of reach: locked wins
             var done = Session.StepDone(i, p) && i != Session.LastStep && !current && !locked;
             var chip = _stepChips[i];
-            // the mark carries the state, so it does not depend on colour
-            chip.Content = $"{(done ? "✓" : (i + 1).ToString(CultureInfo.InvariantCulture))}  {label}";
-            chip.Style = Theme.Style(current ? "Button.Primary" : "Button.Ghost");
-            chip.Margin = new Thickness(0, 0, 6, 6);
-            chip.Padding = new Thickness(10, 6, 12, 6);
-            chip.MinHeight = 36;
+            chip.Content = label;
+            // The rule over the word carries the state in its thickness as well
+            // as its colour: thick for finished and for the step you are on,
+            // a hairline for the ones to come. Gold marks only where you are.
+            chip.BorderThickness = new Thickness(0, done || current ? 3 : 1, 0, 0);
+            Theme.Paint(chip, Control.BorderBrushProperty, current ? "Color.AccentSolid" : done ? "Color.Strong" : "Color.ControlBorder");
+            Theme.Paint(chip, Control.ForegroundProperty, current || done ? "Color.Text" : "Color.TextMuted");
             chip.Opacity = locked ? 0.55 : 1;
             chip.FontWeight = current ? FontWeights.SemiBold : FontWeights.Normal;
             // not disabled: a locked step can still be asked why it will not open
@@ -593,6 +595,8 @@ public partial class MainWindow : Window
         SetText(PhotoMsg, text);
         BtnPhoto.Content = _checkingPhoto ? "Looking at the photo…" : photo is not null ? "Choose a different photo" : "Choose a photo";
         BtnPhoto.IsEnabled = !_checkingPhoto;
+        // it stands out until there is a photo; after that the way forward is Next
+        BtnPhoto.Style = Theme.Style(photo is null ? "Button.Strong" : "Button.Ghost");
         SetText(PhotoName, photo?.FileName ?? "");
         Show(PhotoName, photo is not null);
         PhotoThumb.Source = photo is null ? null : ThumbFor(photo);
@@ -776,6 +780,7 @@ public partial class MainWindow : Window
         if (!ReferenceEquals(_padShows, sig)) { _padShows = sig; SigPreview.Value = sig as DrawnSignature; }
 
         BtnSign.Content = sig is null ? "Sign now" : "Sign again";
+        BtnSign.Style = Theme.Style(sig is null ? "Button.Strong" : "Button.Ghost");
         BtnClearSig.IsEnabled = sig is not null;
         SetText(SigHelp, scan is not null
             ? $"Scanned: {scan.FileName}. It prints in white on the card."

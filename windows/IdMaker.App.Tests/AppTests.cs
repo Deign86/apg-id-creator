@@ -471,6 +471,7 @@ public class WindowTests
 
             window.TxtLast.Text = "reyes";
             window.TxtFirst.Text = "Ana";
+            Shoot(window, "step-1-name");
             Click(window.BtnNext);
             Assert.Equal(1, window.Session.StepIndex);
             Assert.Equal(Visibility.Collapsed, window.Blocked.Visibility);
@@ -480,9 +481,11 @@ public class WindowTests
             chip.IsChecked = true;
             Click(chip);
             Assert.Equal("HR Associate", window.Session.JobTitle);
+            Shoot(window, "step-2-job-title");
             Click(window.BtnNext);
             window.TxtSeq.Text = "12x4";
             Assert.Equal("124", window.Session.Seq);
+            Shoot(window, "step-3-number");
             Click(window.BtnNext);
             Assert.Equal(3, window.Session.StepIndex);
         });
@@ -493,6 +496,7 @@ public class WindowTests
             Assert.True(window.Session.Photo is not null, window.Session.PhotoError);
             Assert.NotNull(window.PhotoThumb.Source);
             Assert.Equal(Visibility.Visible, window.AdjustBox.Visibility);
+            Shoot(window, "step-4-photo");
             Click(window.BtnNext);
             Assert.Equal(4, window.Session.StepIndex);
 
@@ -502,6 +506,7 @@ public class WindowTests
             Assert.Equal(1, asked);
             Assert.True(window.Session.Signature is { HasInk: true });
             Assert.True(window.SigPreview.HasInk);
+            Shoot(window, "step-5-signature");
             Click(window.BtnNext);
             Assert.Equal(Session.LastStep, window.Session.StepIndex);
             Assert.Equal("Reyes", window.Session.Last);               // capitalised on the way past
@@ -515,7 +520,7 @@ public class WindowTests
 
         var pdf = Path.Combine(folder, "out", "card.pdf");
         Directory.CreateDirectory(Path.GetDirectoryName(pdf)!);
-        Ui.Run(() => Assert.NotNull(window.SheetImage.Source));
+        Ui.Run(() => { Assert.NotNull(window.SheetImage.Source); Shoot(window, "step-6-check"); });
         await Ui.RunAsync(() => window.SavePrint(pdf));
 
         Assert.True(File.Exists(pdf));
@@ -529,6 +534,7 @@ public class WindowTests
         {
             Assert.Equal(Visibility.Visible, window.SavedStage.Visibility);
             Assert.Equal("card.pdf", window.SavedName.Text);
+            Shoot(window, "step-6-saved");
             var issued = new Register(new FileStore(folder)) { BuiltInUrl = "" }.All();
             Assert.Single(issued);
             Assert.Equal("Ana Reyes", issued[0].Name);
@@ -655,6 +661,14 @@ public class WindowTests
         return counts.OrderByDescending(kv => kv.Value).First().Key;
     }
 
+    /// <summary>Keeps a picture of the window as it stands, for a person to look at in the report.
+    /// The only photograph in these is the repository's own example cut-out.</summary>
+    private static void Shoot(Window window, string name)
+    {
+        window.UpdateLayout();
+        ImageFiles.SavePng(Snapshot(window), Path.Combine(Files.ReportDirectory, name + ".png"));
+    }
+
     private static BitmapSource Snapshot(Window window)
     {
         var shot = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
@@ -682,6 +696,7 @@ public class WindowTests
                 // a border set from code, by name, follows too
                 Assert.Equal(Color.FromRgb(0x7B, 0x77, 0x6D), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
 
+                Shoot(window, "window-dark-form");
                 // open the printer setting, which shows a drop-down list and a tick box drawn by the theme
                 Click(window.RailPrinter);
                 window.UpdateLayout();
@@ -693,7 +708,9 @@ public class WindowTests
                 ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-dark.png"));
                 // the panel shows its surface and the fields on it; either way, the dark palette's own
                 var darkGrounds = new[] { Color.FromRgb(0x14, 0x14, 0x12), Color.FromRgb(0x1C, 0x1B, 0x19) };
-                Assert.Contains(MostOf(shot, window.FormPanel, window), darkGrounds);
+                Assert.Contains(MostOf(shot, window.Drawer, window), darkGrounds);
+                // in a window too narrow for all four columns the open tool takes the form's place
+                Assert.Equal(window.Columns.ActualWidth < 1272, window.FormPanel.Visibility == Visibility.Collapsed);
                 var list = window.CmbFlip.TranslatePoint(new Point(window.CmbFlip.ActualWidth - 50, window.CmbFlip.ActualHeight / 2), window);
                 var listPixel = PixelOf(shot, (int)list.X, (int)list.Y);
                 Assert.True(listPixel.R < 60 && listPixel.G < 60, $"the drop-down list should be dark in dark mode, but is {listPixel}");
@@ -705,11 +722,16 @@ public class WindowTests
             Ui.Run(() =>
             {
                 Assert.Equal(Colors.White, ((SolidColorBrush)window.FormPanel.Background).Color);
-                Assert.Equal(Color.FromRgb(0x8C, 0x87, 0x7B), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
+                Assert.Equal(Color.FromRgb(0x85, 0x7F, 0x73), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
                 var shot = Snapshot(window);
                 ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-light.png"));
                 var lightGrounds = new[] { Color.FromRgb(0xF5, 0xF5, 0xF2), Colors.White };
-                Assert.Contains(MostOf(shot, window.FormPanel, window), lightGrounds);
+                Assert.Contains(MostOf(shot, window.Drawer, window), lightGrounds);
+                // closing the tool brings the form back
+                Click(window.DrawerClose);
+                window.UpdateLayout();
+                Assert.Equal(Visibility.Visible, window.FormPanel.Visibility);
+                Assert.Contains(MostOf(Snapshot(window), window.FormPanel, window), lightGrounds);
                 window.Close();
             });
         }
