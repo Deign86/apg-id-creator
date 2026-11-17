@@ -15,6 +15,7 @@ on:
       - 'windows/**'
       - 'assets/**'
       - '.github/workflows/release.yml'
+      - '!**/*.md'            # a change to the documents alone releases nothing
   workflow_dispatch:
 
 permissions:
@@ -34,9 +35,29 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      # The runner image already has a .NET 8 SDK. Installing one again costs
+      # about half a minute a job, so that only happens if the image drops it.
+      - name: Is .NET 8 already here
+        id: sdk
+        shell: pwsh
+        run: |
+          $have = [bool](dotnet --list-sdks | Select-String '^8\.')
+          "have=$($have.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          dotnet --list-sdks
       - uses: actions/setup-dotnet@v4
+        if: steps.sdk.outputs.have != 'true'
         with:
           dotnet-version: 8.0.x
+      # The matting model (25 MB) and the pen driver are two fixed downloads,
+      # each checked against a pinned SHA-256 when used. Keeping them between
+      # runs saves the time and a failure when either site is slow.
+      - name: Keep the two big downloads between runs
+        uses: actions/cache@v4
+        with:
+          path: |
+            windows/IdMaker.Vision/Models
+            windows/installer/.cache
+          key: downloads-${{ hashFiles('windows/IdMaker.Vision/IdMaker.Vision.csproj', 'windows/installer/Driver.psd1') }}
 
       - name: Which version is this
         id: version
