@@ -58,6 +58,7 @@ public sealed partial class Register
 {
     private const string Key = "register";
     private const string UrlKey = "register-url";
+    private const string OutboxKey = "register-outbox";
 
     private readonly IKeyValueStore _store;
     private readonly HttpClient _http;
@@ -65,6 +66,7 @@ public sealed partial class Register
     private string? _savedUrl;
     private Dictionary<string, RegisterEntry>? _index;      // the shared register, once it has been read
     private Task<bool>? _loading;                           // the read in flight, so ten callers make one request
+    private int _urlVersion;                                // goes up when the address changes, so an answer from the old one is not kept
 
     /// <summary>The address the app ships with. Tests point it somewhere harmless.</summary>
     public string BuiltInUrl { get; init; } = CardConfig.RegisterUrl;
@@ -163,7 +165,7 @@ public sealed partial class Register
         var clean = (url ?? "").Trim();
         _savedUrl = clean;
         _store.Set(UrlKey, clean.Length > 0 ? clean : null);
-        lock (_gate) { _index = null; _loading = null; }
+        lock (_gate) { _index = null; _loading = null; _urlVersion++; }
     }
 
     [GeneratedRegex(@"^http://(localhost|127\.0\.0\.1)([:/]|$)", RegexOptions.IgnoreCase)] private static partial Regex Localhost();
@@ -280,28 +282,33 @@ public sealed partial class Register
             if (!Shared) return Task.FromResult(false);
             if (_index is not null && !force) return Task.FromResult(true);
             if (_loading is not null && !force) return _loading;
-            var mine = _loading = LoadIndexCore();
+            var mine = _loading = LoadIndexCore(Url, _urlVersion);
             return mine;
         }
     }
 
-    private async Task<bool> LoadIndexCore()
+    private async Task<bool> LoadIndexCore(string url, int version)
     {
         try
         {
-            var rows = await Fetch(new HttpRequestMessage(HttpMethod.Get, Url + "?action=list")).ConfigureAwait(false);
+            var rows = await Fetch(new HttpRequestMessage(HttpMethod.Get, url + "?action=list")).ConfigureAwait(false);
             if (rows is not JsonArray list) return false;
             var index = new Dictionary<string, RegisterEntry>();
             foreach (var row in list)
             {
                 if (ParseEntry(row) is { } e) index[e.Id] = e;
             }
-            lock (_gate) { _index = index; }
+            lock (_gate)
+            {
+                // the address was changed while this was in flight: these rows belong to the old register
+                if (version != _urlVersion) return false;
+                _index = index;
+            }
             return true;
         }
         catch (RegisterException) { return false; }
         catch (Exception e) when (e is UriFormatException or InvalidOperationException) { return false; }
-        finally { lock (_gate) { _loading = null; } }
+        finally { lock (_gate) { if (version == _urlVersion) _loading = null; } }
     }
 
     /// <summary>Has the shared register been read?</summary>
@@ -327,10 +334,55 @@ public sealed partial class Register
         lock (_gate) { if (_index is not null && entry.Id.Length > 0) _index[entry.Id] = entry; }
     }
 
-    /// <summary>Record in the shared register. True when it got there.</summary>
+    /* ---- cards the shared register has not been told about yet ------
+       A card saved while the sheet could not be reached is already issued:
+       it is in the local list and in somebody's hand. If the shared write
+       were simply dropped, no other computer would ever learn the number
+       was taken. So it is kept here and sent again later.
+       ---------------------------------------------------------------- */
+
+    private List<RegisterEntry> ReadOutbox() => _store.Read(OutboxKey, new List<RegisterEntry>());
+
+    /// <summary>How many issued cards are still waiting to be written to the shared register.</summary>
+    public int WaitingForShared { get { lock (_gate) return ReadOutbox().Count; } }
+
+    private void SetWaiting(RegisterEntry entry, bool waiting)
+    {
+        lock (_gate)
+        {
+            var list = ReadOutbox().Where(e => e.Id != entry.Id).ToList();
+            if (waiting) list.Add(entry);
+            _store.Set(OutboxKey, list.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(list, StoreJson.Options));
+        }
+    }
+
+    /// <summary>Try again to write every waiting card. Returns how many are still waiting afterwards.</summary>
+    public async Task<int> SendWaiting()
+    {
+        if (!Shared) return 0;
+        List<RegisterEntry> waiting;
+        lock (_gate) waiting = ReadOutbox();
+        foreach (var entry in waiting)
+        {
+            if (!await RecordShared(entry).ConfigureAwait(false)) break;        // still down: no point trying the rest
+        }
+        return WaitingForShared;
+    }
+
+    /// <summary>
+    /// Record in the shared register. True when it got there; when it did
+    /// not, the card is kept to be sent again by SendWaiting.
+    /// </summary>
     public async Task<bool> RecordShared(RegisterEntry entry)
     {
         if (!Shared) return false;
+        var sent = await PostRecord(entry).ConfigureAwait(false);
+        SetWaiting(entry, !sent);
+        return sent;
+    }
+
+    private async Task<bool> PostRecord(RegisterEntry entry)
+    {
         try
         {
             var body = JsonSerializer.Serialize(new { action = "record", entry }, StoreJson.Options);

@@ -281,6 +281,42 @@ public class DuplicateTests
     }
 
     [Fact]
+    public async Task A_late_answer_does_not_throw_the_operator_out_of_a_print_that_is_already_queued()
+    {
+        var gate = new TaskCompletionSource<HttpResponseMessage>();
+        var (s, _, _) = Shared(_ => gate.Task);
+        // one card banked (the register was not answering, so it was let through), then "stop adding"
+        Make.FillForm(s, "200");
+        s.GoStep(Session.LastStep, force: true);
+        s.Queue.Add(s.JobCards().Count > 0 ? s.JobCards()[0] with { Current = false }
+            : new JobCard("APG-2026-200", "Ana Reyes", "HR Associate", s.CardData(), new RegisterEntry { Id = "APG-2026-200", Year = 2026, Seq = 200, Name = "Ana Reyes" }, false));
+        s.CancelAdding();
+        Assert.Equal(Session.LastStep, s.StepIndex);
+        Assert.False(s.StartedCard);
+
+        gate.SetResult(FakeHttp.Json("[]"));
+        await s.DuplicateCheck;
+        // the answer was for a card that has been put aside: it is dropped, not applied to the blank one
+        Assert.Equal(Session.LastStep, s.StepIndex);
+        Assert.Equal(SharedAnswer.Free, s.DupShared);
+        Assert.Null(s.BlockedAbout);
+    }
+
+    [Fact]
+    public void Putting_the_card_aside_changes_its_serial_so_late_work_for_it_can_stand_down()
+    {
+        var s = Make.Session();
+        var before = s.CardSerial;
+        s.SetNamePart(Field.Last, "Reyes");
+        Assert.Equal(before, s.CardSerial);          // typing is the same card
+        s.ClearCard();
+        Assert.NotEqual(before, s.CardSerial);
+        var second = s.CardSerial;
+        s.NewId();
+        Assert.NotEqual(second, s.CardSerial);
+    }
+
+    [Fact]
     public void A_number_issued_on_this_computer_is_caught_without_any_network()
     {
         var store = new MemoryStore();
@@ -543,6 +579,56 @@ public class RegisterTests
         Assert.Contains("\"id\":\"APG-2026-009\"", posted);
         r.NoteShared(entry);
         Assert.Equal("Peña", r.FindSharedNow(2026, 9).Entry!.Name);
+    }
+
+    [Fact]
+    public async Task Changing_the_address_while_a_read_is_in_flight_does_not_keep_the_old_register_s_rows()
+    {
+        var oldGate = new TaskCompletionSource<HttpResponseMessage>();
+        var http = new FakeHttp((req, _) => req.RequestUri!.Host == "register.test"
+            ? oldGate.Task
+            : Task.FromResult(FakeHttp.Json("[{\"id\":\"APG-2026-002\",\"year\":2026,\"seq\":2,\"name\":\"New register\"}]")));
+        var r = new Register(new MemoryStore(), http) { BuiltInUrl = Make.RegisterUrl };
+        var oldRead = r.LoadIndex();
+        r.SetUrl("https://other.test/exec");
+        oldGate.SetResult(FakeHttp.Json("[{\"id\":\"APG-2026-001\",\"year\":2026,\"seq\":1,\"name\":\"Old register\"}]"));
+        Assert.False(await oldRead);                               // its answer is not kept
+        Assert.False(r.IndexLoaded);
+
+        Assert.True(await r.LoadIndex());
+        Assert.Null(r.FindSharedNow(2026, 1).Entry);
+        Assert.Equal("New register", r.FindSharedNow(2026, 2).Entry!.Name);
+    }
+
+    [Fact]
+    public async Task A_card_saved_while_the_sheet_is_down_is_kept_and_sent_when_it_is_back()
+    {
+        var up = false;
+        var posts = new List<string>();
+        var store = new MemoryStore();
+        FakeHttp Http() => new((req, body) =>
+        {
+            if (!up) throw new HttpRequestException("offline");
+            if (req.Method == HttpMethod.Post) posts.Add(body);
+            return Task.FromResult(FakeHttp.Json(req.Method == HttpMethod.Post ? "{\"ok\":true}" : "[]"));
+        });
+        var r = new Register(store, Http()) { BuiltInUrl = Make.RegisterUrl };
+        var a = new RegisterEntry { Id = "APG-2026-010", Year = 2026, Seq = 10, Name = "A" };
+        var b = new RegisterEntry { Id = "APG-2026-011", Year = 2026, Seq = 11, Name = "B" };
+        Assert.False(await r.RecordShared(a));
+        Assert.False(await r.RecordShared(b));
+        Assert.False(await r.RecordShared(a));                     // trying again does not queue it twice
+        Assert.Equal(2, r.WaitingForShared);
+        Assert.Equal(2, await r.SendWaiting());                    // still down
+
+        // the app is closed and opened again later, with the sheet back
+        up = true;
+        var later = new Register(store, Http()) { BuiltInUrl = Make.RegisterUrl };
+        Assert.Equal(2, later.WaitingForShared);
+        Assert.Equal(0, await later.SendWaiting());
+        Assert.Equal(2, posts.Count);
+        Assert.Contains("APG-2026-010", posts[0]);
+        Assert.Null(store.Get("register-outbox"));
     }
 
     [Fact]

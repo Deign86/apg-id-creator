@@ -153,7 +153,11 @@ public partial class MainWindow : Window
 
     private async Task WarmRegister()
     {
-        await _register.LoadIndex();
+        if (await _register.LoadIndex())
+        {
+            // cards saved while the register was out of reach are sent now that it answers
+            await _register.SendWaiting();
+        }
         _session.RefreshDuplicate();
         Render();
     }
@@ -645,6 +649,7 @@ public partial class MainWindow : Window
 
         _checkingPhoto = true;
         Render();
+        var card = _session.CardSerial;
         var spec = _session.Geometry.Photo;
         var remover = _remover;
         (PhotoResult? Result, string Error) outcome;
@@ -657,6 +662,11 @@ public partial class MainWindow : Window
             });
         }
         finally { _checkingPhoto = false; }
+
+        // The card this photo was for has been put aside while it was being
+        // looked at (the operator went back to the print). It must not land
+        // on the blank card that replaced it.
+        if (card != _session.CardSerial) { Render(); return; }
 
         if (outcome.Result is null) _session.PhotoFailed(outcome.Error);
         else _session.AcceptPhoto(outcome.Result);
@@ -811,6 +821,7 @@ public partial class MainWindow : Window
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
         var problem = PhotoPipeline.FileProblem(name, size, "picture of the signature");
         (ScannedSignature? Signature, string Error) outcome = (null, problem);
+        var card = _session.CardSerial;
         if (problem.Length == 0)
         {
             SigHelp.Text = "Reading the signature…";
@@ -820,6 +831,7 @@ public partial class MainWindow : Window
                 return image is null ? (null, error) : SignatureInk.FromImage(image, name);
             });
         }
+        if (card != _session.CardSerial) { Render(); return; }      // as with a photo: the card it was for is gone
         if (outcome.Signature is null)
         {
             // a scan that cannot be read leaves whatever signature was there

@@ -213,7 +213,8 @@ public partial class MainWindow
         if (failed.Count > 0)
         {
             SavedNote.Text = $"{(failed.Count == 1 ? failed[0].Id + " was" : failed.Count + " cards were")} not written to the shared register, "
-                + "because it could not be reached. They are recorded on this computer; other computers will not see them until the register is back.";
+                + "because it could not be reached. They are recorded on this computer and will be sent the next time the app starts with the register in reach. "
+                + "Until then, other computers will not know these numbers are taken.";
             Show(SavedNote, true);
         }
     }
@@ -586,7 +587,7 @@ public partial class MainWindow
             ShowInExplorer(savePath);
 
             var failed = await _session.RecordShared(issued);
-            if (failed.Count > 0) BatchStatus.Text += $" {failed.Count} could not be written to the shared register; they are recorded on this computer.";
+            if (failed.Count > 0) BatchStatus.Text += $" {failed.Count} could not be written to the shared register; they are recorded on this computer and will be sent when it can be reached.";
         }
         finally
         {

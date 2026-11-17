@@ -109,13 +109,19 @@ public class RenderTests
         {
             var m = WpfTextMeasurer.Load(Files.Beside("Fonts"));
             var report = new StringBuilder();
+            var wrong = new List<string>();
             var worst = 0.0;
             foreach (var (font, key) in new[] { (CardFont.Name, "name"), (CardFont.Title, "title"), (CardFont.Number, "employeeNo") })
             {
                 var web = Files.WebReference.GetProperty("metrics").GetProperty(key);
-                Assert.Equal(web.GetProperty("capH").GetDouble(), m.CapHeight(font, 100));
-                Assert.Equal(web.GetProperty("descQ").GetDouble(), m.Descent(font, 100, uppercase: true));
-                Assert.Equal(web.GetProperty("descg").GetDouble(), m.Descent(font, 100, uppercase: false));
+                void Height(string what, double want, double got)
+                {
+                    report.AppendLine($"{key,-10} {what,-22} web {want:0.000} here {got:0.000}");
+                    if (want != got) wrong.Add($"{key} {what}: web {want:0.000}, here {got:0.000}");
+                }
+                Height("cap height", web.GetProperty("capH").GetDouble(), m.CapHeight(font, 100));
+                Height("descent of Q,", web.GetProperty("descQ").GetDouble(), m.Descent(font, 100, uppercase: true));
+                Height("descent of gjpqy", web.GetProperty("descg").GetDouble(), m.Descent(font, 100, uppercase: false));
                 foreach (var w in web.GetProperty("widths").EnumerateObject())
                 {
                     var got = m.Width(font, 100, w.Name);
@@ -123,10 +129,11 @@ public class RenderTests
                     worst = Math.Max(worst, off);
                     report.AppendLine($"{key,-10} \"{w.Name}\" web {w.Value.GetDouble():0.000} here {got:0.000}");
                     // within half a hundredth of the type size: far less than a pixel on the card
-                    Assert.True(off < 0.5, $"{key} \"{w.Name}\": web {w.Value.GetDouble():0.000}, here {got:0.000}");
+                    if (off >= 0.5) wrong.Add($"{key} \"{w.Name}\": web {w.Value.GetDouble():0.000}, here {got:0.000}");
                 }
             }
             File.WriteAllText(Path.Combine(Files.ReportDirectory, "font-metrics.txt"), $"worst width difference at 100 px: {worst:0.0000}\r\n{report}");
+            Assert.True(wrong.Count == 0, string.Join("\n", wrong));
         });
     }
 

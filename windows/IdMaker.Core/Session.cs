@@ -127,6 +127,13 @@ public sealed partial class Session
     public bool Reissue { get; private set; }
     public bool Example { get; private set; }
     public int StepIndex { get; private set; }
+    /// <summary>
+    /// Goes up each time the card on screen is replaced by a blank one. Work
+    /// that finishes later (a photo being looked at, a scan being read)
+    /// compares it with what it was when it started, and stands down if the
+    /// card it was for is gone.
+    /// </summary>
+    public int CardSerial { get; private set; }
     public HashSet<Field> Touched { get; } = new();
 
     public RegisterEntry? DupLocal { get; private set; }
@@ -292,7 +299,7 @@ public sealed partial class Session
     {
         var p = Problems();
         var stop = FurthestStep(p);
-        if (stop < StepIndex && !(StepIndex == LastStep && Queue.Count > 0 && !StartedCard))
+        if (stop < StepIndex)
         {
             SayBlocked(stop, p);
             GoStep(stop);
@@ -616,6 +623,7 @@ public sealed partial class Session
 
     public void ClearCard(bool keepQueue = false)
     {
+        CardSerial++;
         Last = First = Middle = Suffix = "";
         Role1.Clear();
         Role2.Clear();
