@@ -151,7 +151,7 @@ prove it opens. It carries everything except the pen tablet driver.
 Releases build themselves. When a change to the app reaches `main`,
 `.github/workflows/release.yml` runs every test, builds the package,
 proves it installs and starts, and publishes it as a GitHub release
-named after the version (`v2.0.2`): the setup program, the single
+named after the version (`v2.0.3`): the setup program, the single
 portable `.exe`, and a `SHA256SUMS.txt` for both.
 
 The version is `Version` in `IdMaker.App.csproj`. A version that is
@@ -316,7 +316,7 @@ Most changes are numbers in `IdMaker.Core/Config.cs`.
 | New card artwork, built in | replace `assets/front-template.png` and `assets/back.png` at the top of the repository (638 × 1004 or 638 × 1011), re-trace `FrontOutline` and `PhotoArea` if the band or the photo window moved |
 | Change the app's icon | `IdMaker.App/AppIcon.ico`. The logo it is made from is `assets/id-maker-logo.png`, and the editable original is in Canva ("Logo - Employee IDs", page 4) |
 | Restyle the window after a rebrand | `IdMaker.App/Colors.Light.xaml` and `Colors.Dark.xaml`, which must keep the same names. None of them touch the printed card |
-| Point at a different register | `CardConfig.RegisterUrl`. Treat it as a password; see `register/README.md` |
+| Point at a different register | the `REGISTER_URL` repository secret, used by the release build; it is never in the source. Treat it as a password; see `register/README.md` |
 | The version | `CardConfig.AppVersion`, and `Version` in `IdMaker.App.csproj` and `app.manifest` |
 
 After any change that could move something on the card, run all three

@@ -6,4 +6,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- The register's address is a credential, so it is never in the source.
+       The release build sets IDMAKER_REGISTER_URL from a repository secret;
+       without it the app has no built-in register. Read by CardConfig.RegisterUrl. -->
+  <ItemGroup Condition="'$(IDMAKER_REGISTER_URL)' != ''">
+    <AssemblyMetadata Include="RegisterUrl" Value="$(IDMAKER_REGISTER_URL)" />
+  </ItemGroup>
+
 </Project>

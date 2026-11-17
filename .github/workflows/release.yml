@@ -70,9 +70,23 @@ jobs:
           & $iscc /? | Select-Object -First 1
           $global:LASTEXITCODE = 0
 
+      - name: Make sure the register address is set
+        if: steps.version.outputs.exists == 'false'
+        shell: pwsh
+        env:
+          IDMAKER_REGISTER_URL: ${{ secrets.REGISTER_URL }}
+        run: |
+          $u = "$env:IDMAKER_REGISTER_URL".Trim()
+          if ($u -notmatch '^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$') {
+            throw 'The repository secret REGISTER_URL is missing or is not an Apps Script /exec address. Add it under Settings, Secrets and variables, Actions (see register/README.md). Without it the released app would have no shared register.'
+          }
+          'The register address is set.'
+
       - name: Build the setup program
         if: steps.version.outputs.exists == 'false'
         shell: pwsh
+        env:
+          IDMAKER_REGISTER_URL: ${{ secrets.REGISTER_URL }}
         run: ./windows/installer/package.ps1
 
       - name: Check it installs, starts and uninstalls like a Windows app
@@ -83,6 +97,8 @@ jobs:
       - name: Build the single .exe and check it starts
         if: steps.version.outputs.exists == 'false'
         shell: pwsh
+        env:
+          IDMAKER_REGISTER_URL: ${{ secrets.REGISTER_URL }}
         run: ./windows/installer/portable.ps1
 
       - name: Publish the release

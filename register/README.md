@@ -42,21 +42,30 @@ appears in the Sheet.
 
 ## 2. Tell the app about it
 
-Put the web-app address in `CardConfig.RegisterUrl` in
-`windows/IdMaker.Core/Config.cs`. Every copy of the app built after that
-uses it without anyone setting anything up, and it cannot be switched off
-by accident.
+The address is never written into the source. The release build puts it
+into the app from a repository secret:
+
+1. On GitHub, open the repository's **Settings → Secrets and variables →
+   Actions → New repository secret**.
+2. Name it `REGISTER_URL` and paste the web-app address as the value.
+
+Every release built after that has the register built in, so nobody has
+to set anything up and it cannot be switched off by accident. A release
+without the secret stops with a message saying so, rather than shipping
+an app with no shared register. Builds on a developer's computer, and the
+checks run on pull requests, have no built-in register: they keep their
+own list.
 
 > **Treat that address as a password.** The deployment is open to "Anyone",
-> so whoever holds the address can read every issued ID and add rows. It is
-> in the source because this repository is private and one laptop issues
-> the cards — those two facts are the whole justification, and if either
-> changes the address should come back out.
+> so whoever holds the address can read every issued ID and add rows.
+> Anyone holding the released `.exe` can still dig it out, because the app
+> has to call it, so hand the app only to the people who issue cards.
 >
-> If it leaks, or the repository is made public: *Deploy → Manage
-> deployments*, archive the deployment, create a new one, and put the new
-> address in `Config.cs`. The old one stops working the moment it is
-> archived.
+> If it leaks: *Deploy → Manage deployments*, archive the deployment,
+> create a new one, and put the new address in the `REGISTER_URL` secret.
+> The old one stops working the moment it is archived. Bump the version to
+> release a build with the new one; every computer on the old build needs
+> the new address saved once (below) or the new version installed.
 
 One computer can be pointed somewhere else without rebuilding: **Issued
 IDs → Shared register address → Test and save**. That overrides the
