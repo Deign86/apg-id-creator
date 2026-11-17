@@ -1,0 +1,534 @@
+// Tests that need Windows: the real renderer against the card the web app
+// printed, and the real window driven the way an operator drives it.
+
+using System.IO;
+using System.Text;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using IdMaker.App;
+using IdMaker.Core;
+
+namespace IdMaker.App.Tests;
+
+/// <summary>
+/// One thread for everything WPF, as WPF requires: the application, its
+/// resources and every window live on it, and each test hands it work.
+/// </summary>
+internal static class Ui
+{
+    private static readonly Dispatcher Dispatcher;
+
+    static Ui()
+    {
+        var ready = new ManualResetEventSlim();
+        Dispatcher? dispatcher = null;
+        var thread = new Thread(() =>
+        {
+            var app = new global::IdMaker.App.App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            app.InitializeComponent();                       // loads Theme.xaml, as starting the app does
+            dispatcher = Dispatcher.CurrentDispatcher;
+            ready.Set();
+            Dispatcher.Run();
+        }) { IsBackground = true, Name = "WPF test thread" };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        ready.Wait();
+        Dispatcher = dispatcher!;
+    }
+
+    public static void Run(Action action) => Dispatcher.Invoke(action);
+    public static T Run<T>(Func<T> func) => Dispatcher.Invoke(func);
+    public static Task RunAsync(Func<Task> func) => Dispatcher.InvokeAsync(func).Task.Unwrap();
+
+    /// <summary>Let queued layout, rendering and BeginInvoke work finish.</summary>
+    public static void Settle() => Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+}
+
+internal static class Files
+{
+    public static string RepoRoot
+    {
+        get
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "assets", "front-template.png"))) dir = dir.Parent;
+            return dir?.FullName ?? throw new InvalidOperationException("The repository root was not found above the test binaries.");
+        }
+    }
+
+    public static string Beside(params string[] parts) => Path.Combine(new[] { AppContext.BaseDirectory }.Concat(parts).ToArray());
+
+    public static JsonElement WebReference { get; } = JsonDocument.Parse(File.ReadAllText(Beside("Fixtures", "web-reference.json"))).RootElement;
+
+    /// <summary>Where the pictures and numbers a person might want to look at afterwards are left.</summary>
+    public static string ReportDirectory
+    {
+        get
+        {
+            var dir = Environment.GetEnvironmentVariable("IDMAKER_REPORT_DIR");
+            if (string.IsNullOrWhiteSpace(dir)) dir = Path.Combine(Path.GetTempPath(), "idmaker-report");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    public static string TempFolder()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "idmaker-apptests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+}
+
+public class RenderTests
+{
+    private static (CardRenderer Renderer, CardArt Art) Load()
+    {
+        var renderer = new CardRenderer(WpfTextMeasurer.Load(Files.Beside("Fonts")));
+        var art = new CardArt(ImageFiles.Load(Files.Beside("Assets", "front-template.png")), ImageFiles.Load(Files.Beside("Assets", "back.png")));
+        return (renderer, art);
+    }
+
+    private static CardData ExampleCard()
+    {
+        var (image, error) = ImageFiles.Decode(Path.Combine(Files.RepoRoot, "assets", "example-cut-out.png"));
+        Assert.True(image is not null, error);
+        var photo = PhotoPipeline.Analyse(image!, "example-cut-out.png", CardConfig.Photo);
+        Assert.True(photo.Check.Ok, photo.Check.Problem);
+        return new CardData("Christopher Joseph V. Aureo", "IT Associate", 2026, 122, photo.Image, photo.Check.Placement, Session.ExampleSignature());
+    }
+
+    [Fact]
+    public void The_card_fonts_measure_as_they_did_in_the_web_app()
+    {
+        Ui.Run(() =>
+        {
+            var m = WpfTextMeasurer.Load(Files.Beside("Fonts"));
+            var report = new StringBuilder();
+            var worst = 0.0;
+            foreach (var (font, key) in new[] { (CardFont.Name, "name"), (CardFont.Title, "title"), (CardFont.Number, "employeeNo") })
+            {
+                var web = Files.WebReference.GetProperty("metrics").GetProperty(key);
+                Assert.Equal(web.GetProperty("capH").GetDouble(), m.CapHeight(font, 100));
+                Assert.Equal(web.GetProperty("descQ").GetDouble(), m.Descent(font, 100, uppercase: true));
+                Assert.Equal(web.GetProperty("descg").GetDouble(), m.Descent(font, 100, uppercase: false));
+                foreach (var w in web.GetProperty("widths").EnumerateObject())
+                {
+                    var got = m.Width(font, 100, w.Name);
+                    var off = Math.Abs(got - w.Value.GetDouble());
+                    worst = Math.Max(worst, off);
+                    report.AppendLine($"{key,-10} \"{w.Name}\" web {w.Value.GetDouble():0.000} here {got:0.000}");
+                    // within half a hundredth of the type size: far less than a pixel on the card
+                    Assert.True(off < 0.5, $"{key} \"{w.Name}\": web {w.Value.GetDouble():0.000}, here {got:0.000}");
+                }
+            }
+            File.WriteAllText(Path.Combine(Files.ReportDirectory, "font-metrics.txt"), $"worst width difference at 100 px: {worst:0.0000}\r\n{report}");
+        });
+    }
+
+    [Fact]
+    public void Names_and_titles_break_onto_the_same_lines_at_the_same_size()
+    {
+        Ui.Run(() =>
+        {
+            var m = WpfTextMeasurer.Load(Files.Beside("Fonts"));
+            void Same(JsonElement want, FittedText got, string what)
+            {
+                Assert.Equal(want.GetProperty("lines").EnumerateArray().Select(l => l.GetString()).ToArray(), got.Lines.ToArray());
+                Assert.True(want.GetProperty("sizePt").GetDouble() == got.SizePt, $"{what}: size {got.SizePt} pt, the web app chose {want.GetProperty("sizePt").GetDouble()}");
+                Assert.Equal(want.GetProperty("fits").GetBoolean(), got.Fits);
+            }
+
+            var layout = Files.WebReference.GetProperty("layout");
+            var here = TextFit.Layout(m, CardGeometry.BuiltIn, "Christopher Joseph V. Aureo", "IT Associate", 2026, 122);
+            Same(layout.GetProperty("name"), here.Name, "name");
+            Same(layout.GetProperty("title"), here.Title, "title");
+            Same(layout.GetProperty("employeeNo"), here.EmployeeNo, "employee number");
+
+            foreach (var fit in Files.WebReference.GetProperty("fits").EnumerateArray())
+            {
+                var spec = fit[0].GetString() == "name" ? CardConfig.NameText : CardConfig.TitleText;
+                Same(fit[2], TextFit.Fit(m, spec, fit[1].GetString()), fit[1].GetString()!);
+            }
+        });
+    }
+
+    // How far two pictures of the same size are apart inside a box (mm):
+    // the mean difference per channel, and the share of pixels that differ visibly.
+    private static (double Mean, double Changed) Compare(byte[] a, byte[] b, int w, RectMm box, double ppm)
+    {
+        int x0 = Math.Max(0, (int)(box.X * ppm)), y0 = Math.Max(0, (int)(box.Y * ppm));
+        int x1 = Math.Min(w, (int)Math.Ceiling(box.Right * ppm)), y1 = Math.Min(a.Length / 4 / w, (int)Math.Ceiling(box.Bottom * ppm));
+        double sum = 0;
+        long changed = 0, n = 0;
+        for (var y = y0; y < y1; y++)
+        {
+            for (var x = x0; x < x1; x++)
+            {
+                var o = (y * w + x) * 4;
+                var d = Math.Max(Math.Abs(a[o] - b[o]), Math.Max(Math.Abs(a[o + 1] - b[o + 1]), Math.Abs(a[o + 2] - b[o + 2])));
+                sum += d;
+                if (d > 48) changed++;
+                n++;
+            }
+        }
+        return n == 0 ? (0, 0) : (sum / n, (double)changed / n);
+    }
+
+    [Fact]
+    public void The_example_card_is_the_card_the_web_app_printed()
+    {
+        Ui.Run(() =>
+        {
+            var (renderer, art) = Load();
+            var ppm = CardConfig.PrintPxPerMm;
+            var front = renderer.RenderFront(art, CardGeometry.BuiltIn, ExampleCard(), ppm);
+            ImageFiles.SavePng(front, Path.Combine(Files.ReportDirectory, "front-native.png"));
+
+            var golden = ImageFiles.Load(Path.Combine(Files.RepoRoot, "test", "golden-front.png"));
+            Assert.Equal(golden.PixelWidth, front.PixelWidth);
+            Assert.Equal(golden.PixelHeight, front.PixelHeight);
+            var mine = CardRenderer.ToRgba(front).Data;
+            var theirs = CardRenderer.ToRgba(golden).Data;
+            var w = front.PixelWidth;
+
+            // The two were drawn by different engines — Chromium's canvas
+            // then, Windows now — so edges are not anti-aliased identically
+            // and the photo is resampled by a different filter. What must
+            // agree is where everything is and what it says. Each zone is
+            // held to how far off it may be; a line of text one pixel out of
+            // place, or a wrong font, blows straight through these.
+            var zones = new (string Name, RectMm Box, double MaxMean, double MaxChanged)[]
+            {
+                ("whole card", new RectMm(0, 0, CardConfig.CardWidthMm, CardConfig.CardHeightMm), 4.0, 0.02),
+                ("photo", new RectMm(17, 10, 36.5, 47), 6.0, 0.03),
+                ("name", CardConfig.NameText.Box, 14.0, 0.08),
+                ("job title", CardConfig.TitleText.Box, 14.0, 0.08),
+                ("employee number", CardConfig.EmployeeNoText.Box, 14.0, 0.08),
+                ("signature", CardConfig.Signature.Box, 14.0, 0.08),
+                ("QR", new RectMm(CardConfig.Qr.X, CardConfig.Qr.Y, CardConfig.Qr.Size, CardConfig.Qr.Size), 1.0, 0.002),
+            };
+            var report = new StringBuilder();
+            var failures = new List<string>();
+            foreach (var z in zones)
+            {
+                var (mean, changed) = Compare(mine, theirs, w, z.Box, ppm);
+                var line = $"{z.Name,-16} mean difference {mean,6:0.00} (limit {z.MaxMean:0.0})   pixels visibly different {changed,7:P2} (limit {z.MaxChanged:P1})";
+                report.AppendLine(line);
+                if (mean > z.MaxMean || changed > z.MaxChanged) failures.Add(line);
+            }
+            File.WriteAllText(Path.Combine(Files.ReportDirectory, "front-against-web.txt"), report.ToString());
+
+            // a picture of where the two differ, for a person to look at
+            var diff = new byte[mine.Length];
+            for (var i = 0; i < mine.Length; i += 4)
+            {
+                var d = Math.Max(Math.Abs(mine[i] - theirs[i]), Math.Max(Math.Abs(mine[i + 1] - theirs[i + 1]), Math.Abs(mine[i + 2] - theirs[i + 2])));
+                var v = (byte)Math.Min(255, d * 4);
+                diff[i] = v; diff[i + 1] = v; diff[i + 2] = v; diff[i + 3] = 255;
+            }
+            ImageFiles.SavePng(CardRenderer.ToBitmap(new RgbaImage(w, front.PixelHeight, diff)), Path.Combine(Files.ReportDirectory, "front-difference.png"));
+
+            Assert.True(failures.Count == 0, "The native card differs from the web app's:\n" + string.Join("\n", failures) + "\n\nAll zones:\n" + report);
+        });
+    }
+
+    [Fact]
+    public void The_preview_is_the_print_drawn_smaller()
+    {
+        Ui.Run(() =>
+        {
+            var (renderer, art) = Load();
+            var card = ExampleCard();
+            var small = renderer.RenderFront(art, CardGeometry.BuiltIn, card, 6);
+            Assert.Equal(324, small.PixelWidth);
+            Assert.Equal(514, small.PixelHeight);
+            var back = renderer.RenderBack(art, 6, rotate180: false);
+            var turned = renderer.RenderBack(art, 6, rotate180: true);
+            var a = CardRenderer.ToRgba(back).Data;
+            var b = CardRenderer.ToRgba(turned).Data;
+            // turned upside down, the first pixel is the last
+            var last = a.Length - 4;
+            Assert.InRange(b[0] - a[last], -12, 12);
+            Assert.InRange(b[1] - a[last + 1], -12, 12);
+        });
+    }
+
+    [Fact]
+    public void A_sheet_is_the_size_of_its_paper_and_the_pdf_has_a_page_per_side()
+    {
+        Ui.Run(() =>
+        {
+            var (renderer, art) = Load();
+            var card = ExampleCard();
+            var plan = Sheets.Plan("A4", SheetMode.Duplex)!;
+            var entries = new[] { card, card };
+            var pages = Sheets.Pages(entries.Length, plan, DuplexFlip.LongEdge);
+            var pdfPages = renderer.SheetPdfPages(art, CardGeometry.BuiltIn, plan, entries, pages, backUpsideDown: false);
+            Assert.Equal(2, pdfPages.Count);
+            var first = pdfPages[0]();
+            Assert.Equal(2480, first.Width);                 // 210 mm at 300 DPI
+            Assert.Equal(3508, first.Height);
+            Assert.Equal(210, first.WidthMm);
+            // the top-left corner is paper, the middle of the first card is not
+            Assert.Equal(255, first.Rgb[0]);
+            var cx = (int)((plan.Left + 27) * CardConfig.PrintPxPerMm);
+            var cy = (int)((plan.Top + 75) * CardConfig.PrintPxPerMm);
+            Assert.True(first.Rgb[(cy * first.Width + cx) * 3] < 120, "the band at the bottom of the first card should be dark");
+
+            using var ms = new MemoryStream();
+            PdfWriter.Write(ms, renderer.CardPdfPages(art, CardGeometry.BuiltIn, new[] { card }, rotateBack: false), "one card", DateTime.Now);
+            var text = Encoding.Latin1.GetString(ms.ToArray());
+            Assert.Contains("/Count 2", text);
+            Assert.Contains("/Width 638 /Height 1011", text);
+        });
+    }
+
+    [Fact]
+    public void A_phone_photo_stored_sideways_is_stood_upright()
+    {
+        // a JPEG 40 wide and 20 high, marked "rotate 90 degrees to view"
+        var path = Path.Combine(Files.TempFolder(), "sideways.jpg");
+        Ui.Run(() =>
+        {
+            var pixels = new byte[40 * 20 * 4];
+            for (var i = 0; i < pixels.Length; i += 4) { pixels[i] = 200; pixels[i + 1] = 120; pixels[i + 2] = 40; pixels[i + 3] = 255; }
+            var source = BitmapSource.Create(40, 20, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, pixels, 160);
+            var meta = new BitmapMetadata("jpg");
+            meta.SetQuery("/app1/ifd/{ushort=274}", (ushort)6);
+            var encoder = new JpegBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(source, null, meta, null));
+            using var stream = File.Create(path);
+            encoder.Save(stream);
+        });
+        var (image, error) = ImageFiles.Decode(path);
+        Assert.True(image is not null, error);
+        Assert.Equal(20, image!.Width);
+        Assert.Equal(40, image.Height);
+
+        var (none, why) = ImageFiles.Decode(Path.Combine(Files.RepoRoot, "README.md"));
+        Assert.Null(none);
+        Assert.Contains("couldn’t be opened", why);
+    }
+}
+
+/// <summary>The real window, driven the way an operator drives it.</summary>
+public class WindowTests
+{
+    private static void Click(ButtonBase button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+    private static MainWindow Open(string folder)
+    {
+        var files = new FileStore(folder);
+        // no shared register: these tests must not write to the company's sheet
+        var window = new MainWindow(files, new Register(files) { BuiltInUrl = "" })
+        {
+            OpenSigningOnArrival = false,
+            Confirm = (_, _) => true,
+        };
+        window.Show();
+        return window;
+    }
+
+    [Fact]
+    public async Task A_card_can_be_made_from_start_to_saved_pdf()
+    {
+        var folder = Files.TempFolder();
+        var window = Ui.Run(() => Open(folder));
+        Ui.Settle();
+        var asked = 0;
+
+        Ui.Run(() =>
+        {
+            Assert.NotNull(window.Art);
+            Assert.Equal(Visibility.Visible, window.CardBox.Visibility);
+            Assert.NotNull(window.CardImage.Source);
+
+            // pressing Next on an empty form says what is missing, and stays put
+            Click(window.BtnNext);
+            Assert.Equal(0, window.Session.StepIndex);
+            Assert.Equal(Visibility.Visible, window.Blocked.Visibility);
+            Assert.Contains("Enter the last name", window.Blocked.Text);
+            Assert.Equal("Enter the last name.", window.MsgLast.Text);
+
+            window.TxtLast.Text = "reyes";
+            window.TxtFirst.Text = "Ana";
+            Click(window.BtnNext);
+            Assert.Equal(1, window.Session.StepIndex);
+            Assert.Equal(Visibility.Collapsed, window.Blocked.Visibility);
+
+            // the job-title chips, then the number
+            var chip = window.TitleChips.Children.OfType<RadioButton>().First(c => (string)c.Content == "HR Associate");
+            chip.IsChecked = true;
+            Click(chip);
+            Assert.Equal("HR Associate", window.Session.JobTitle);
+            Click(window.BtnNext);
+            window.TxtSeq.Text = "12x4";
+            Assert.Equal("124", window.Session.Seq);
+            Click(window.BtnNext);
+            Assert.Equal(3, window.Session.StepIndex);
+        });
+
+        await Ui.RunAsync(() => window.AcceptPhotoFile(Path.Combine(Files.RepoRoot, "assets", "example-cut-out.png")));
+        Ui.Run(() =>
+        {
+            Assert.True(window.Session.Photo is not null, window.Session.PhotoError);
+            Assert.NotNull(window.PhotoThumb.Source);
+            Assert.Equal(Visibility.Visible, window.AdjustBox.Visibility);
+            Click(window.BtnNext);
+            Assert.Equal(4, window.Session.StepIndex);
+
+            // signing: the full-screen window is stood in for, and asked for exactly once
+            window.AskForSignature = (_, _) => { asked++; return Session.ExampleSignature(); };
+            Click(window.BtnSign);
+            Assert.Equal(1, asked);
+            Assert.True(window.Session.Signature is { HasInk: true });
+            Assert.True(window.SigPreview.HasInk);
+            Click(window.BtnNext);
+            Assert.Equal(Session.LastStep, window.Session.StepIndex);
+            Assert.Equal("Reyes", window.Session.Last);               // capitalised on the way past
+            Assert.Equal("Ana Reyes", window.SumName.Text);
+            Assert.Equal("APG-" + DateTime.Now.Year + "-124", window.SumNumber.Text);
+            Assert.Equal(Visibility.Visible, window.SheetImage.Visibility);
+        });
+        Ui.Settle();
+        await Task.Delay(400);                                        // the sheet preview is drawn a moment after the step opens
+        Ui.Settle();
+
+        var pdf = Path.Combine(folder, "out", "card.pdf");
+        Directory.CreateDirectory(Path.GetDirectoryName(pdf)!);
+        Ui.Run(() => Assert.NotNull(window.SheetImage.Source));
+        await Ui.RunAsync(() => window.SavePrint(pdf));
+
+        Assert.True(File.Exists(pdf));
+        Assert.False(File.Exists(pdf + ".part"));
+        var head = new byte[8];
+        using (var f = File.OpenRead(pdf)) f.ReadExactly(head);
+        Assert.Equal("%PDF-1.4", Encoding.ASCII.GetString(head));
+        Assert.True(new FileInfo(pdf).Length > 50_000);
+
+        Ui.Run(() =>
+        {
+            Assert.Equal(Visibility.Visible, window.SavedStage.Visibility);
+            Assert.Equal("card.pdf", window.SavedName.Text);
+            var issued = new Register(new FileStore(folder)) { BuiltInUrl = "" }.All();
+            Assert.Single(issued);
+            Assert.Equal("Ana Reyes", issued[0].Name);
+
+            // starting again: the same number is now refused
+            Click(window.BtnNewId);
+            Assert.Equal(0, window.Session.StepIndex);
+            Assert.Equal("", window.TxtLast.Text);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public async Task A_print_that_cannot_be_saved_issues_nothing()
+    {
+        var folder = Files.TempFolder();
+        var window = Ui.Run(() => Open(folder));
+        Ui.Settle();
+        Ui.Run(() =>
+        {
+            window.Session.LoadExample(null, 2026);                   // an example is never recorded…
+            window.Session.NewId();
+            window.TxtLast.Text = "Reyes";
+            window.TxtFirst.Text = "Ana";
+            window.Session.PickRole1("HR Associate");
+            window.Session.SetSeq("7");
+            window.Session.AcceptPhoto(new PhotoResult(new RgbaImage(8, 8), "p.png", PhotoBackground.Transparent,
+                new PhotoCheck { Ok = true, Placement = new PhotoPlacement(20, 12, 30, 50, 0) }));
+            window.Session.SetSignature(Session.ExampleSignature());
+            window.Session.GoStep(Session.LastStep);
+            window.Render();
+        });
+        // a folder that does not exist: the write fails
+        var bad = Path.Combine(folder, "no-such-folder", "card.pdf");
+        await Ui.RunAsync(() => window.SavePrint(bad));
+        Ui.Run(() =>
+        {
+            Assert.Equal(Visibility.Visible, window.ReviewError.Visibility);
+            Assert.Contains("couldn’t be saved", window.ReviewError.Text);
+            Assert.Equal(Visibility.Collapsed, window.SavedStage.Visibility);
+            Assert.Empty(new Register(new FileStore(folder)) { BuiltInUrl = "" }.All());
+            Assert.Single(window.Session.JobCards());                 // …and the card is still there to try again
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Every_tool_opens_and_the_map_can_be_moved_kept_and_reset()
+    {
+        var folder = Files.TempFolder();
+        var window = Ui.Run(() => Open(folder));
+        Ui.Settle();
+        Ui.Run(() =>
+        {
+            foreach (var (rail, panel) in new (ToggleButton, FrameworkElement)[]
+                     { (window.RailRegister, window.ToolRegister), (window.RailBatch, window.ToolBatch), (window.RailPrinter, window.ToolPrinter), (window.RailDesign, window.ToolDesign) })
+            {
+                Click(rail);
+                Assert.Equal(Visibility.Visible, window.Drawer.Visibility);
+                Assert.Equal(Visibility.Visible, panel.Visibility);
+                Assert.True(rail.IsChecked);
+            }
+
+            // the map: open it, move the QR box, keep it
+            Click(window.BtnTplMap);
+            Assert.Equal(Visibility.Visible, window.MapOverlay.Visibility);
+            Assert.False(window.FormPanel.IsEnabled);                 // the form stands down while boxes are dragged
+            window.Templates.SetBox(BoxKey.Qr, new RectMm(40, 2, 9, 9));
+            window.MapOverlay.Refresh();
+            Click(window.BtnTplDone);
+            Assert.Equal(Visibility.Collapsed, window.MapOverlay.Visibility);
+            Assert.True(window.FormPanel.IsEnabled);
+            Assert.Equal(40, window.Session.Geometry.Qr.X);
+            Assert.True(File.Exists(Path.Combine(folder, "template.json")));
+
+            // closing the drawer another way while editing must not strand the boxes on the card
+            Click(window.BtnTplMap);
+            Click(window.RailPrinter);
+            Assert.Equal(Visibility.Collapsed, window.MapOverlay.Visibility);
+            Assert.True(window.FormPanel.IsEnabled);
+
+            // discarding puts back what was there when the editor opened
+            Click(window.RailDesign);
+            Click(window.BtnTplMap);
+            window.Templates.SetBox(BoxKey.Qr, new RectMm(10, 10, 9, 9));
+            Click(window.BtnTplCancel);
+            Assert.Equal(40, window.Session.Geometry.Qr.X);
+
+            Click(window.BtnTplReset);
+            Assert.False(window.Templates.IsCustom);
+            Assert.Equal(CardConfig.Qr.X, window.Session.Geometry.Qr.X);
+
+            // once an ID is started the design can no longer be changed
+            window.TxtLast.Text = "R";
+            Assert.Equal(Visibility.Collapsed, window.RailDesign.Visibility);
+            Assert.Equal(Visibility.Collapsed, window.Drawer.Visibility);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void The_signing_window_opens_fills_the_screen_and_closes_without_a_tablet()
+    {
+        Ui.Run(() =>
+        {
+            var sign = new SignWindow("Ana", null);
+            sign.Show();
+            Assert.Equal(WindowState.Maximized, sign.WindowState);
+            Assert.Equal(WindowStyle.None, sign.WindowStyle);
+            sign.Close();
+            Assert.Null(sign.Result);
+            // one sentence either way, never an empty line
+            Assert.NotEqual("", SignWindow.TabletStatus(null, sawPressure: false));
+            Assert.Contains("Press harder", SignWindow.TabletStatus(null, sawPressure: true));
+        });
+    }
+}
