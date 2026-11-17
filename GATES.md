@@ -58,20 +58,20 @@ Scope: The register of issued IDs is a list in the company's Firebase project (a
   EXPECT: Build succeeded
   EVIDENCE: Build succeeded, 0 warnings, on Linux (.NET SDK 8.0.134), 17 Nov 2026.
 
-- [ ] R2: Every Core test passes: sign-in and its refusals, the read across pages, create-if-absent, a duplicate refused whichever way Firestore refuses it, offline then resent from the outbox, a sign-in turned away, nothing sent with nobody signed in, nothing that opens the register written in the repository.
+- [x] R2: Every Core test passes: sign-in and its refusals, the read across pages, create-if-absent, a duplicate refused whichever way Firestore refuses it, offline then resent from the outbox, a sign-in turned away, nothing sent with nobody signed in, nothing that opens the register written in the repository.
   CHECK: dotnet test windows/IdMaker.Tests
   EXPECT: /Passed!\s+- Failed:\s+0, Passed:\s+1\d\d/
-  EVIDENCE: pending under xunit. The machine this was written on could not reach nuget.org, so xunit could not be restored. The same test files, unchanged, were compiled against a stand-in for xunit's Fact, Theory and Assert and run there: 117 passed, 0 failed, in UTC+8 and in UTC. That is not this gate.
+  EVIDENCE: 125 passed, 0 failed, under xunit on windows-latest (run 44082993924, job "test", pull request 9).
 
-- [ ] R3: The WPF program and its Windows-only tests compile and pass with the sign-in panel in place of the address box.
+- [x] R3: The WPF program and its Windows-only tests compile and pass with the sign-in panel in place of the address box.
   CHECK: dotnet build windows/IdMaker.sln; dotnet test windows/IdMaker.App.Tests
   EXPECT: Build succeeded; /Passed!\s+- Failed:\s+0/
-  EVIDENCE: pending. MainWindow.xaml, MainWindow.Print.cs, MainWindow.xaml.cs, Theme.xaml and WindowsKeeper.cs were changed and have not been compiled: the Windows desktop targeting pack comes from nuget.org.
+  EVIDENCE: Build succeeded; IdMaker.App.Tests 13 passed, 0 failed, on windows-latest (run 44082993924). The same run built the setup program and the single .exe, and the installed app started ("Installed, upgraded in place, started, and uninstalled cleanly.").
 
-- [ ] R4: The register's rules allow a member to read and to create an ID under its own number as themselves, and refuse a second create, any change, any removal, and anyone who is not a member.
+- [x] R4: The register's rules allow a member to read and to create an ID under its own number as themselves, and refuse a second create, any change, any removal, and anyone who is not a member.
   CHECK: (in apg-keystone) npm run test:e2e:cloud
   EXPECT: id-register.e2e.ts: 5 passed
-  EVIDENCE: pending. The Firestore emulator could not be downloaded on the machine this was written on.
+  EVIDENCE: id-register.e2e.ts, 5 tests passed against the Firestore emulator with firestore.rules (apg-keystone run 44083720325, pull request 57).
 
 - [ ] R5: The rules are deployed to apg-keystone, and the Sheet's rows are in the new register.
   CHECK: node register/migrate.mjs Register.csv
@@ -81,4 +81,4 @@ Scope: The register of issued IDs is a list in the company's Firebase project (a
 - [ ] R6: On a Windows computer, signed in with a Keystone account: one ID issued appears in Firestore under its number, and a second attempt at the same number from another computer is refused and the operator is told.
   EVIDENCE: pending
 
-ABANDON: none yet. R2 to R6 wait on a machine that can reach nuget.org and Firebase, and on the owner's go-ahead to deploy the rules.
+ABANDON: none yet. R5 and R6 wait on the rules being deployed, the two repository secrets being set, and a Windows computer signed in with a Keystone account.
