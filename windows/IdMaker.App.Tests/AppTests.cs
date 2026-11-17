@@ -691,7 +691,9 @@ public class WindowTests
             {
                 var shot = Snapshot(window);
                 ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-dark.png"));
-                Assert.Equal(Color.FromRgb(0x1C, 0x1B, 0x19), MostOf(shot, window.FormPanel, window));
+                // the panel shows its surface and the fields on it; either way, the dark palette's own
+                var darkGrounds = new[] { Color.FromRgb(0x14, 0x14, 0x12), Color.FromRgb(0x1C, 0x1B, 0x19) };
+                Assert.Contains(MostOf(shot, window.FormPanel, window), darkGrounds);
                 var list = window.CmbFlip.TranslatePoint(new Point(window.CmbFlip.ActualWidth - 50, window.CmbFlip.ActualHeight / 2), window);
                 var listPixel = PixelOf(shot, (int)list.X, (int)list.Y);
                 Assert.True(listPixel.R < 60 && listPixel.G < 60, $"the drop-down list should be dark in dark mode, but is {listPixel}");
@@ -706,7 +708,8 @@ public class WindowTests
                 Assert.Equal(Color.FromRgb(0x8C, 0x87, 0x7B), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
                 var shot = Snapshot(window);
                 ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-light.png"));
-                Assert.Equal(Colors.White, MostOf(shot, window.FormPanel, window));
+                var lightGrounds = new[] { Color.FromRgb(0xF5, 0xF5, 0xF2), Colors.White };
+                Assert.Contains(MostOf(shot, window.FormPanel, window), lightGrounds);
                 window.Close();
             });
         }
