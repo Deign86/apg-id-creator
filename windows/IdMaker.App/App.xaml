@@ -5,6 +5,8 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <!-- first: ThemeManager swaps this one for Colors.Dark.xaml when Windows is in dark mode -->
+                <ResourceDictionary Source="Colors.Light.xaml" />
                 <ResourceDictionary Source="Theme.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>

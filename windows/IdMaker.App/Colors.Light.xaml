@@ -1,0 +1,66 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+      Light mode.
+
+      The window takes its colours from alphapremiergroup.com: brand gold,
+      black panels. Gold is used for fills and on black. On white it is only
+      2.1:1 against the background, too faint to read, so gold TEXT on a
+      light background uses the darker Color.Accent.
+
+      Two tiers. The Palette.* colours are raw values; the Color.* brushes
+      are named for what they are for, and the window only ever uses those.
+      Colors.Light.xaml and Colors.Dark.xaml define exactly the same names:
+      ThemeManager swaps one for the other when Windows changes mode, and
+      every control that refers to a brush with DynamicResource follows.
+
+      The printed card is not drawn from any of these. Its colours come
+      from the card artwork, and do not change with the window.
+    -->
+    <Color x:Key="Palette.Page">#F5F5F2</Color>
+    <Color x:Key="Palette.Panel">#FFFFFF</Color>
+    <Color x:Key="Palette.Field">#FFFFFF</Color>
+    <Color x:Key="Palette.Ink">#1D1C1A</Color>
+    <Color x:Key="Palette.InkMuted">#66625A</Color>
+    <Color x:Key="Palette.Rule">#E2DFD6</Color>
+    <Color x:Key="Palette.RuleStrong">#8C877B</Color>
+    <Color x:Key="Palette.Black">#000000</Color>
+    <Color x:Key="Palette.Charcoal">#1F1F1F</Color>
+    <Color x:Key="Palette.Smoke">#E0E0E0</Color>
+    <Color x:Key="Palette.Ash">#A8A8A8</Color>
+    <Color x:Key="Palette.GoldText">#8A6A14</Color>
+    <Color x:Key="Palette.Gold">#D4AF37</Color>
+    <Color x:Key="Palette.GoldBright">#E3C257</Color>
+    <Color x:Key="Palette.GoldWash">#FBF4DC</Color>
+    <Color x:Key="Palette.InkOnGold">#1D1C1A</Color>
+    <Color x:Key="Palette.Blue">#2F6FD6</Color>
+    <Color x:Key="Palette.Red">#B3261E</Color>
+    <Color x:Key="Palette.RedWash">#FCEEEC</Color>
+    <Color x:Key="Palette.Amber">#7A4F00</Color>
+    <Color x:Key="Palette.Thumb">#8C877B</Color>
+    <Color x:Key="Palette.ThumbHover">#66625A</Color>
+
+    <SolidColorBrush x:Key="Color.Bg" Color="{StaticResource Palette.Page}" />
+    <SolidColorBrush x:Key="Color.Surface" Color="{StaticResource Palette.Panel}" />
+    <SolidColorBrush x:Key="Color.Field" Color="{StaticResource Palette.Field}" />  <!-- inside a text box or list -->
+    <SolidColorBrush x:Key="Color.Text" Color="{StaticResource Palette.Ink}" />
+    <SolidColorBrush x:Key="Color.TextMuted" Color="{StaticResource Palette.InkMuted}" />
+    <SolidColorBrush x:Key="Color.Line" Color="{StaticResource Palette.Rule}" />  <!-- dividers and panel edges -->
+    <SolidColorBrush x:Key="Color.ControlBorder" Color="{StaticResource Palette.RuleStrong}" />  <!-- edges of things you can use: 3:1 or more against Surface -->
+    <SolidColorBrush x:Key="Color.Tray" Color="{StaticResource Palette.Black}" />  <!-- the card stage and the signing screen: black in both modes -->
+    <SolidColorBrush x:Key="Color.TrayRaised" Color="{StaticResource Palette.Charcoal}" />
+    <SolidColorBrush x:Key="Color.TrayInk" Color="{StaticResource Palette.Smoke}" />
+    <SolidColorBrush x:Key="Color.TrayMuted" Color="{StaticResource Palette.Ash}" />
+    <SolidColorBrush x:Key="Color.Accent" Color="{StaticResource Palette.GoldText}" />  <!-- gold for text and outlines -->
+    <SolidColorBrush x:Key="Color.AccentSolid" Color="{StaticResource Palette.Gold}" />  <!-- gold for fills -->
+    <SolidColorBrush x:Key="Color.AccentSolidHover" Color="{StaticResource Palette.GoldBright}" />
+    <SolidColorBrush x:Key="Color.AccentWash" Color="{StaticResource Palette.GoldWash}" />  <!-- hover and selection behind ordinary text -->
+    <SolidColorBrush x:Key="Color.OnAccent" Color="{StaticResource Palette.InkOnGold}" />  <!-- text on a gold fill -->
+    <SolidColorBrush x:Key="Color.Focus" Color="{StaticResource Palette.Blue}" />
+    <SolidColorBrush x:Key="Color.Danger" Color="{StaticResource Palette.Red}" />
+    <SolidColorBrush x:Key="Color.DangerWash" Color="{StaticResource Palette.RedWash}" />
+    <SolidColorBrush x:Key="Color.Warning" Color="{StaticResource Palette.Amber}" />
+    <SolidColorBrush x:Key="Color.ScrollThumb" Color="{StaticResource Palette.Thumb}" />
+    <SolidColorBrush x:Key="Color.ScrollThumbHover" Color="{StaticResource Palette.ThumbHover}" />
+</ResourceDictionary>

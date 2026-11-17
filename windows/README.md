@@ -48,7 +48,10 @@ windows/
     SignaturePad.cs      the pad, and the full-screen signing window
     PenTablet.cs         pen pressure straight from the tablet driver
     MapEditor.cs         the draggable boxes over the card
-    Theme.xaml           colours, type and control styles
+    Theme.xaml           type and control styles, every colour by name
+    Colors.Light.xaml    the colours in light mode
+    Colors.Dark.xaml     the same names, in dark mode
+    ThemeManager.cs      reads Windows' light/dark setting and follows it
     Fonts/               the three card fonts (see its README)
   IdMaker.Tests/       tests that run anywhere (Linux, macOS, Windows)
   IdMaker.App.Tests/   tests that need Windows: the renderer, the window
@@ -148,7 +151,7 @@ prove it opens. It carries everything except the pen tablet driver.
 Releases build themselves. When a change to the app reaches `main`,
 `.github/workflows/release.yml` runs every test, builds the package,
 proves it installs and starts, and publishes it as a GitHub release
-named after the version (`v2.0.1`): the setup program, the single
+named after the version (`v2.0.2`): the setup program, the single
 portable `.exe`, and a `SHA256SUMS.txt` for both.
 
 The version is `Version` in `IdMaker.App.csproj`. A version that is
@@ -247,6 +250,34 @@ photo step and carries on accepting green-background photos and cut-outs.
 
 ---
 
+## Light and dark
+
+The window is drawn in whichever mode Windows is set to for apps
+(Settings → Personalisation → Colours → *Choose your app mode*), and
+changes with it while it is open — the title bar too — without being
+restarted.
+
+- `Colors.Light.xaml` and `Colors.Dark.xaml` define the same `Color.*`
+  names. `ThemeManager` swaps one for the other: at start-up from the
+  registry value Windows keeps (`AppsUseLightTheme`), and later when
+  Windows announces a change (`WM_SETTINGCHANGE "ImmersiveColorSet"`).
+- Everything refers to those names with `DynamicResource`, and code with
+  `Theme.Paint`, so the swap reaches every control. A `StaticResource`
+  would keep the first colour it found; `ThemeTests` fails on one, and on
+  any colour name that is not in both files.
+- Every control the window uses is drawn by `Theme.xaml`, including lists,
+  tick boxes, fold-out sections, the slider, scroll bars, menus and
+  tooltips. Left to WPF they would stay light grey in dark mode.
+- `ThemeTests` also measures contrast in both palettes: 4.5:1 for text,
+  3:1 for control edges, scroll bars and the focus ring.
+
+What does not change, on purpose: the printed card (its colours are the
+artwork's), the black stage the card sits on, the signing screen (black,
+like the card), and the signature pad (white, like paper).
+
+**Not done:** Windows' *contrast themes* (high contrast). The app keeps
+its own colours there rather than taking the contrast theme's.
+
 ## Where things are kept
 
 Per user, in `%LOCALAPPDATA%\Alpha Premier\ID Maker\`:
@@ -284,7 +315,7 @@ Most changes are numbers in `IdMaker.Core/Config.cs`.
 | Paper sizes, margins, crop marks | `Papers`, `SheetMarginMm`, `SheetGapMm`, `CropMark*` |
 | New card artwork, built in | replace `assets/front-template.png` and `assets/back.png` at the top of the repository (638 × 1004 or 638 × 1011), re-trace `FrontOutline` and `PhotoArea` if the band or the photo window moved |
 | Change the app's icon | `IdMaker.App/AppIcon.ico`. The logo it is made from is `assets/id-maker-logo.png`, and the editable original is in Canva ("Logo - Employee IDs", page 4) |
-| Restyle the window after a rebrand | the colours at the top of `IdMaker.App/Theme.xaml`. None of them touch the printed card |
+| Restyle the window after a rebrand | `IdMaker.App/Colors.Light.xaml` and `Colors.Dark.xaml`, which must keep the same names. None of them touch the printed card |
 | Point at a different register | `CardConfig.RegisterUrl`. Treat it as a password; see `register/README.md` |
 | The version | `CardConfig.AppVersion`, and `Version` in `IdMaker.App.csproj` and `app.manifest` |
 

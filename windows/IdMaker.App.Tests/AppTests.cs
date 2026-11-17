@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using IdMaker.App;
@@ -626,6 +627,96 @@ public class WindowTests
             Assert.Equal(Visibility.Collapsed, window.Drawer.Visibility);
             window.Close();
         });
+    }
+
+    private static Color PixelOf(BitmapSource picture, int x, int y)
+    {
+        var px = new byte[4];
+        picture.CopyPixels(new Int32Rect(x, y, 1, 1), px, 4, 0);
+        return Color.FromRgb(px[2], px[1], px[0]);
+    }
+
+    /// <summary>The colour most of an element is painted, on a grid of samples.
+    /// One fixed point can land on a heading; the background is what most of it shows.</summary>
+    private static Color MostOf(BitmapSource picture, FrameworkElement element, Window window)
+    {
+        var counts = new Dictionary<Color, int>();
+        for (var gx = 1; gx < 10; gx++)
+            for (var gy = 1; gy < 10; gy++)
+            {
+                var at = element.TranslatePoint(new Point(element.ActualWidth * gx / 10, element.ActualHeight * gy / 10), window);
+                // a panel that scrolls reaches past the window: count only what is on screen
+                if (at.X < 0 || at.Y < 0 || at.X >= picture.PixelWidth || at.Y >= picture.PixelHeight) continue;
+                // SAFETY: the point was just checked to lie inside the picture
+                var c = PixelOf(picture, (int)at.X, (int)at.Y);
+                counts[c] = counts.GetValueOrDefault(c) + 1;
+            }
+        Assert.True(counts.Values.Sum() >= 20, $"only {counts.Values.Sum()} of 81 sample points were on screen");
+        return counts.OrderByDescending(kv => kv.Value).First().Key;
+    }
+
+    private static BitmapSource Snapshot(Window window)
+    {
+        var shot = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        shot.Render(window);
+        return shot;
+    }
+
+    [Fact]
+    public void The_window_follows_light_and_dark_mode_without_reopening()
+    {
+        var folder = Files.TempFolder();
+        try
+        {
+            // whatever this machine is set to, reading it must not fail
+            Ui.Run(() => Assert.True(Enum.IsDefined(ThemeManager.SystemTheme())));
+
+            var window = Ui.Run(() => { ThemeManager.Apply(AppTheme.Dark); return Open(folder); });
+            Ui.Settle();
+            Ui.Run(() =>
+            {
+                Assert.Equal(AppTheme.Dark, ThemeManager.Current);
+                var darkSurface = ((SolidColorBrush)window.FormPanel.Background).Color;
+                Assert.Equal(Color.FromRgb(0x1C, 0x1B, 0x19), darkSurface);
+                Assert.Equal(Color.FromRgb(0xEC, 0xE8, 0xDE), ((SolidColorBrush)window.Foreground).Color);
+                // a border set from code, by name, follows too
+                Assert.Equal(Color.FromRgb(0x7B, 0x77, 0x6D), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
+
+                // open the printer setting, which shows a drop-down list and a tick box drawn by the theme
+                Click(window.RailPrinter);
+                window.UpdateLayout();
+            });
+            Ui.Settle();
+            Ui.Run(() =>
+            {
+                var shot = Snapshot(window);
+                ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-dark.png"));
+                // the panel shows its surface and the fields on it; either way, the dark palette's own
+                var darkGrounds = new[] { Color.FromRgb(0x14, 0x14, 0x12), Color.FromRgb(0x1C, 0x1B, 0x19) };
+                Assert.Contains(MostOf(shot, window.FormPanel, window), darkGrounds);
+                var list = window.CmbFlip.TranslatePoint(new Point(window.CmbFlip.ActualWidth - 50, window.CmbFlip.ActualHeight / 2), window);
+                var listPixel = PixelOf(shot, (int)list.X, (int)list.Y);
+                Assert.True(listPixel.R < 60 && listPixel.G < 60, $"the drop-down list should be dark in dark mode, but is {listPixel}");
+
+                // Windows switches back to light: the same window, still open, follows
+                ThemeManager.Apply(AppTheme.Light);
+            });
+            Ui.Settle();
+            Ui.Run(() =>
+            {
+                Assert.Equal(Colors.White, ((SolidColorBrush)window.FormPanel.Background).Color);
+                Assert.Equal(Color.FromRgb(0x8C, 0x87, 0x7B), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
+                var shot = Snapshot(window);
+                ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-light.png"));
+                var lightGrounds = new[] { Color.FromRgb(0xF5, 0xF5, 0xF2), Colors.White };
+                Assert.Contains(MostOf(shot, window.FormPanel, window), lightGrounds);
+                window.Close();
+            });
+        }
+        finally
+        {
+            Ui.Run(() => ThemeManager.Apply(AppTheme.Light));      // the other tests expect the default
+        }
     }
 
     [Fact]

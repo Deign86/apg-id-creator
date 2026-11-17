@@ -191,6 +191,15 @@ layout back at any time.
 
 ---
 
+## Light and dark
+
+The app follows Windows: if Windows is set to dark mode, so is the app,
+and it changes over by itself when you change the setting (Settings →
+Personalisation → Colours → *Choose your app mode*). The printed card
+looks the same either way.
+
+---
+
 ## Things that might confuse you
 
 **The number box turned red.** That number is already used. The message

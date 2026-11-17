@@ -21,6 +21,7 @@ Machines:
 8. [The card design kept on disk](#8-the-card-design-kept-on-disk)
 9. [A stroke on the signature pad](#9-a-stroke-on-the-signature-pad)
 10. [The pen tablet context](#10-the-pen-tablet-context)
+11. [Light or dark](#11-light-or-dark)
 
 Issues, ranked by what they could cost, are at the [end](#issues).
 
@@ -358,6 +359,38 @@ listening* (window active), *Open and paused* (window not active),
 | open | the driver faults | | Closed | as above | `Hook`, `SetActive` |
 
 ---
+
+## 11. Light or dark
+
+**Purpose.** Which palette the window is drawn in. **Code:**
+`IdMaker.App/ThemeManager.cs`, `IdMaker.App/App.xaml.cs` (`OnStartup`),
+`IdMaker.App/MainWindow.xaml.cs` (constructor).
+
+**States.** `ThemeManager.Current`: *Light* or *Dark*. The palette in
+`Application.Resources.MergedDictionaries[0]` is `Colors.Light.xaml` or
+`Colors.Dark.xaml`.
+
+**Invariants.**
+
+- I1. `Current` and the palette in use always agree: `Apply` is the only
+  place either changes, and it changes both.
+- I2. Exactly one palette is merged. `Apply` replaces the one there, and
+  only inserts when none is.
+- I3. Every window's title bar matches `Current`: `Apply` sets every open
+  window's, and a window sets its own as it is created.
+
+| From | Event | Guard | To | Side effects | Code |
+| --- | --- | --- | --- | --- | --- |
+| (start) | app starts | Windows set to dark | Dark | palette swapped before the window exists | `OnStartup` |
+| (start) | app starts | light, or the setting cannot be read | Light | | `OnStartup` |
+| any | Windows announces `ImmersiveColorSet` | the setting now differs from `Current` | the setting | palette swapped; title bars set; window redrawn | `Follow` |
+| any | Windows announces `ImmersiveColorSet` | the setting is unchanged | (unchanged) | nothing: the same message also means an accent-colour change | `Follow` |
+
+**Invalid state prevented.** A window left light after the switch
+because it took a brush by value. Every colour is a `DynamicResource` or
+`Theme.Paint`, and `ThemeTests` fails on a `StaticResource` colour or a
+`Theme.Brush` call. The window's `Changed` handler is removed when it
+closes, so a closed window is never asked to redraw.
 
 ## Issues
 
