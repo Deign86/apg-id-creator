@@ -39,13 +39,26 @@ public sealed class WpfTextMeasurer : ITextMeasurer
     /// <summary>Load the three card fonts from the Fonts folder beside the program.</summary>
     public static WpfTextMeasurer Load(string fontsDirectory)
     {
+        // Every typeface in the folder, with the file it came from. Asking
+        // for a face by the file it lives in means its family and weight are
+        // exactly the file's own, and Windows never fakes a bold out of a
+        // near miss. (Asking Fonts.GetTypefaces for one file's address
+        // answers with the whole folder, so the file has to be matched here.)
+        var folder = new Uri(Path.GetFullPath(fontsDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
+        var inFolder = new List<(string File, Typeface Face)>();
+        foreach (var face in Fonts.GetTypefaces(folder))
+        {
+            if (face.TryGetGlyphTypeface(out var glyphs)) inFolder.Add((Path.GetFileName(glyphs.FontUri.LocalPath), face));
+        }
         Typeface One(string file)
         {
             var path = Path.Combine(fontsDirectory, file);
             if (!File.Exists(path)) throw new FileNotFoundException($"The card font {file} is missing from {fontsDirectory}.", path);
-            // The typeface is read from the file itself, so its family and
-            // weight are exactly the file's own and Windows never fakes a bold.
-            return Fonts.GetTypefaces(new Uri(path)).First();
+            foreach (var (name, face) in inFolder)
+            {
+                if (string.Equals(name, file, StringComparison.OrdinalIgnoreCase)) return face;
+            }
+            throw new InvalidOperationException($"Windows could not read the card font {file}.");
         }
         return new WpfTextMeasurer(new Dictionary<CardFont, Typeface>
         {
@@ -458,6 +471,9 @@ public sealed class CardRenderer
 /// <summary>Opening and saving picture files with Windows' own codecs.</summary>
 public static class ImageFiles
 {
+    /// <summary>What went wrong the last time a picture would not open, for whoever is diagnosing it.</summary>
+    internal static string LastFault { get; private set; } = "";
+
     /// <summary>Open a picture, honouring the way a phone says it was held. The pixels, or why not.</summary>
     public static (RgbaImage? Image, string Error) Decode(string path)
     {
@@ -466,7 +482,8 @@ public static class ImageFiles
             using var stream = File.OpenRead(path);
             var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
             BitmapSource frame = decoder.Frames[0];
-            var turn = Orientation(frame);
+            // only a camera's JPEG carries a "which way up" note; asking a PNG for one is an error, not an empty answer
+            var turn = decoder is JpegBitmapDecoder ? Orientation(frame) : Rotation.Rotate0;
             if (turn != Rotation.Rotate0)
             {
                 var rotated = new TransformedBitmap(frame, new RotateTransform(turn switch { Rotation.Rotate90 => 90, Rotation.Rotate180 => 180, _ => 270 }));
@@ -477,6 +494,7 @@ public static class ImageFiles
         catch (Exception e) when (e is NotSupportedException or FileFormatException or IOException or UnauthorizedAccessException
                                   or ArgumentException or InvalidOperationException or System.Runtime.InteropServices.COMException or OverflowException)
         {
+            LastFault = $"{e.GetType().Name}: {e.Message}";
             var webp = path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase);
             return (null, webp
                 ? "This WebP picture couldn’t be opened on this computer. Save it as PNG or JPG and try again."
@@ -496,7 +514,8 @@ public static class ImageFiles
                 ? o switch { 3 => Rotation.Rotate180, 6 => Rotation.Rotate90, 8 => Rotation.Rotate270, _ => Rotation.Rotate0 }
                 : Rotation.Rotate0;
         }
-        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException or IOException)
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException or IOException
+                                  or System.Runtime.InteropServices.COMException)
         {
             return Rotation.Rotate0;         // no orientation that can be read is no orientation
         }

@@ -10,19 +10,25 @@ cut.
 
 ## Installing it
 
-1. Get **`Alpha Premier ID Maker_1.20.0_x64-setup.exe`** (the version in
-   the name changes) from IT or from the Releases page of this repository.
-2. Double-click it.
-3. Windows will say **"Windows protected your PC"**. This is normal — it
-   says that about any program it has not seen before. Click **More
-   info**, then **Run anyway**.
-4. Follow the prompts. It does not ask for an administrator password.
+1. Get **`AlphaPremierIdMaker-setup.zip`** from IT.
+2. Right-click it and choose **Extract All**.
+3. In the folder that appears, double-click **Install**.
+4. If Windows says **"Windows protected your PC"**, click **More info**,
+   then **Run anyway**. It says that about any program it has not seen
+   before.
 
-You will find **Alpha Premier ID Maker** in the Start menu and on your
-desktop. Right-click it on the taskbar to pin it there.
+The app itself does not ask for an administrator password. You will find
+**Alpha Premier ID Maker** in the Start menu; right-click it there to pin
+it to the taskbar.
 
-It needs Microsoft's WebView2 Runtime, which is already on every recent
-Windows computer. If it is missing, the installer fetches it.
+**The pen tablet.** The installer also sets up the **XP-Pen Deco Fun**
+driver if this computer does not already have a tablet driver. That one
+step does ask for permission ("Do you want to allow this app to make
+changes") because a driver is installed for the whole computer. Say
+**Yes**, then unplug the tablet and plug it back in. If you say No, the
+app still works; you sign with the mouse, or use a scan.
+
+Nothing else needs installing first.
 
 ---
 
@@ -48,23 +54,32 @@ The app turns it into `APG-2026-124`.
 > who already has it. Either use a different number, or — if you are
 > reprinting a lost card for the same person — tick **Replacement card**.
 
-**4. Photo** — the photo needs a plain green background. If you do not
-have one, the app shows you a short instruction to copy; paste it into the
-company's Gemini or ChatGPT account along with the photo, and it will
-produce one for you.
+**4. Photo** — choose any clear photo of the person, or drag it onto the
+window. The app removes the background itself, on this computer; the
+photo is not sent anywhere. It then places the person on the card.
 
-> Use the **company account**, never your own personal one.
+A photo taken against a plain wall gives the cleanest edge. A cut-out PNG
+or a photo on a green background works too, as before.
 
-Upload the result. The app cuts out the person and places them on the
-card. If something is wrong — too blurry, or clothing the same colour as
-the background — it tells you and asks for a different photo.
+If the photo is blurry, small, or cropped very close, the app says so but
+lets you carry on — how the photo was taken is the photographer's call.
+Check the card, and use **Move or resize it** if the face needs shifting.
+You can also drag the photo on the card and turn the mouse wheel over it.
 
-**5. Signature** — the new hire signs in the box with the mouse, or you
-upload a photo of their signature on white paper.
+**5. Signature** — the signing screen opens by itself and fills the whole
+screen, so the pen has the whole tablet to work with and cannot wander
+off the edge. The new hire signs with the pen (press harder for a thicker
+line), a finger on a touch screen, or the mouse, then presses **Use this
+signature**. **Clear** starts over; **Cancel** or the Esc key goes back
+without signing.
+
+No tablet? **Use a scan instead** takes a photo of their signature on
+white paper.
 
 **6. Check and print** — you will see the actual sheet that will come out
-of the printer. Check the name, title and number, then press **Download
-PDF**.
+of the printer. Check the name, title and number, then press **Save the
+PDF** and choose where to keep it. The card counts as issued once the file
+is saved.
 
 ---
 
@@ -85,12 +100,12 @@ On the last step you choose how the cards sit on the paper:
 
 ### Several people at once
 
-On the last step, press **+ Add another ID to this print**. Finish that
+On the last step, press **Add another ID to this print**. Finish that
 person, and both go on the same sheet. Repeat for as many as fit. Everyone
 waiting is listed under the preview.
 
-Changed your mind? **Cancel — back to printing** takes you back with
-everyone already added still there.
+Changed your mind? **Stop adding and go back to the print** takes you back
+with everyone already added still there.
 
 ---
 
@@ -103,29 +118,30 @@ app, and both only on a **new, blank ID**.
 
 Click **Card design** in the list on the left, then **Show the map**. The
 boxes for the photo, name, job title, number, signature and QR appear on
-the card. Drag one to move it, drag its round corner to resize it, or
-select one and nudge it with the arrow keys. The card redraws as you go.
+the card. Drag one to move it, drag its gold corner to resize it, or select
+one and nudge it with the arrow keys (hold Shift to resize). The card
+redraws as you go.
 
-**Done** keeps it on this computer. **Cancel** puts the boxes back where
-they were when you opened the map. **Reset to the built-in layout** goes
-all the way back to the original positions, including moves you kept
-earlier.
+**Keep this map** keeps it on this computer. **Discard changes** puts the
+boxes back where they were when you opened the map. **Put the boxes back
+where the built-in design has them** goes all the way back to the
+original positions, including moves you kept earlier.
 
 ### New artwork
 
 1. Get the two pictures from the designer: the **front** and the **back**,
    both 638 × 1011 pixels. (`TEMPLATE-SPEC.md` is the brief to give them.)
-2. In **Card design**, open **Use different artwork**, choose the two
+2. In **Card design**, under **Use different artwork**, choose the two
    files and press **Use this artwork**.
 3. The boxes stay where they were, which is unlikely to suit a new
    design, so the map opens straight away. Drag the boxes into place and
-   press **Done**.
+   press **Keep this map**.
 
 The app warns you if any of the text would be too pale to read against
 the new artwork. Move that box somewhere darker, or ask the designer to
 put a darker shape behind it.
 
-**Use the built-in design** puts the original card and its original
+**Go back to the built-in design** puts the original card and its original
 layout back at any time.
 
 ---
@@ -143,12 +159,20 @@ once when the app starts, so every number after that is checked
 instantly. If the sheet cannot be reached at all, the app says so and
 lets you carry on — it still checks against this computer.
 
-**It says the photo is no good.** Common reasons: the background is not
-plain green, the person is wearing something the same colour as the
-background, or the photo is blurry. Take or request another one.
+**The cut-out has bits of background in it, or cuts into the person.**
+The background remover works best when the person stands in front of a
+plain wall. Busy backgrounds — stripes, posters, shelves right behind
+them — confuse it. Take the photo again against a wall. If that is not
+possible, open **If the cut-out looks wrong** under the photo for another
+way to get a clean one.
+
+**The pen does nothing, or draws but the line never gets thicker.** Unplug
+the tablet and plug it back in. If the signing screen says no tablet
+driver was found, run the installer again and say **Yes** when Windows
+asks. The mouse always works in the meantime.
 
 **The back of the card prints upside down.** Click **Printer setting** on
-the left and tick *Turn the back 180°*.
+the left and tick *Turn the back upside down*.
 
 **The backs end up behind the wrong people.** Only happens with the *Both
 sides* layout. In **Printer setting** on the left, change *How your printer
@@ -161,8 +185,8 @@ page. Print at 100% or "actual size".
 
 ## What the app keeps
 
-**It never stores photographs.** The photo is used to make the card and is
-then gone. If someone loses their ID, you will need the photo again to
+**It never stores photographs, and never sends them anywhere.** The photo
+is used to make the card, on this computer, and is then gone. If someone loses their ID, you will need the photo again to
 reprint it. That is on purpose — there is no store of employee photos to
 protect.
 
@@ -170,6 +194,10 @@ protect.
 number, the name, the job title and the date. That is what lets the app
 warn you about a number that has already been used. There is nothing to
 set up; it is already connected.
+
+If the register cannot be reached when you save a card, the app tells you,
+keeps the card on this computer, and writes it to the register by itself
+the next time it starts with the internet working.
 
 **The register is the real record, not your laptop.** If the laptop is
 replaced or wiped, the sheet still has everything.
@@ -181,7 +209,7 @@ replaced or wiped, the sheet still has everything.
 The full procedure, including making many cards at once from a
 spreadsheet, is in **[PROCESS.md](PROCESS.md)**.
 
-If you look after the app itself, see **[DEVELOPING.md](DEVELOPING.md)**.
+If you look after the app itself, see **[windows/README.md](windows/README.md)**.
 
 If someone is redesigning the card, give them
 **[TEMPLATE-SPEC.md](TEMPLATE-SPEC.md)** — it says what size to work at and

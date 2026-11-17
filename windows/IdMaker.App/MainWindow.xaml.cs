@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private bool _front = true;                 // which side the preview shows
     private bool _guides;                       // maintainer overlay (Ctrl+Shift+G)
     private bool _checkingPhoto;
+    private bool _built;                        // false while the markup is still loading: controls announce their starting values before their neighbours exist
     private bool _syncing;                      // true while Render() writes to controls, so their handlers stand down
     private string? _tool;                      // which tool drawer is open, if any
     private bool _saved;                        // the print on screen has been saved
@@ -79,6 +80,7 @@ public partial class MainWindow : Window
         };
 
         InitializeComponent();
+        _built = true;
         MapOverlay.Store = _templates;
         MapOverlay.Changed += moved => { if (moved) { ApplyGeometry(); DrawPreview(); } DesignReadout.Text = MapOverlay.Readout(); };
         _sheetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
@@ -195,6 +197,7 @@ public partial class MainWindow : Window
 
     internal void Render()
     {
+        if (!_built) return;
         _syncing = true;
         try
         {
