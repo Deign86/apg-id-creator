@@ -337,7 +337,7 @@ public partial class MainWindow
         // drawer, so any route that closed the drawer without going through
         // it — Close, Escape, another tool in the rail — would otherwise
         // leave the boxes on the card with no button anywhere to finish with.
-        if (MapOverlay.IsVisible && _tool != "design") StopAdjusting();
+        if (EditingMap && _tool != "design") StopAdjusting();
 
         Show(Drawer, _tool is not null);
         var all = _register.All();
@@ -364,7 +364,7 @@ public partial class MainWindow
         }
         if (_tool == "design") RenderDesign();
         // the form stands down while the boxes are being dragged
-        FormPanel.IsEnabled = !MapOverlay.IsVisible;
+        FormPanel.IsEnabled = !EditingMap;
     }
 
     /* ---- issued IDs ----------------------------------------------- */
@@ -622,11 +622,15 @@ public partial class MainWindow
 
     private string? _frontFile;
     private string? _backFile;
+
+    // Asked of the overlay's own setting rather than of what is on screen:
+    // "is it drawn right now" is also false while the window is hidden or minimised.
+    private bool EditingMap => MapOverlay.Visibility == Visibility.Visible;
     private (Dictionary<string, RectMm> Boxes, RectMm PhotoRect)? _editSnapshot;
 
     private void RenderDesign()
     {
-        var editing = MapOverlay.IsVisible;
+        var editing = EditingMap;
         DesignName.Text = _templates.DesignName;
         Show(DesignHome, !editing);
         Show(DesignAdjust, editing);

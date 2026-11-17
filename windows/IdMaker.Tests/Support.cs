@@ -17,7 +17,7 @@ internal static class Repo
         get
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
-            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "assets", "front-template.png"))) dir = dir.Parent;
+            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "test", "golden-front.png"))) dir = dir.Parent;
             return dir?.FullName ?? throw new InvalidOperationException("The repository root (the folder holding assets/) was not found above the test binaries.");
         }
     }

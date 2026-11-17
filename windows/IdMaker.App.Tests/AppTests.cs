@@ -55,7 +55,9 @@ internal static class Files
         get
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
-            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "assets", "front-template.png"))) dir = dir.Parent;
+            // test/golden-front.png, not assets/: the program's own Assets folder sits beside these tests,
+            // and on Windows "Assets" and "assets" are the same name
+            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "test", "golden-front.png"))) dir = dir.Parent;
             return dir?.FullName ?? throw new InvalidOperationException("The repository root was not found above the test binaries.");
         }
     }

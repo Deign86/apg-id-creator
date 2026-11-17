@@ -431,7 +431,6 @@ public partial class MainWindow : Window
         if (e.Key == Key.Enter && Keyboard.FocusedElement is TextBox { AcceptsReturn: false } box && IsInForm(box) && _session.StepIndex != Session.LastStep)
         {
             e.Handled = true;
-            CommitFocusedField(box);
             AfterMove(_session.StepIndex, _session.NextStep());
         }
     }
@@ -442,11 +441,6 @@ public partial class MainWindow : Window
         return false;
     }
 
-    // Enter does not move the focus, so the tidying that normally happens on leaving a field happens here.
-    private void CommitFocusedField(TextBox box)
-    {
-        if (box.Tag is string tag && Enum.TryParse<Field>(tag, out var part)) _session.LeaveNamePart(part);
-    }
 
     /* ---- step 1: name --------------------------------------------- */
 
@@ -599,7 +593,7 @@ public partial class MainWindow : Window
         var zoom = Math.Round(s.Adjust.Zoom * 100);
         if (Math.Abs(SldZoom.Value - zoom) > 0.01) SldZoom.Value = zoom;
         SetText(ZoomOut, $"{zoom:0} %");
-        CardSurface.Cursor = photo is not null && _front && !MapOverlay.IsVisible ? Cursors.SizeAll : null;
+        CardSurface.Cursor = photo is not null && _front && !EditingMap ? Cursors.SizeAll : null;
 
         // When the photo was turned away for something the prompt fixes,
         // put the fix in front of the operator instead of leaving it folded away.
@@ -698,7 +692,7 @@ public partial class MainWindow : Window
     private void BtnAdjustReset_Click(object sender, RoutedEventArgs e) { _session.ResetAdjust(); Render(); }
 
     // dragging the photo on the card itself, and the wheel to resize it
-    private bool CanDragPhoto => _session.Photo is not null && _front && !MapOverlay.IsVisible && _session.StepIndex != Session.LastStep;
+    private bool CanDragPhoto => _session.Photo is not null && _front && !EditingMap && _session.StepIndex != Session.LastStep;
 
     private void Card_MouseDown(object sender, MouseButtonEventArgs e)
     {

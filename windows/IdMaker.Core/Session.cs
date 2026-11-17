@@ -364,6 +364,13 @@ public sealed partial class Session
     /// <summary>Move on, or say what is still missing.</summary>
     public MoveResult NextStep()
     {
+        // Moving on from the name tidies its capitals, however the move was
+        // made: the mouse, the Enter key, or a pen that never took the focus
+        // out of the box.
+        if (StepIndex == (int)Step.Name)
+        {
+            foreach (var part in new[] { Field.Last, Field.First, Field.Middle, Field.Suffix }) TidyNamePart(part);
+        }
         var p = Problems();
         var stop = FurthestStep(p);
 
@@ -424,11 +431,23 @@ public sealed partial class Session
     /// </summary>
     public string LeaveNamePart(Field part)
     {
+        var tidy = TidyNamePart(part);
+        Touched.Add(part);
+        return tidy;
+    }
+
+    private string TidyNamePart(Field part)
+    {
         var current = part switch { Field.Last => Last, Field.First => First, Field.Middle => Middle, _ => Suffix };
         var tidy = Naming.AutoCapitalise(current, suffix: part == Field.Suffix);
-        var wasExample = Example;
-        if (tidy != current) { SetNamePart(part, tidy); Example = wasExample; }
-        Touched.Add(part);
+        if (tidy == current) return current;
+        switch (part)
+        {
+            case Field.Last: Last = tidy; break;
+            case Field.First: First = tidy; break;
+            case Field.Middle: Middle = tidy; break;
+            default: Suffix = tidy; break;
+        }
         return tidy;
     }
 

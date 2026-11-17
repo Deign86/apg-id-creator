@@ -143,6 +143,14 @@ public class StepTests
         Assert.Equal("dela Cruz", s.LeaveNamePart(Field.Last));
         s.SetNamePart(Field.Suffix, "iii");
         Assert.Equal("III", s.LeaveNamePart(Field.Suffix));
+
+        // and moving on tidies them too, for when the field was never "left"
+        var t = Make.Session();
+        t.SetNamePart(Field.Last, "reyes");
+        t.SetNamePart(Field.First, "ana maria");
+        Assert.True(t.NextStep().Moved);
+        Assert.Equal("Reyes", t.Last);
+        Assert.Equal("Ana Maria", t.First);
     }
 
     [Fact]
