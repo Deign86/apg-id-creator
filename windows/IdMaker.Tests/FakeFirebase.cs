@@ -5,6 +5,7 @@
 // drive the real window against the same pretend project.
 
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json.Nodes;
 using IdMaker.Core;
