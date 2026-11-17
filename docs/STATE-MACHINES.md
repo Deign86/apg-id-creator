@@ -367,8 +367,8 @@ without the fix.
 ### 1. A card saved while the sheet was down was never written to it — Confirmed
 
 **Machine 4.** `RecordShared` returned `false` on failure and nothing
-kept the entry (this is how the web app behaved too: `recordShared` in
-`src/register.ts` swallowed the failure). The card was issued, printed
+kept the entry (this is how the earlier web app behaved too: its
+`recordShared` swallowed the failure). The card was issued, printed
 and recorded on one computer, and no other computer would ever learn the
 number was taken — the duplicate the whole register exists to prevent.
 
@@ -411,7 +411,7 @@ covers the serial; the window's use of it is two lines traced by hand
 **Machine 1, invariant I3.** After "Stop adding" the form is blank and
 the Check step shows the queue. Removing the last queued card from there
 left the Check step open with no cards: a Save button with nothing to
-save. Present in the web app (`removeFromQueue` in `src/app.js`).
+save. Present in the earlier web app (its `removeFromQueue`).
 
 **Fix.** Removing the last card from a blank Check step returns to
 step 1. **Test:**

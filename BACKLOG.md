@@ -1,7 +1,7 @@
 # Backlog
 
 Ideas considered and deliberately not built yet, with enough detail to pick
-them up later. Shipped work is described in `README.md` and `PROCESS.md`.
+them up later. Shipped work is described in `README.md` and `windows/README.md`.
 
 ## On-device background removal (done, in the Windows app)
 
@@ -24,14 +24,15 @@ seconds a photo without a graphics card.
 ## Signing on a phone
 
 **Idea.** Show a QR code; the new hire signs on their own phone; the strokes
-come back to the open tab.
+come back to the app.
 
 **Why not yet.** It needs a relay the two devices can both reach — a small
-server or a hosted channel. The app is deliberately a single offline file
-with no backend, so this would be the first piece of infrastructure beyond
-the optional Google Sheet. The "Upload a scan" button now covers most of the
-same ground: the person signs on paper, HR photographs it, the app turns it
-into clean white ink.
+server or a hosted channel. The app deliberately has no backend, so this
+would be the first piece of infrastructure beyond the register's Google
+Sheet. Two things now cover most of the same ground: the full-screen
+signing screen with the pen tablet, and **Use a scan instead** — the
+person signs on paper, HR photographs it, the app turns it into clean
+white ink.
 
 **If revisited.** The shared register's Apps Script could carry the strokes
 as a short-lived row keyed by a random token, avoiding a new service.

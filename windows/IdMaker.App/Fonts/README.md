@@ -9,9 +9,10 @@ not read WOFF2):
 | `Montserrat-ExtraBold.ttf` | the job title | SIL Open Font License 1.1 | JulietaUla/Montserrat `fonts/ttf` |
 | `Arimo-Regular.ttf` | the employee number | Apache License 2.0 | googlefonts/Arimo `fonts/ttf` |
 
-Their advance widths were checked against the WOFF2 subsets the web app
-shipped (`assets/fonts/` at the top of the repository) and are identical,
-so a name breaks onto the same lines at the same size as before.
+Their advance widths were checked against the WOFF2 subsets the earlier
+web app shipped and are identical, so a name breaks onto the same lines at
+the same size as before. `IdMaker.App.Tests` holds them to what that app
+measured.
 
 They style the printed card only. The window itself uses Segoe UI, which
 is already on every Windows computer.
