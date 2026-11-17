@@ -107,6 +107,19 @@ That writes `windows/dist/AlphaPremierIdMaker-setup.zip`: the app with
 zip on every push and keeps it as an artifact named
 `AlphaPremierIdMaker-setup`.
 
+### Releases
+
+Releases build themselves. When a change to the app reaches `main`,
+`.github/workflows/release.yml` runs every test, builds the package,
+proves it installs and starts, and publishes it as a GitHub release
+named after the version (`v2.0.0`), with a `SHA256SUMS.txt` beside it.
+
+The version is `Version` in `IdMaker.App.csproj`. A version that is
+already released is not released again, so a change HR should install
+needs the version bumped in three places that must agree:
+`IdMaker.App.csproj`, `app.manifest` and `CardConfig.AppVersion`. The
+release stops with an error if the first and last differ.
+
 ### What the tests hold the app to
 
 `IdMaker.Tests/Fixtures/web-reference.json` holds values captured from

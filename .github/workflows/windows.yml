@@ -8,7 +8,7 @@ on:
       - 'windows/**'
       - 'assets/**'
       - 'test/golden-front.png'
-      - '.github/workflows/windows.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
