@@ -68,6 +68,7 @@ waiting on a person with the hardware.
 | full-output-enforcement | no placeholders, no "rest follows the same pattern" |
 | better-accessibility, fixing-accessibility | real controls, a visible focus ring, labels tied to inputs, errors as words beside the field, status announced, 40-pixel targets, Next never disabled |
 | better-layout, better-typography, better-colors, better-ui, baseline-ui | `Theme.xaml`: two tiers of colour, four type sizes, spacing in steps, no animation, no gradients |
+| design-taste-frontend (its app-screens chapter), redesign-existing-projects | "How the window is meant to look" in `windows/README.md`: gold for one button and the current step, the card as the biggest thing, flat surfaces, one radius family. Judged on the screenshots CI keeps in `render-report` |
 | better-writing | verb-first buttons that name the consequence, sentence case, errors that say how to recover |
 | anti-slop | TypeScript-only as written; its principles are the `// SAFETY:` rule and parsing at the boundary (`Register.ParseEntry`) |
 | i-have-adhd | how replies to Deign are shaped, not the app |
@@ -76,6 +77,6 @@ waiting on a person with the hardware.
 
 The web-marketing and image-generation skills (brandkit, gpt-taste,
 imagegen-*, image-to-code, stitch-design-taste, high-end-visual-design,
-industrial-brutalist-ui, design-taste-frontend, fixing-metadata,
+industrial-brutalist-ui, design-taste-frontend's page run, fixing-metadata,
 fixing-motion-performance, e2e, typesafe-ai) do not apply to a native
 desktop tool.

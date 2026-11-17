@@ -272,8 +272,34 @@ restarted.
   3:1 for control edges, scroll bars and the focus ring.
 
 What does not change, on purpose: the printed card (its colours are the
-artwork's), the black stage the card sits on, the signing screen (black,
-like the card), and the signature pad (white, like paper).
+artwork's), the signing screen (black, like the card), and the signature
+pad (white, like paper).
+
+### How the window is meant to look
+
+The rules `Theme.xaml` and `MainWindow.xaml` are held to, so the next
+change keeps them:
+
+- **Gold means one thing.** It is spent on the button that moves the job
+  forward (`Button.Primary`: Next, Save the PDF) and on the rule over the
+  step you are on. Anything else that is chosen, ticked, hovered, open or
+  focused uses the text colour (`Color.Strong`, `Color.Focus`) or a tone
+  step of the page (`Color.Hover`, `Color.Active`). `ThemeTests` fails if
+  gold appears anywhere else.
+- **One gold button on screen.** A step's own main action (Choose a
+  photo, Sign now) and a tool's (Make the batch, Keep this map) are
+  `Button.Strong`, the text colour as a fill, and drop to `Button.Ghost`
+  once done.
+- **The card is the biggest thing.** No title bar or footer of our own:
+  the product's name is at the top of the rail, the version at its foot.
+  The card sits on `Color.Stage`, one step from the page, with a hairline
+  round it so its edge shows in either mode.
+- **Flat.** A 1-pixel line or a tone step separates surfaces. No shadows,
+  no gradients, no animation; a press shows as a dip in opacity.
+- **One radius family:** panels 8, controls 6, small marks 4.
+- **Four type sizes:** 13, 14, 16, 20. Fields are 40 high and 20 apart.
+- **In a narrow window** (under 1296 wide) an open tool takes the form's
+  place until it is closed (`FitColumns`); the card never gives way.
 
 **Not done:** Windows' *contrast themes* (high contrast). The app keeps
 its own colours there rather than taking the contrast theme's.
