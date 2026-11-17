@@ -41,12 +41,11 @@ $exe = Join-Path $Dist 'AlphaPremierIdMaker.exe'
 Copy-Item $built $exe -Force
 "Built $exe ($([math]::Round((Get-Item $exe).Length / 1MB)) MB)"
 
-# Start it from a folder of its own, the way a downloaded file is run. As in
-# selftest.ps1, this computer is first pointed at a register address nothing
-# answers on, so a build machine never asks the company's sheet for anything.
+# Start it from a folder of its own, the way a downloaded file is run. Nobody
+# has signed in on a build machine, so the app asks the shared register for
+# nothing (see selftest.ps1).
 $data = Join-Path $env:LOCALAPPDATA 'Alpha Premier\ID Maker'
 New-Item -ItemType Directory -Force -Path $data | Out-Null
-Set-Content -Path (Join-Path $data 'register-url.json') -Value 'http://localhost:9/exec' -NoNewline -Encoding utf8
 $err = Join-Path $data 'last-error.txt'
 Remove-Item $err -Force -ErrorAction SilentlyContinue
 

@@ -46,3 +46,39 @@ ABANDON: G6 needs the tablet in someone's hand; the machine this was built on is
 ABANDON: G7 needs an office computer and an administrator to answer the prompt. The driver installer was downloaded and confirmed to be Inno Setup, whose silent switches are the ones used; the install itself was not run. CI always installs with the driver step left out.
 ABANDON: G8 needs a printer and a ruler. The PDF's page size and pixel dimensions are tested (638 × 1011 at 54 × 85.6 mm).
 ABANDON: G9 needs real photographs of real staff, which must not leave the company. The model was measured on the repository's sample portrait over test backgrounds only.
+
+# Gates: move the shared register from the Google Sheet to Firebase
+
+OWNS: windows/IdMaker.Core/Register.cs, windows/IdMaker.Core/Config.cs, windows/IdMaker.App/WindowsKeeper.cs, register/**, .github/workflows/release.yml; in Deign86/apg-keystone: firestore.rules (the idreg block), e2e/cloud/id-register.e2e.ts, docs/adr/0025
+
+Scope: The register of issued IDs is a list in the company's Firebase project (apg-keystone), reached over Firestore's and Firebase Auth's REST interfaces, with each HR person signed in as their Keystone account. No Apps Script, no REGISTER_URL secret. Which project it is comes from the FIREBASE_PROJECT_ID and FIREBASE_API_KEY repository secrets at release; neither is in the source.
+
+- [x] R1: Core compiles with warnings as errors and with no package added.
+  CHECK: dotnet build windows/IdMaker.Core
+  EXPECT: Build succeeded
+  EVIDENCE: Build succeeded, 0 warnings, on Linux (.NET SDK 8.0.134), 17 Nov 2026.
+
+- [ ] R2: Every Core test passes: sign-in and its refusals, the read across pages, create-if-absent, a duplicate refused whichever way Firestore refuses it, offline then resent from the outbox, a sign-in turned away, nothing sent with nobody signed in, nothing that opens the register written in the repository.
+  CHECK: dotnet test windows/IdMaker.Tests
+  EXPECT: /Passed!\s+- Failed:\s+0, Passed:\s+1\d\d/
+  EVIDENCE: pending under xunit. The machine this was written on could not reach nuget.org, so xunit could not be restored. The same test files, unchanged, were compiled against a stand-in for xunit's Fact, Theory and Assert and run there: 117 passed, 0 failed, in UTC+8 and in UTC. That is not this gate.
+
+- [ ] R3: The WPF program and its Windows-only tests compile and pass with the sign-in panel in place of the address box.
+  CHECK: dotnet build windows/IdMaker.sln; dotnet test windows/IdMaker.App.Tests
+  EXPECT: Build succeeded; /Passed!\s+- Failed:\s+0/
+  EVIDENCE: pending. MainWindow.xaml, MainWindow.Print.cs, MainWindow.xaml.cs, Theme.xaml and WindowsKeeper.cs were changed and have not been compiled: the Windows desktop targeting pack comes from nuget.org.
+
+- [ ] R4: The register's rules allow a member to read and to create an ID under its own number as themselves, and refuse a second create, any change, any removal, and anyone who is not a member.
+  CHECK: (in apg-keystone) npm run test:e2e:cloud
+  EXPECT: id-register.e2e.ts: 5 passed
+  EVIDENCE: pending. The Firestore emulator could not be downloaded on the machine this was written on.
+
+- [ ] R5: The rules are deployed to apg-keystone, and the Sheet's rows are in the new register.
+  CHECK: node register/migrate.mjs Register.csv
+  EXPECT: Every number in the sheet is in the new register.
+  EVIDENCE: pending. The Sheet's Register tab held 2 cards on 17 Nov 2026 (APG-2026-124, APG-2026-125). The script was run against a stand-in for the two services only: 2 numbers and 1 replacement copied, nothing copied on a second run.
+
+- [ ] R6: On a Windows computer, signed in with a Keystone account: one ID issued appears in Firestore under its number, and a second attempt at the same number from another computer is refused and the operator is told.
+  EVIDENCE: pending
+
+ABANDON: none yet. R2 to R6 wait on a machine that can reach nuget.org and Firebase, and on the owner's go-ahead to deploy the rules.

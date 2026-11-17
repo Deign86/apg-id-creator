@@ -797,15 +797,44 @@ public sealed partial class Session
         return issued;
     }
 
-    /// <summary>Write issued cards to the shared register. Returns the ones that did not get there.</summary>
-    public async Task<IReadOnlyList<RegisterEntry>> RecordShared(IReadOnlyList<RegisterEntry> issued)
+    /// <summary>
+    /// Write issued cards to the shared register. Says which are still
+    /// waiting to get there, and which it refused because the number already
+    /// belongs to somebody else: those cards are duplicates and must not be used.
+    /// </summary>
+    public async Task<SharedReport> RecordShared(IReadOnlyList<RegisterEntry> issued)
     {
-        var failed = new List<RegisterEntry>();
-        if (!_register.Shared) return failed;
+        var waiting = new List<RegisterEntry>();
+        var refused = new List<RefusedCard>();
+        if (!_register.Shared) return new SharedReport(waiting, refused);
         foreach (var e in issued)
         {
-            if (!await _register.RecordShared(e).ConfigureAwait(false)) failed.Add(e);
+            var write = await _register.RecordShared(e).ConfigureAwait(false);
+            if (write.Outcome == SharedOutcome.Waiting) waiting.Add(e);
+            if (write is { Outcome: SharedOutcome.Refused, Holder: { } holder }) refused.Add(new RefusedCard(e, holder));
         }
-        return failed;
+        return new SharedReport(waiting, refused);
+    }
+}
+
+/// <summary>What became of the cards just sent to the shared register.</summary>
+public sealed record SharedReport(IReadOnlyList<RegisterEntry> Waiting, IReadOnlyList<RefusedCard> Refused)
+{
+    /// <summary>What to tell the operator, or "" when every card got there.</summary>
+    public string Message()
+    {
+        var parts = new List<string>();
+        foreach (var r in Refused)
+        {
+            parts.Add($"{r.Card.Id} was issued to {r.Holder.Name} on another computer{(r.Holder.IssuedOn.Length > 0 ? " on " + r.Holder.IssuedOn : "")}, "
+                + $"so the card just made for {r.Card.Name} is a duplicate. Do not hand it out: make it again with a number that is free.");
+        }
+        if (Waiting.Count > 0)
+        {
+            parts.Add($"{(Waiting.Count == 1 ? Waiting[0].Id + " was" : Waiting.Count + " cards were")} not written to the shared register, "
+                + "because it could not be reached. They are recorded on this computer and will be sent the next time the app starts with the register in reach. "
+                + "Until then, other computers will not know these numbers are taken.");
+        }
+        return string.Join(" ", parts);
     }
 }

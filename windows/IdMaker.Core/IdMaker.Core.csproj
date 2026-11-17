@@ -6,11 +6,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- The register's address is a credential, so it is never in the source.
-       The release build sets IDMAKER_REGISTER_URL from a repository secret;
-       without it the app has no built-in register. Read by CardConfig.RegisterUrl. -->
-  <ItemGroup Condition="'$(IDMAKER_REGISTER_URL)' != ''">
-    <AssemblyMetadata Include="RegisterUrl" Value="$(IDMAKER_REGISTER_URL)" />
+  <!-- Which Firebase project the shared register is in is not written in the
+       source. The release build sets IDMAKER_FIREBASE_PROJECT_ID and
+       IDMAKER_FIREBASE_API_KEY from repository secrets; without both the app
+       has no shared register. Read by CardConfig.Register. -->
+  <ItemGroup Condition="'$(IDMAKER_FIREBASE_PROJECT_ID)' != '' And '$(IDMAKER_FIREBASE_API_KEY)' != ''">
+    <AssemblyMetadata Include="FirebaseProjectId" Value="$(IDMAKER_FIREBASE_PROJECT_ID)" />
+    <AssemblyMetadata Include="FirebaseApiKey" Value="$(IDMAKER_FIREBASE_API_KEY)" />
   </ItemGroup>
 
 </Project>

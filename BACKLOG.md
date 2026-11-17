@@ -28,14 +28,15 @@ come back to the app.
 
 **Why not yet.** It needs a relay the two devices can both reach — a small
 server or a hosted channel. The app deliberately has no backend, so this
-would be the first piece of infrastructure beyond the register's Google
-Sheet. Two things now cover most of the same ground: the full-screen
+would be the first piece of infrastructure beyond the shared register. Two things now cover most of the same ground: the full-screen
 signing screen with the pen tablet, and **Use a scan instead** — the
 person signs on paper, HR photographs it, the app turns it into clean
 white ink.
 
-**If revisited.** The shared register's Apps Script could carry the strokes
-as a short-lived row keyed by a random token, avoiding a new service.
+**If revisited.** The Firebase project the register is in could carry the
+strokes as a short-lived document keyed by a random token, avoiding a new
+service. It would need its own rule, and a signature must not be kept
+there once it has arrived.
 
 ## Smaller ideas not yet done
 

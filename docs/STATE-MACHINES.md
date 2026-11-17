@@ -22,6 +22,7 @@ Machines:
 9. [A stroke on the signature pad](#9-a-stroke-on-the-signature-pad)
 10. [The pen tablet context](#10-the-pen-tablet-context)
 11. [Light or dark](#11-light-or-dark)
+12. [The sign-in to the shared register](#12-the-sign-in-to-the-shared-register)
 
 Issues, ranked by what they could cost, are at the [end](#issues).
 
@@ -85,8 +86,11 @@ queue of the print in progress.
 
 - I1. `Pending` is a problem on the Number step: not knowing is not the
   same as knowing the number is free.
-- I2. `Unreachable` is not a problem: a sheet being down cannot stop HR
-  working, and the local list still catches repeats from this computer.
+- I2. `Unreachable` is not a problem: the register being down, or nobody
+  being signed in to it on this computer, cannot stop HR working, and
+  the local list still catches repeats from this computer. The window
+  says which it is under the number. What it lets through is caught at
+  the write (machine 4): the register refuses a number it already holds.
 - I3. An answer is applied only to the number it was asked about
   (`_dupToken`).
 - I4. `Taken` blocks unless "Replacement card" is ticked; a number
@@ -98,7 +102,7 @@ queue of the print in progress.
 | any | number or year typed | index in memory | Free / Taken | answered at once, no request | `RefreshDuplicate` |
 | any | number or year typed | index not read yet | Pending | one read started | `RefreshDuplicate` |
 | Pending | read succeeds | token unchanged | Free / Taken | may send the form back to step 3 | `SettleWhenLoaded` |
-| Pending | read fails | token unchanged | Unreachable | | `SettleWhenLoaded` |
+| Pending | read fails, or nobody is signed in | token unchanged | Unreachable | | `SettleWhenLoaded` |
 | Pending | read finishes | token changed | (unchanged) | answer dropped | `SettleWhenLoaded` |
 
 **Invalid transitions prevented.** Pressing Next twice quickly while
@@ -111,9 +115,9 @@ answer for a number since deleted is dropped (I3; test
 
 ## 3. The shared register's index
 
-**Purpose.** The whole shared register, read once and kept in memory.
-**Code:** `IdMaker.Core/Register.cs` (`LoadIndex`, `LoadIndexCore`,
-`SetUrl`, `FindSharedNow`, `NoteShared`).
+**Purpose.** The whole shared register (a list in Firestore), read once
+and kept in memory. **Code:** `IdMaker.Core/Register.cs` (`LoadIndex`,
+`LoadIndexCore`, `FindSharedNow`, `NoteShared`).
 
 **States.** Implicit, from two fields: `_index` (null or a dictionary)
 and `_loading` (null or a task). *Unread* (null, null), *Reading*
@@ -123,47 +127,79 @@ after `LoadIndex(force: true)`).
 **Invariants.**
 
 - I1. Any number of callers while *Reading* share one request.
-- I2. `_index` only ever holds rows from the address currently set.
+- I2. `_index` only ever holds what was read as the sign-in currently in
+  force (machine 12). Signing in, signing out, or a sign-in being turned
+  away empties it.
+- I3. A number the register is known to hold stays *taken* in `_index`
+  whatever its document looks like: the document's own name is the
+  number.
+- I4. `_loading` is a read that has not finished. A finished one is never
+  kept as "in flight".
 
 | From | Event | Guard | To | Side effects | Code |
 | --- | --- | --- | --- | --- | --- |
-| Unread | `LoadIndex` | shared | Reading | one GET `?action=list` | `LoadIndex` |
+| Unread | `LoadIndex` | signed in | Reading | pages of 300 read until there is no next page | `LoadIndex` |
+| Unread | `LoadIndex` | no shared register, or nobody signed in | Unread | caller told "not read"; `LastProblem` says why; no request | `LoadIndex` |
 | Reading | `LoadIndex` | not forced | Reading | same task returned | `LoadIndex` |
-| Reading | answer, rows read | address unchanged | Read | | `LoadIndexCore` |
-| Reading | answer | address changed meanwhile | Unread | rows dropped | `LoadIndexCore` |
-| Reading | failure | | Unread | caller told "not reached" | `LoadIndexCore` |
-| any | `SetUrl` | | Unread | address version advanced | `SetUrl` |
+| Reading | every page read | sign-in unchanged | Read | | `LoadIndexCore` |
+| Reading | every page read | sign-in changed meanwhile | Unread | rows dropped | `LoadIndexCore` |
+| Reading | failure | | Unread | caller told "not read"; `LastProblem` says why | `LoadIndexCore` |
+| any | sign in, sign out, sign-in turned away | | Unread | sign-in version advanced | `SignInChanged` |
 | Read | card issued here | | Read | entry added, no re-read | `NoteShared` |
+| Read | a card of ours refused | | Read | the number set to whoever holds it | `NoteRefused` |
 
-**Invalid state found.** `_index` holding the *old* register's rows after
-the address changed — issue 2.
+**Invalid states found.** `_index` holding rows read as a sign-in no
+longer in force — issue 2. A finished read kept as `_loading` — issue 7.
 
 ---
 
 ## 4. Writes to the shared register
 
-**Purpose.** Getting every issued card into the shared sheet, including
-those issued while it could not be reached. **Code:**
-`IdMaker.Core/Register.cs` (`RecordShared`, `SendWaiting`, the
-`register-outbox` store key).
+**Purpose.** Getting every issued card into the shared register,
+including those issued while it could not be reached, and never letting
+one number become two cards' record. **Code:**
+`IdMaker.Core/Register.cs` (`RecordShared`, `Create`, `SendWaiting`,
+`NoteRefused`; the `register-outbox` and `register-refused` store keys).
 
 **States per issued card.** *Local only* (in this computer's list),
-*Waiting* (also in the outbox), *Shared* (written to the sheet).
+*Waiting* (also in the outbox), *Shared* (its document is in the
+register), *Refused* (the register holds that number for somebody else;
+in the refused list until the operator has dealt with the card).
 
 **Invariants.**
 
-- I1. A card that was issued and not written to the sheet is in the
-  outbox. It is never simply dropped.
+- I1. A card that was issued and is not in the register is in the outbox
+  or the refused list. It is never simply dropped.
 - I2. A card is in the outbox at most once.
+- I3. The app only ever *creates* a document. It has no request that
+  changes or removes one, and the register's rules allow none, so a
+  number's first card is never overwritten.
+- I4. A card is *Refused* only when the register was seen to hold that
+  number for a different card. "Could not tell" is *Waiting*.
+- I5. A refused card is never sent again: it would be refused for ever.
+- I6. The same card sent twice is one card (same issue time, name and
+  account: the answer to the first send was lost).
 
 | From | Event | Guard | To | Side effects | Code |
 | --- | --- | --- | --- | --- | --- |
-| Local only | write attempted | succeeds | Shared | | `RecordShared` |
-| Local only | write attempted | fails | Waiting | kept on disk; operator told | `RecordShared` |
-| Waiting | app starts, register reached | write succeeds | Shared | removed from outbox | `SendWaiting` |
-| Waiting | resend | fails | Waiting | the rest are left for next time | `SendWaiting` |
+| Local only | create attempted | created | Shared | | `Create` |
+| Local only | create attempted | nobody signed in, out of reach, or an error | Waiting | kept on disk; operator told; `LastProblem` says why | `RecordShared` |
+| Local only / Waiting | create refused: the number has a document | it is this same card | Shared | removed from outbox | `Create` |
+| Local only / Waiting | create refused: the number has a document | "Replacement card" was ticked | Shared | a document created under the first card | `Create` |
+| Local only / Waiting | create refused: the number has a document | it is somebody else's | Refused | removed from outbox; kept in the refused list; index set to the holder; operator told the card is a duplicate | `Create`, `NoteRefused` |
+| Local only / Waiting | create refused, and no document is there | | Waiting | the account may not write: `LastProblem` says so | `Create` |
+| Waiting | app starts or somebody signs in, register reached | create succeeds | Shared | removed from outbox | `SendWaiting` |
+| Waiting | resend | still out of reach | Waiting | the rest are left for next time | `SendWaiting` |
+| Refused | "These cards are dealt with" | | (gone) | refused list emptied | `ClearRefused` |
 
-**Invalid state found.** *Issued, not shared, and forgotten* — issue 1.
+A create of a document that is already there is refused with 409 when
+Firestore looks before asking the rules and with 403 when the rules
+answer first. 403 is also what an account that may not write gets, so
+the app never decides from the status alone: it reads the number's
+document and decides from what is there.
+
+**Invalid states found.** *Issued, not shared, and forgotten* — issue 1.
+*Two cards on one number, the second written over the first* — issue 6.
 
 ---
 
@@ -396,12 +432,68 @@ because it took a brush by value. Every colour is a `DynamicResource` or
 `Theme.Brush` call. The window's `Changed` handler is removed when it
 closes, so a closed window is never asked to redraw.
 
+## 12. The sign-in to the shared register
+
+**Purpose.** Who this computer is to the register. Asked once, kept
+between runs, renewed without asking. **Code:**
+`IdMaker.Core/Register.cs` (`SignIn`, `SignOut`, `Token`, `Renew`,
+`SignInState`, `KeepSignIn`), `IdMaker.App/WindowsKeeper.cs`,
+`IdMaker.App/MainWindow.Print.cs` (`RenderSignIn`).
+
+**States.** *Signed out* (nothing kept), *Signed in, pass good* (a
+renewal token kept on disk, wrapped; a pass in memory, not yet run out),
+*Signed in, pass run out* (the renewal token only), *Renewing* (one
+request out for a new pass), *Turned away* (the renewal token was
+refused: back to *Signed out*, with `SignInProblem` saying to sign in
+again).
+
+**Invariants.**
+
+- I1. The password is never kept: not on disk, not in memory after the
+  request, not in the box it was typed in.
+- I2. What is on disk can be opened only by the same Windows account on
+  the same computer. With no way to wrap it, nothing is written and the
+  sign-in lasts for the run.
+- I3. A sign-in that is not a member of the company's records is not
+  kept.
+- I4. Any number of requests needing a new pass share one renewal.
+- I5. Nothing is sent to the register while *Signed out*.
+- I6. Every change of sign-in empties the index (machine 3) and makes
+  answers still in flight for the old one worthless.
+- I7. Signing out, or being turned away, loses no card: the outbox
+  (machine 4) is the computer's, not the account's.
+
+| From | Event | Guard | To | Side effects | Code |
+| --- | --- | --- | --- | --- | --- |
+| Signed out | app starts | a kept sign-in opens | Signed in, pass run out | | `SignInState` |
+| Signed out | app starts | none kept, or it will not open (another account, damaged) | Signed out | | `SignInState` |
+| Signed out | Sign in | accepted, and a member | Signed in, pass good | renewal token wrapped and written; version advanced; waiting cards sent | `SignIn` |
+| Signed out | Sign in | wrong email or password, turned off, too many tries, not a member, out of reach | Signed out | told which, and what to do | `SignIn`, `SignInRefusal` |
+| Signed in, pass good | an hour passes | | Signed in, pass run out | | `Token` |
+| Signed in, pass run out | a request needs a pass | | Renewing | one renewal request | `Token` |
+| Signed in, pass good | the register answers 401 | | Renewing | renewed once, the request sent again | `Ask` |
+| Renewing | renewed | sign-in unchanged | Signed in, pass good | a new renewal token, if one came, is written | `Renew` |
+| Renewing | refused: expired, turned off, removed | sign-in unchanged | Turned away | kept sign-in removed; version advanced; `SignInProblem` set | `Renew` |
+| Renewing | out of reach | | Signed in, pass run out | the request fails as "not reached"; nothing is forgotten | `Renew` |
+| Renewing | answer | sign-in changed meanwhile | (unchanged) | answer dropped | `Renew` |
+| any signed in | Sign out | | Signed out | kept sign-in removed; version advanced | `SignOut` |
+
+**Invalid states prevented.** A pass or rows from a sign-in no longer in
+force being used after it changed (I6; tests
+`Signing_out_while_a_read_is_in_flight_does_not_keep_what_it_read`,
+`A_sign_in_that_is_no_longer_accepted_asks_again_and_loses_no_card`). A
+readable sign-in on disk (I2; tests
+`Signing_in_is_asked_once_and_remembered_wrapped_never_in_plain_text`,
+`Without_windows_protection_the_sign_in_lasts_for_this_run_only`).
+
+---
+
 ## Issues
 
 Ranked by what each could cost. All were fixed with a test that fails
 without the fix.
 
-### 1. A card saved while the sheet was down was never written to it — Confirmed
+### 1. A card saved while the register was down was never written to it — Confirmed
 
 **Machine 4.** `RecordShared` returned `false` on failure and nothing
 kept the entry (this is how the earlier web app behaved too: its
@@ -411,21 +503,23 @@ number was taken — the duplicate the whole register exists to prevent.
 
 **Fix.** Failed writes go to an outbox on disk and are sent again the
 next time the app starts with the register in reach; the operator is
-told at the time. **Test:**
-`A_card_saved_while_the_sheet_is_down_is_kept_and_sent_when_it_is_back`.
+told at the time. **Tests:**
+`A_card_saved_while_offline_is_kept_and_sent_when_the_register_is_back`,
+`A_card_saved_before_anyone_signed_in_waits_for_the_sign_in`.
 
-### 2. Rows from the old register kept after the address changed — Confirmed
+### 2. Rows read as one sign-in kept after it changed — Confirmed
 
-**Machine 3.** `SetUrl` cleared `_index` and `_loading`, but a read
-already in flight finished afterwards and stored its rows — the *old*
-sheet's — as the index for the new address. Numbers would then be
-checked against the wrong register. Reachable by pressing "Test and
-save" in the first seconds after start, while the opening read is still
-out.
+**Machine 3.** First found with the old register, where the thing that
+could change was its address: `SetUrl` cleared `_index` and `_loading`,
+but a read already in flight finished afterwards and stored the *old*
+sheet's rows as the index for the new address. With Firestore the thing
+that can change is who is signed in, and the same race is there: sign
+out (or have the sign-in turned away) while the opening read is still
+out, and its rows would be kept.
 
-**Fix.** Each read carries the address version it started under and
+**Fix.** Each read carries the sign-in version it started under and
 stores nothing if that has moved on. **Test:**
-`Changing_the_address_while_a_read_is_in_flight_does_not_keep_the_old_register_s_rows`.
+`Signing_out_while_a_read_is_in_flight_does_not_keep_what_it_read`.
 
 ### 3. A photo still being looked at could land on a different card — Confirmed
 
@@ -458,6 +552,48 @@ step 1. **Test:**
 
 **Machine 6, invariant I1.** Not a bug in this code — a property the
 port had to establish rather than inherit. See machine 6.
+
+### 6. Two cards on one number, the second written over the first — Confirmed (in the old register; prevented here)
+
+**Machine 4, invariant I3.** The form checks a number against the
+register as it was last read. Two computers that both read it while a
+number was free could both issue that number. The old register's script
+then *replaced* the first card's row with the second's
+(`if (existing) … setValues`), so the register showed one holder, the
+wrong one, and nobody was told. Two people held the same number and the
+record of the first was gone.
+
+**Fix.** The number is the document's name and the document is only
+created. The second create is refused, the first card stands, and the
+second computer is told at once that its card is a duplicate and must
+not be handed out; the card stays listed until someone has dealt with
+it. The rules refuse any change or removal as well, so no other program
+signed in as a member can do what the script did. **Tests:**
+`A_number_another_computer_took_first_is_refused_and_is_not_sent_again`,
+`The_form_says_a_refused_card_is_a_duplicate_and_must_not_be_handed_out`;
+in the Keystone repository, `e2e/cloud/id-register.e2e.ts`.
+
+**What it does not do.** The duplicate card has already been made when
+the refusal arrives, because the card is recorded after its PDF is
+saved (machine 6, I1: nothing is issued until the file is known to be
+saved). Reserving the number before saving would close that, at the
+cost of numbers spent on prints that then fail. Not done.
+
+### 7. A read that finished at once kept as "in flight" — Confirmed (not reachable over a real network)
+
+**Machine 3, invariant I4.** `LoadIndex` stored the task it had just
+started as `_loading`. A task that had already finished by then (its
+`finally` had already cleared `_loading`) was put back, and a failed
+one would then be handed to every later caller: the register would stay
+"not read" until the app was restarted. A request over a real network
+never finishes before `LoadIndex` returns, so this needed a stand-in
+that answers at once, which is what the tests use; the same shape was
+in the new code that renews a sign-in.
+
+**Fix.** A task that has already finished is not kept, for the read and
+for the renewal. **Test:**
+`A_sign_in_that_is_no_longer_accepted_asks_again_and_loses_no_card`
+(the read after the sign-in is turned away must be a new one).
 
 ### Not confirmed
 

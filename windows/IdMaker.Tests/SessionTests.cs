@@ -186,20 +186,34 @@ public class StepTests
 
 public class DuplicateTests
 {
-    private const string Taken = "{\"id\":\"APG-2026-124\",\"year\":2026,\"seq\":124,\"name\":\"Juan dela Cruz\",\"title\":\"Driver\",\"issuedAt\":\"2026-11-03T02:00:00.000Z\",\"replacement\":false}";
+    private static readonly RegisterEntry Taken = new()
+    {
+        Id = "APG-2026-124", Year = 2026, Seq = 124, Name = "Juan dela Cruz", Title = "Driver", IssuedAt = "2026-11-03T02:00:00.000Z",
+    };
 
-    private static (Session Session, FakeHttp Http, Register Register) Shared(Func<HttpRequestMessage, Task<HttpResponseMessage>> answer)
+    /// <summary>A form on a computer signed in to the shared register, which holds one card.</summary>
+    private static (Session Session, FakeFirebase Firebase, Register Register) Shared(bool taken = true)
     {
         var store = new MemoryStore();
-        var http = new FakeHttp((req, _) => answer(req));
-        var register = new Register(store, http) { BuiltInUrl = Make.RegisterUrl };
-        return (Make.Session(register, store), http, register);
+        var firebase = new FakeFirebase();
+        if (taken) firebase.Put(Taken);
+        var register = Make.SignedIn(firebase, store).GetAwaiter().GetResult();
+        return (Make.Session(register, store), firebase, register);
+    }
+
+    /// <summary>The same, with the register slow to answer: it answers when the gate is set.</summary>
+    private static (Session Session, FakeFirebase Firebase, Register Register, TaskCompletionSource Gate) Slow(bool taken = true)
+    {
+        var (s, firebase, register) = Shared(taken);
+        var gate = new TaskCompletionSource();
+        firebase.ListGate = gate.Task;
+        return (s, firebase, register, gate);
     }
 
     [Fact]
     public async Task A_number_in_the_shared_register_is_refused_and_names_who_has_it()
     {
-        var (s, http, _) = Shared(_ => Task.FromResult(FakeHttp.Json($"[{Taken}]")));
+        var (s, firebase, _) = Shared();
         s.SetSeq("124");
         await s.DuplicateCheck;
         Assert.Equal(SharedAnswer.Taken, s.DupShared);
@@ -210,13 +224,13 @@ public class DuplicateTests
         // a replacement card is the way through
         s.SetReissue(true);
         Assert.Equal("", s.Problems()[Field.Seq]);
-        Assert.Single(http.Requests);
+        Assert.Equal(2, firebase.Lists);                     // signing in looked once; the form read the list once
     }
 
     [Fact]
     public async Task A_free_number_opens_and_later_numbers_are_answered_from_memory()
     {
-        var (s, http, _) = Shared(_ => Task.FromResult(FakeHttp.Json($"[{Taken}]")));
+        var (s, firebase, _) = Shared();
         s.SetSeq("125");
         await s.DuplicateCheck;
         Assert.Equal(SharedAnswer.Free, s.DupShared);
@@ -225,21 +239,20 @@ public class DuplicateTests
         s.SetSeq("126");
         s.SetSeq("124");
         Assert.Equal(SharedAnswer.Taken, s.DupShared);       // straight away: no waiting, no request
-        Assert.Single(http.Requests);
+        Assert.Equal(2, firebase.Lists);
     }
 
     [Fact]
     public async Task While_the_register_has_not_answered_the_number_is_not_cleared()
     {
-        var gate = new TaskCompletionSource<HttpResponseMessage>();
-        var (s, _, _) = Shared(_ => gate.Task);
+        var (s, _, _, gate) = Slow(taken: false);
         Make.FillForm(s, "124");
         Assert.Equal("Checking the shared register for this number…", s.Problems()[Field.Seq]);
         // a fast typist pressing Next cannot get past the number step
         s.GoStep(5);
         Assert.Equal(2, s.StepIndex);
 
-        gate.SetResult(FakeHttp.Json("[]"));
+        gate.SetResult();
         await s.DuplicateCheck;
         Assert.Equal("", s.Problems()[Field.Seq]);
         s.GoStep(5);
@@ -249,22 +262,36 @@ public class DuplicateTests
     [Fact]
     public async Task A_register_that_cannot_be_reached_warns_but_lets_work_carry_on()
     {
-        var (s, _, _) = Shared(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+        var (s, firebase, register) = Shared();
+        firebase.Failing = HttpStatusCode.InternalServerError;
         s.SetSeq("124");
         await s.DuplicateCheck;
         Assert.Equal(SharedAnswer.Unreachable, s.DupShared);
         Assert.Equal("", s.Problems()[Field.Seq]);
+        Assert.Contains("HTTP 500", register.LastProblem);
+    }
+
+    [Fact]
+    public async Task A_computer_nobody_has_signed_in_on_warns_but_lets_work_carry_on()
+    {
+        var store = new MemoryStore();
+        var register = Make.SharedRegister(new FakeFirebase(), store);
+        var s = Make.Session(register, store);
+        s.SetSeq("124");
+        await s.DuplicateCheck;
+        Assert.Equal(SharedAnswer.Unreachable, s.DupShared);
+        Assert.Equal("", s.Problems()[Field.Seq]);
+        Assert.Equal(Register.SignInFirst, register.LastProblem);
     }
 
     [Fact]
     public async Task An_answer_for_a_number_that_has_since_changed_is_ignored()
     {
-        var gate = new TaskCompletionSource<HttpResponseMessage>();
-        var (s, _, _) = Shared(_ => gate.Task);
+        var (s, _, _, gate) = Slow();
         s.SetSeq("124");
         var first = s.DuplicateCheck;
         s.SetSeq("");
-        gate.SetResult(FakeHttp.Json($"[{Taken}]"));
+        gate.SetResult();
         await first;
         Assert.Equal(SharedAnswer.Free, s.DupShared);       // an empty box has no duplicate
         Assert.Contains("Enter the employee number", s.Problems()[Field.Seq]);
@@ -273,14 +300,13 @@ public class DuplicateTests
     [Fact]
     public async Task A_duplicate_found_after_the_form_moved_on_brings_it_back_to_the_number()
     {
-        var gate = new TaskCompletionSource<HttpResponseMessage>();
-        var (s, _, register) = Shared(_ => gate.Task);
+        var (s, _, register, gate) = Slow();
         // the register was unreachable a moment ago, so the form was let through
         Make.FillForm(s, "124");
         var changed = 0;
         s.Changed += () => changed++;
         s.GoStep(4, force: true);
-        gate.SetResult(FakeHttp.Json($"[{Taken}]"));
+        gate.SetResult();
         await s.DuplicateCheck;
         Assert.Equal(2, s.StepIndex);
         Assert.Equal(2, s.BlockedAbout);
@@ -291,8 +317,7 @@ public class DuplicateTests
     [Fact]
     public async Task A_late_answer_does_not_throw_the_operator_out_of_a_print_that_is_already_queued()
     {
-        var gate = new TaskCompletionSource<HttpResponseMessage>();
-        var (s, _, _) = Shared(_ => gate.Task);
+        var (s, _, _, gate) = Slow(taken: false);
         // one card banked (the register was not answering, so it was let through), then "stop adding"
         Make.FillForm(s, "200");
         s.GoStep(Session.LastStep, force: true);
@@ -302,7 +327,7 @@ public class DuplicateTests
         Assert.Equal(Session.LastStep, s.StepIndex);
         Assert.False(s.StartedCard);
 
-        gate.SetResult(FakeHttp.Json("[]"));
+        gate.SetResult();
         await s.DuplicateCheck;
         // the answer was for a card that has been put aside: it is dropped, not applied to the blank one
         Assert.Equal(Session.LastStep, s.StepIndex);
@@ -514,142 +539,453 @@ public class RegisterTests
         Assert.Equal("Reyes", e.Last);
     }
 
-    [Theory]
-    [InlineData("", "")]
-    [InlineData("https://script.google.com/macros/s/abc/exec", "")]
-    [InlineData("http://localhost:8787/exec", "")]
-    [InlineData("http://example.com/exec", "must start with https://")]
-    [InlineData("https://docs.google.com/spreadsheets/d/abc/edit", "spreadsheet itself")]
-    [InlineData("https://script.google.com/macros/s/abc/dev", "ends in /exec")]
-    public void A_wrong_looking_address_is_explained(string url, string expect)
+    /* ---- the shared register ---------------------------------------
+       Every test below talks to FakeFirebase, a project that exists only
+       in memory. None calls the real one.
+       ---------------------------------------------------------------- */
+
+    private static readonly RegisterEntry Ana = new()
     {
-        var problem = Register.UrlLooksWrong(url);
-        if (expect.Length == 0) Assert.Equal("", problem); else Assert.Contains(expect, problem);
+        Id = "APG-2026-124", Year = 2026, Seq = 124, Name = "Ana Reyes", Title = "HR Associate", Last = "Reyes", First = "Ana", IssuedAt = "2026-11-17T01:30:00.000Z",
+    };
+
+    private const string ListUrl = "https://firestore.googleapis.com/v1/projects/demo-idmaker/databases/(default)/documents/keystone/apg/idreg";
+
+    [Fact]
+    public async Task Signing_in_is_asked_once_and_remembered_wrapped_never_in_plain_text()
+    {
+        var store = new MemoryStore();
+        var keeper = new FakeKeeper();
+        var firebase = new FakeFirebase();
+        var r = await Make.SignedIn(firebase, store, keeper);
+        Assert.True(r.SignedIn);
+        Assert.Equal(FakeFirebase.Email, r.SignedInAs);
+
+        // what is on disk is the wrapped renewal token: not the password, and not the token as Firebase gave it
+        var kept = store.Get("register-signin");
+        Assert.NotNull(kept);
+        Assert.DoesNotContain(FakeFirebase.Password, kept);
+        Assert.DoesNotContain("renewal-", kept);
+        Assert.DoesNotContain("pass-", kept);
+
+        // the app is closed and opened again: nobody is asked, and the register reads
+        var later = Make.SharedRegister(firebase, store, keeper);
+        Assert.True(later.SignedIn);
+        Assert.True(await later.LoadIndex());
+        Assert.Equal(1, firebase.SignIns);
+        Assert.Equal(1, firebase.Renewals);
     }
 
     [Fact]
-    public async Task Each_way_the_sheet_can_fail_gets_its_own_explanation()
+    public async Task Without_windows_protection_the_sign_in_lasts_for_this_run_only()
     {
-        async Task<string> Error(HttpResponseMessage response) =>
-            (await new Register(new MemoryStore(), new FakeHttp((_, _) => Task.FromResult(response))) { BuiltInUrl = Make.RegisterUrl }.Ping()).Error;
-
-        Assert.Contains("not allowed", await Error(new HttpResponseMessage(HttpStatusCode.Forbidden)));
-        Assert.Contains("HTTP 500", await Error(new HttpResponseMessage(HttpStatusCode.InternalServerError)));
-        Assert.Contains("sign-in page", await Error(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<HTML><body>Sign in</body></html>") }));
-        Assert.Contains("not the ID register script", await Error(FakeHttp.Json("{\"ok\":true}")));
-
-        var offline = new Register(new MemoryStore(), new FakeHttp((_, _) => throw new HttpRequestException("no route"))) { BuiltInUrl = Make.RegisterUrl };
-        Assert.Contains("could not reach", (await offline.Ping()).Error);
-
-        var ok = new Register(new MemoryStore(), new FakeHttp((_, _) => Task.FromResult(FakeHttp.Json("{\"ok\":true,\"service\":\"apg-id-register\",\"rows\":12,\"sheet\":\"IDs\"}")))) { BuiltInUrl = Make.RegisterUrl };
-        var ping = await ok.Ping();
-        Assert.True(ping.Ok);
-        Assert.Equal(12, ping.Rows);
-        Assert.Equal("IDs", ping.Sheet);
+        var firebase = new FakeFirebase();
+        foreach (var keeper in new ISecretKeeper?[] { null, new FakeKeeper { Broken = true } })
+        {
+            var store = new MemoryStore();
+            var r = await Make.SignedIn(firebase, store, keeper);
+            Assert.True(r.SignedIn);
+            Assert.Null(store.Get("register-signin"));                  // nothing written rather than something readable
+            Assert.False(Make.SharedRegister(firebase, store, keeper).SignedIn);
+        }
     }
 
     [Fact]
-    public async Task Rows_typed_into_the_sheet_by_hand_cannot_break_the_read()
+    public async Task A_kept_sign_in_this_account_cannot_open_is_asked_for_again()
     {
-        const string rows = "[{\"id\":\"APG-2026-001\",\"year\":\"2026\",\"seq\":1.0,\"name\":\"A\",\"replacement\":\"yes\"},"
-                          + "{\"id\":\"\",\"name\":\"no id\"},null,\"junk\","
-                          + "{\"id\":\"APG-2026-002\",\"year\":null,\"seq\":null,\"name\":42}]";
-        var r = new Register(new MemoryStore(), new FakeHttp((_, _) => Task.FromResult(FakeHttp.Json(rows)))) { BuiltInUrl = Make.RegisterUrl };
+        var store = new MemoryStore();
+        var firebase = new FakeFirebase();
+        await Make.SignedIn(firebase, store, new FakeKeeper());
+        // another Windows account, or the file copied to another computer
+        Assert.False(Make.SharedRegister(firebase, store, new FakeKeeper { Broken = true }).SignedIn);
+        store.Set("register-signin", "{\"kept\":\"not ours\"}");
+        Assert.False(Make.SharedRegister(firebase, store, new FakeKeeper()).SignedIn);
+        store.Set("register-signin", "{not json");
+        Assert.False(Make.SharedRegister(firebase, store, new FakeKeeper()).SignedIn);
+    }
+
+    [Fact]
+    public async Task Each_way_signing_in_can_fail_says_what_to_do_next()
+    {
+        var firebase = new FakeFirebase();
+        firebase.Accounts["off@apg.test"] = new FakeFirebase.Account("pw", "uid-off", Disabled: true);
+        firebase.Accounts["visitor@apg.test"] = new FakeFirebase.Account("pw", "uid-visitor", Member: false);
+        var store = new MemoryStore();
+        var r = Make.SharedRegister(firebase, store, new FakeKeeper());
+
+        async Task<string> Error(string email, string password)
+        {
+            var result = await r.SignIn(email, password);
+            Assert.False(result.Ok);
+            Assert.False(r.SignedIn);
+            Assert.Null(store.Get("register-signin"));
+            return result.Error;
+        }
+
+        Assert.Contains("Enter the email", await Error(" ", "x"));
+        Assert.Contains("Enter the password", await Error(FakeFirebase.Email, ""));
+        Assert.Contains("email or password is not right", await Error(FakeFirebase.Email, "wrong"));
+        Assert.Contains("email or password is not right", await Error("nobody@apg.test", "x"));
+        Assert.Contains("turned off", await Error("off@apg.test", "pw"));
+        // a real sign-in that the CEO never made a member opens nothing, and is not kept
+        Assert.Contains("may not use the ID register", await Error("visitor@apg.test", "pw"));
+        Assert.Contains("Keystone", await Error("visitor@apg.test", "pw"));
+
+        firebase.Offline = true;
+        Assert.Contains("could not reach", await Error(FakeFirebase.Email, FakeFirebase.Password));
+        firebase.Offline = false;
+
+        var wrongKey = new Register(new MemoryStore(), firebase.Http) { Project = Make.Project with { ApiKey = "someone-elses" } };
+        Assert.Contains("API key", (await wrongKey.SignIn(FakeFirebase.Email, FakeFirebase.Password)).Error);
+        Assert.Contains("no shared register", (await Make.LocalRegister().SignIn(FakeFirebase.Email, FakeFirebase.Password)).Error);
+
+        // and the right one still works after all that
+        Assert.True((await r.SignIn($"  {FakeFirebase.Email} ", FakeFirebase.Password)).Ok);
+    }
+
+    [Fact]
+    public async Task The_register_is_read_whole_page_by_page_and_an_odd_document_cannot_break_the_read()
+    {
+        var firebase = new FakeFirebase();
+        for (var i = 1; i <= 650; i++) firebase.Put(new RegisterEntry { Id = $"APG-2026-{i:000}", Year = 2026, Seq = i, Name = $"Person {i}" });
+        // documents nobody could make through the app, were the rules ever loosened
+        firebase.Docs["APG-2026-900"] = new System.Text.Json.Nodes.JsonObject { ["name"] = new System.Text.Json.Nodes.JsonObject { ["integerValue"] = "42" }, ["year"] = new System.Text.Json.Nodes.JsonObject { ["nullValue"] = null } };
+        firebase.Docs["APG-2026-901"] = new System.Text.Json.Nodes.JsonObject();
+        var r = await Make.SignedIn(firebase);
+        var before = firebase.Lists;
+
         Assert.True(await r.LoadIndex());
+        Assert.Equal(3, firebase.Lists - before);                       // 652 documents, 300 a page
         var (known, entry) = r.FindSharedNow(2026, 1);
         Assert.True(known);
-        Assert.Equal("A", entry!.Name);
-        Assert.True(entry.Replacement);
+        Assert.Equal("Person 1", entry!.Name);
         Assert.Equal(2026, entry.Year);
-        Assert.Equal("42", r.FindSharedNow(2026, 2).Entry!.Name);
-        Assert.Null(r.FindSharedNow(2026, 3).Entry);
+        Assert.Equal("Person 650", r.FindSharedNow(2026, 650).Entry!.Name);
+        Assert.Equal("42", r.FindSharedNow(2026, 900).Entry!.Name);
+        Assert.Equal("", r.FindSharedNow(2026, 901).Entry!.Name);       // still taken: the document is there
+        Assert.Null(r.FindSharedNow(2026, 651).Entry);
+
+        var ping = await r.Ping();
+        Assert.True(ping.Ok);
+        Assert.Equal(652, ping.Rows);
+        Assert.Equal("demo-idmaker", ping.Sheet);
     }
 
     [Fact]
-    public async Task Ten_callers_asking_at_once_make_one_request_and_recording_posts_the_entry()
+    public async Task Ten_callers_asking_at_once_make_one_request()
     {
-        var gate = new TaskCompletionSource<HttpResponseMessage>();
-        var posted = "";
-        var http = new FakeHttp((req, body) =>
-        {
-            if (req.Method == HttpMethod.Post) { posted = body; return Task.FromResult(FakeHttp.Json("{\"ok\":true}")); }
-            return gate.Task;
-        });
-        var r = new Register(new MemoryStore(), http) { BuiltInUrl = Make.RegisterUrl };
+        var firebase = new FakeFirebase();
+        var r = await Make.SignedIn(firebase);
+        var gate = new TaskCompletionSource();
+        firebase.ListGate = gate.Task;
+        var before = firebase.Lists;
         var loads = Enumerable.Range(0, 10).Select(_ => r.LoadIndex()).ToArray();
-        gate.SetResult(FakeHttp.Json("[]"));
+        gate.SetResult();
         Assert.All(await Task.WhenAll(loads), Assert.True);
-        Assert.Single(http.Requests);
-
-        var entry = new RegisterEntry { Id = "APG-2026-009", Year = 2026, Seq = 9, Name = "Peña" };
-        Assert.True(await r.RecordShared(entry));
-        Assert.Contains("\"action\":\"record\"", posted);
-        Assert.Contains("\"id\":\"APG-2026-009\"", posted);
-        r.NoteShared(entry);
-        Assert.Equal("Peña", r.FindSharedNow(2026, 9).Entry!.Name);
+        Assert.Equal(1, firebase.Lists - before);
     }
 
     [Fact]
-    public async Task Changing_the_address_while_a_read_is_in_flight_does_not_keep_the_old_register_s_rows()
+    public async Task A_card_is_created_under_its_own_number_as_whoever_is_signed_in()
     {
-        var oldGate = new TaskCompletionSource<HttpResponseMessage>();
-        var http = new FakeHttp((req, _) => req.RequestUri!.Host == "register.test"
-            ? oldGate.Task
-            : Task.FromResult(FakeHttp.Json("[{\"id\":\"APG-2026-002\",\"year\":2026,\"seq\":2,\"name\":\"New register\"}]")));
-        var r = new Register(new MemoryStore(), http) { BuiltInUrl = Make.RegisterUrl };
-        var oldRead = r.LoadIndex();
-        r.SetUrl("https://other.test/exec");
-        oldGate.SetResult(FakeHttp.Json("[{\"id\":\"APG-2026-001\",\"year\":2026,\"seq\":1,\"name\":\"Old register\"}]"));
-        Assert.False(await oldRead);                               // its answer is not kept
-        Assert.False(r.IndexLoaded);
-
+        var firebase = new FakeFirebase();
+        var r = await Make.SignedIn(firebase);
         Assert.True(await r.LoadIndex());
-        Assert.Null(r.FindSharedNow(2026, 1).Entry);
-        Assert.Equal("New register", r.FindSharedNow(2026, 2).Entry!.Name);
+
+        Assert.Equal(SharedOutcome.Sent, (await r.RecordShared(Ana)).Outcome);
+        Assert.Contains($"POST {ListUrl}?documentId=APG-2026-124", firebase.Requests);
+        var doc = firebase.Docs["APG-2026-124"];
+        Assert.Equal("Ana Reyes", doc["name"]!["stringValue"]!.ToString());
+        Assert.Equal("2026", doc["year"]!["integerValue"]!.ToString());
+        Assert.Equal("124", doc["seq"]!["integerValue"]!.ToString());
+        Assert.Equal("2026-11-17T01:30:00.000Z", doc["issuedAt"]!["stringValue"]!.ToString());
+        Assert.Equal(FakeFirebase.Uid, doc["by"]!["stringValue"]!.ToString());
+        Assert.Equal(FakeFirebase.Email, doc["byEmail"]!["stringValue"]!.ToString());
+        Assert.Equal(0, r.WaitingForShared);
+
+        // a card is only ever created: the app has no request that changes or removes one
+        Assert.DoesNotContain(firebase.Requests, q => q.StartsWith("PATCH ") || q.StartsWith("PUT ") || q.StartsWith("DELETE "));
+        // and no photograph, or anything like one, goes with it
+        Assert.Equal(new[] { "by", "byEmail", "first", "id", "issuedAt", "last", "middle", "name", "replacement", "role1", "role2", "seq", "suffix", "title", "year" },
+            doc.Select(f => f.Key).Order(StringComparer.Ordinal));
+
+        r.NoteShared(Ana);
+        Assert.Equal("Ana Reyes", r.FindSharedNow(2026, 124).Entry!.Name);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Conflict)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task A_number_another_computer_took_first_is_refused_and_is_not_sent_again(HttpStatusCode alreadyThere)
+    {
+        var firebase = new FakeFirebase { AlreadyThere = alreadyThere };
+        var frontDesk = await Make.SignedIn(firebase);
+        var storeB = new MemoryStore();
+        var backOffice = await Make.SignedIn(firebase, storeB);
+        // both read the register while the number was free
+        Assert.True(await frontDesk.LoadIndex());
+        Assert.True(await backOffice.LoadIndex());
+        Assert.Null(backOffice.FindSharedNow(2026, 124).Entry);
+
+        var ben = new RegisterEntry { Id = "APG-2026-124", Year = 2026, Seq = 124, Name = "Ben Cruz", Title = "Driver", IssuedAt = "2026-11-17T01:30:05.000Z" };
+        Assert.Equal(SharedOutcome.Sent, (await frontDesk.RecordShared(Ana)).Outcome);
+        backOffice.NoteShared(ben);                                     // as the form does when the PDF is saved
+        var second = await backOffice.RecordShared(ben);
+
+        Assert.Equal(SharedOutcome.Refused, second.Outcome);
+        Assert.Equal("Ana Reyes", second.Holder!.Name);
+        Assert.Equal("Ana Reyes", firebase.Get("APG-2026-124")!.Name);  // the first card is untouched
+        Assert.Single(firebase.Docs);
+        // from now on this computer knows whose number it is
+        Assert.Equal("Ana Reyes", backOffice.FindSharedNow(2026, 124).Entry!.Name);
+
+        // it is not left in the outbox to be refused for ever…
+        Assert.Equal(0, backOffice.WaitingForShared);
+        var creates = firebase.Creates;
+        Assert.Equal(0, await backOffice.SendWaiting());
+        Assert.Equal(creates, firebase.Creates);
+
+        // …but it is not forgotten either, even after the app is closed, until somebody has dealt with the card
+        var later = Make.SharedRegister(firebase, storeB);
+        var refused = Assert.Single(later.Refused);
+        Assert.Equal("Ben Cruz", refused.Card.Name);
+        Assert.Equal("Ana Reyes", refused.Holder.Name);
+        later.ClearRefused();
+        Assert.Empty(Make.SharedRegister(firebase, storeB).Refused);
     }
 
     [Fact]
-    public async Task A_card_saved_while_the_sheet_is_down_is_kept_and_sent_when_it_is_back()
+    public async Task The_form_says_a_refused_card_is_a_duplicate_and_must_not_be_handed_out()
     {
-        var up = false;
-        var posts = new List<string>();
+        var firebase = new FakeFirebase();
         var store = new MemoryStore();
-        FakeHttp Http() => new((req, body) =>
-        {
-            if (!up) throw new HttpRequestException("offline");
-            if (req.Method == HttpMethod.Post) posts.Add(body);
-            return Task.FromResult(FakeHttp.Json(req.Method == HttpMethod.Post ? "{\"ok\":true}" : "[]"));
-        });
-        var r = new Register(store, Http()) { BuiltInUrl = Make.RegisterUrl };
-        var a = new RegisterEntry { Id = "APG-2026-010", Year = 2026, Seq = 10, Name = "A" };
-        var b = new RegisterEntry { Id = "APG-2026-011", Year = 2026, Seq = 11, Name = "B" };
-        Assert.False(await r.RecordShared(a));
-        Assert.False(await r.RecordShared(b));
-        Assert.False(await r.RecordShared(a));                     // trying again does not queue it twice
-        Assert.Equal(2, r.WaitingForShared);
-        Assert.Equal(2, await r.SendWaiting());                    // still down
+        var register = await Make.SignedIn(firebase, store);
+        var s = Make.Session(register, store);
+        Assert.True(await register.LoadIndex());
+        Make.FillForm(s, "124");
+        s.GoStep(Session.LastStep);
+        // another computer issues the number after this one checked it
+        firebase.Put(new RegisterEntry { Id = "APG-2026-124", Year = 2026, Seq = 124, Name = "Juan dela Cruz", Title = "Driver", IssuedAt = "2026-11-17T01:29:58.000Z" });
+        var issued = s.MarkIssued();
+        Assert.Single(issued);
+        var report = await s.RecordShared(issued);
 
-        // the app is closed and opened again later, with the sheet back
-        up = true;
-        var later = new Register(store, Http()) { BuiltInUrl = Make.RegisterUrl };
+        Assert.Empty(report.Waiting);
+        var refused = Assert.Single(report.Refused);
+        Assert.Equal("Juan dela Cruz", refused.Holder.Name);
+        Assert.Contains("APG-2026-124 was issued to Juan dela Cruz on another computer", report.Message());
+        Assert.Contains("the card just made for Ana Reyes is a duplicate", report.Message());
+        Assert.Contains("Do not hand it out", report.Message());
+
+        // the next card on that number is stopped at the form
+        s.NewId();
+        s.SetSeq("124");
+        Assert.Contains("already issued", s.Problems()[Field.Seq]);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Conflict)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task A_card_whose_answer_was_lost_is_sent_again_and_is_still_one_card(HttpStatusCode alreadyThere)
+    {
+        var firebase = new FakeFirebase { AlreadyThere = alreadyThere };
+        var r = await Make.SignedIn(firebase);
+        firebase.LoseNextAnswer = true;
+        Assert.Equal(SharedOutcome.Waiting, (await r.RecordShared(Ana)).Outcome);    // it got there, but this computer cannot know
+        Assert.Equal(1, r.WaitingForShared);
+
+        Assert.Equal(0, await r.SendWaiting());                         // "already there", and it is this same card: sent
+        Assert.Single(firebase.Docs);
+        Assert.Empty(r.Refused);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Conflict)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task A_replacement_is_recorded_under_the_card_it_replaces_which_stays_as_it_was(HttpStatusCode alreadyThere)
+    {
+        var firebase = new FakeFirebase { AlreadyThere = alreadyThere };
+        firebase.Put(Ana);
+        var r = await Make.SignedIn(firebase);
+        var again = Ana with { IssuedAt = "2026-12-01T02:00:00.000Z", Replacement = true };
+
+        Assert.Equal(SharedOutcome.Sent, (await r.RecordShared(again)).Outcome);
+        Assert.Equal("2026-11-17T01:30:00.000Z", firebase.Get("APG-2026-124")!.IssuedAt);
+        Assert.False(firebase.Get("APG-2026-124")!.Replacement);
+        var under = firebase.Docs["APG-2026-124/replacements/20261201T020000000Z"];
+        Assert.Equal("true", under["replacement"]!["booleanValue"]!.ToString());
+        Assert.Equal(FakeFirebase.Uid, under["by"]!["stringValue"]!.ToString());
+        Assert.Empty(r.Refused);
+
+        // sent twice, it is still one replacement
+        Assert.Equal(SharedOutcome.Sent, (await r.RecordShared(again)).Outcome);
+        Assert.Equal(2, firebase.Docs.Count);
+
+        // a replacement for a card from before the register existed takes the number itself
+        var old = new RegisterEntry { Id = "APG-2024-007", Year = 2024, Seq = 7, Name = "Old Hand", IssuedAt = "2026-12-01T03:00:00.000Z", Replacement = true };
+        Assert.Equal(SharedOutcome.Sent, (await r.RecordShared(old)).Outcome);
+        Assert.True(firebase.Get("APG-2024-007")!.Replacement);
+    }
+
+    [Fact]
+    public async Task A_card_saved_while_offline_is_kept_and_sent_when_the_register_is_back()
+    {
+        var firebase = new FakeFirebase();
+        var store = new MemoryStore();
+        var keeper = new FakeKeeper();
+        var r = await Make.SignedIn(firebase, store, keeper);
+        var a = new RegisterEntry { Id = "APG-2026-010", Year = 2026, Seq = 10, Name = "A", IssuedAt = "2026-11-17T01:00:00.000Z" };
+        var b = new RegisterEntry { Id = "APG-2026-011", Year = 2026, Seq = 11, Name = "B", IssuedAt = "2026-11-17T01:01:00.000Z" };
+
+        firebase.Offline = true;
+        Assert.Equal(SharedOutcome.Waiting, (await r.RecordShared(a)).Outcome);
+        Assert.Equal(SharedOutcome.Waiting, (await r.RecordShared(b)).Outcome);
+        Assert.Equal(SharedOutcome.Waiting, (await r.RecordShared(a)).Outcome);      // trying again does not queue it twice
+        Assert.Equal(2, r.WaitingForShared);
+        Assert.Equal(2, await r.SendWaiting());                         // still down
+        Assert.Contains("could not reach", r.LastProblem);
+        Assert.Empty(firebase.Docs);
+
+        // the app is closed and opened again later, with the connection back
+        firebase.Offline = false;
+        var later = Make.SharedRegister(firebase, store, keeper);
         Assert.Equal(2, later.WaitingForShared);
         Assert.Equal(0, await later.SendWaiting());
-        Assert.Equal(2, posts.Count);
-        Assert.Contains("APG-2026-010", posts[0]);
+        Assert.Equal(new[] { "APG-2026-010", "APG-2026-011" }, firebase.Docs.Keys);
         Assert.Null(store.Get("register-outbox"));
     }
 
     [Fact]
-    public void An_address_saved_on_this_computer_overrides_the_built_in_one()
+    public async Task A_card_saved_before_anyone_signed_in_waits_for_the_sign_in()
     {
+        var firebase = new FakeFirebase();
+        var r = Make.SharedRegister(firebase);
+        Assert.Equal(SharedOutcome.Waiting, (await r.RecordShared(Ana)).Outcome);
+        Assert.Equal(1, r.WaitingForShared);
+        Assert.Empty(firebase.Requests);                                // nothing is sent as nobody
+
+        Assert.True((await r.SignIn(FakeFirebase.Email, FakeFirebase.Password)).Ok);
+        Assert.Equal(0, await r.SendWaiting());
+        Assert.Equal("Ana Reyes", firebase.Get("APG-2026-124")!.Name);
+    }
+
+    [Fact]
+    public async Task A_card_the_register_will_not_take_from_this_account_waits_and_says_why()
+    {
+        var firebase = new FakeFirebase();
+        var r = await Make.SignedIn(firebase);
+        // removed from Keystone's members after signing in: the write is refused, and it is not because of the number
+        firebase.Accounts[FakeFirebase.Email] = firebase.Accounts[FakeFirebase.Email] with { Member = false };
+        Assert.Equal(SharedOutcome.Waiting, (await r.RecordShared(Ana)).Outcome);
+        Assert.Contains("may not use the ID register", r.LastProblem);
+        Assert.Equal(1, r.WaitingForShared);
+        Assert.Empty(r.Refused);
+        Assert.Empty(firebase.Docs);
+
+        firebase.Accounts[FakeFirebase.Email] = firebase.Accounts[FakeFirebase.Email] with { Member = true };
+        Assert.Equal(0, await r.SendWaiting());
+    }
+
+    [Fact]
+    public async Task A_pass_that_has_run_out_is_renewed_without_asking_anyone()
+    {
+        var firebase = new FakeFirebase();
+        var now = new DateTimeOffset(2026, 11, 17, 1, 0, 0, TimeSpan.Zero);
+        var r = await Make.SignedIn(firebase, clock: () => now);
+        Assert.True(await r.LoadIndex());
+        Assert.Equal(0, firebase.Renewals);
+
+        // two hours on, by this computer's clock
+        now = now.AddHours(2);
+        Assert.Equal(SharedOutcome.Sent, (await r.RecordShared(Ana)).Outcome);
+        Assert.Equal(1, firebase.Renewals);
+
+        // the register says the pass is no good before the clock does: renewed once, and the request sent again
+        firebase.ExpirePasses();
+        var next = Ana with { Id = "APG-2026-125", Seq = 125, Name = "Ben Cruz" };
+        Assert.Equal(SharedOutcome.Sent, (await r.RecordShared(next)).Outcome);
+        Assert.Equal(2, firebase.Renewals);
+        Assert.Equal(1, firebase.SignIns);
+        Assert.Equal(2, firebase.Docs.Count);
+    }
+
+    [Fact]
+    public async Task A_sign_in_that_is_no_longer_accepted_asks_again_and_loses_no_card()
+    {
+        var firebase = new FakeFirebase();
         var store = new MemoryStore();
-        var r = new Register(store) { BuiltInUrl = Make.RegisterUrl };
-        Assert.Equal(Make.RegisterUrl, r.Url);
-        r.SetUrl(" https://other.test/exec ");
-        Assert.Equal("https://other.test/exec", new Register(store) { BuiltInUrl = Make.RegisterUrl }.Url);
-        r.SetUrl("");
-        Assert.Equal(Make.RegisterUrl, r.Url);
+        var r = await Make.SignedIn(firebase, store, new FakeKeeper());
+        Assert.True(await r.LoadIndex());
+
+        // the password was changed, or the CEO turned the account off
+        firebase.CancelSignIns();
+        Assert.Equal(SharedOutcome.Waiting, (await r.RecordShared(Ana)).Outcome);
+        Assert.False(r.SignedIn);
+        Assert.Contains("Sign in again", r.SignInProblem);
+        Assert.Null(store.Get("register-signin"));
+        Assert.False(r.IndexLoaded);                                    // what was read as that account is not trusted on
+        Assert.False(await r.LoadIndex());
+        Assert.Contains("Sign in again", r.LastProblem);
+        Assert.Contains("Sign in again", (await r.Ping()).Error);
+        Assert.Equal(1, r.WaitingForShared);
+
+        Assert.True((await r.SignIn(FakeFirebase.Email, FakeFirebase.Password)).Ok);
+        Assert.Equal("", r.SignInProblem);
+        Assert.Equal(0, await r.SendWaiting());
+        Assert.Equal("Ana Reyes", firebase.Get("APG-2026-124")!.Name);
+    }
+
+    [Fact]
+    public async Task Signing_out_while_a_read_is_in_flight_does_not_keep_what_it_read()
+    {
+        var firebase = new FakeFirebase();
+        firebase.Put(Ana);
+        var r = await Make.SignedIn(firebase);
+        var gate = new TaskCompletionSource();
+        firebase.ListGate = gate.Task;
+        var read = r.LoadIndex();
+        r.SignOut();
+        gate.SetResult();
+
+        Assert.False(await read);                                       // its answer is not kept
+        Assert.False(r.IndexLoaded);
+        Assert.False(r.FindSharedNow(2026, 124).Known);
+        Assert.False(r.SignedIn);
+        Assert.False(await r.LoadIndex());
+        Assert.Equal(Register.SignInFirst, r.LastProblem);
+
+        firebase.ListGate = null;
+        Assert.True((await r.SignIn(FakeFirebase.Email, FakeFirebase.Password)).Ok);
+        Assert.True(await r.LoadIndex());
+        Assert.Equal("Ana Reyes", r.FindSharedNow(2026, 124).Entry!.Name);
+    }
+
+    [Fact]
+    public async Task Asking_the_register_how_it_is_says_how_many_cards_or_what_to_do()
+    {
+        var firebase = new FakeFirebase();
+        firebase.Put(Ana);
+        Assert.Contains("no shared register", (await Make.LocalRegister().Ping()).Error);
         Assert.False(Make.LocalRegister().Shared);
+
+        var r = Make.SharedRegister(firebase);
+        Assert.True(r.Shared);
+        Assert.Equal(Register.SignInFirst, (await r.Ping()).Error);
+
+        Assert.True((await r.SignIn(FakeFirebase.Email, FakeFirebase.Password)).Ok);
+        var ping = await r.Ping();
+        Assert.True(ping.Ok);
+        Assert.Equal(1, ping.Rows);
+
+        firebase.Failing = HttpStatusCode.InternalServerError;
+        Assert.Contains("HTTP 500", (await r.Ping()).Error);
+        firebase.Failing = HttpStatusCode.Forbidden;                    // removed from Keystone's members since signing in
+        Assert.Contains("may not use the ID register", (await r.Ping()).Error);
+        firebase.Failing = HttpStatusCode.TooManyRequests;
+        Assert.Contains("busy", (await r.Ping()).Error);
+        firebase.Failing = null;
+        firebase.Offline = true;
+        Assert.Contains("could not reach", (await r.Ping()).Error);
     }
 }
 

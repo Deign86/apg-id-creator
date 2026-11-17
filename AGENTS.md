@@ -26,9 +26,18 @@ produced; the native app is held to both.
   `test/golden-front.png`. If it moves on purpose, say so in the commit.
 - **Photographs are personal data.** Never store one, never send one
   anywhere, never write one to a log or a test report.
-- **The register address is a credential.** It is never in the source:
-  the release build takes it from the `REGISTER_URL` secret. Tests never
-  call it; `Make.LocalRegister` and `FakeHttp` stand in.
+- **Nothing about the register is in the source.** Which Firebase project
+  it is (its name and web API key) comes from the repository secrets
+  `FIREBASE_PROJECT_ID` and `FIREBASE_API_KEY` when a release is built.
+  What opens it is a person's sign-in, which the app keeps wrapped by
+  Windows (DPAPI). A password, a token, a key or a service-account file
+  is never in the source or in a plain file. `SecretTests` holds this.
+- **Tests never call the real project.** `Make.LocalRegister`,
+  `FakeFirebase` and `FakeHttp` stand in, on a project that does not exist.
+- **An issued ID is created, never changed.** The app has no request that
+  updates or deletes one, and the rules (`firestore.rules` in
+  `Deign86/apg-keystone`) allow none. A change to what the app sends is
+  made there in the same piece of work; see `register/README.md`.
 - **Every cast carries a `// SAFETY:` comment** saying why it cannot
   fail. A deliberate shortcut carries `// shortcut: <its limit>, <when to
   revisit>`.

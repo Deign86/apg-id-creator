@@ -132,27 +132,33 @@ public static class CardConfig
     public const double CropMarkMm = 3;
     public const double CropMarkOffsetMm = 1;
 
-    // The shared register's address. The deployment is open to "Anyone", so
-    // this address IS the credential: whoever holds it can read every issued
-    // ID and write new rows. It is therefore not in the source. The release
-    // build puts it in from the repository secret REGISTER_URL (see
-    // register/README.md), as assembly metadata on IdMaker.Core.
+    // The shared register: a list in the company's Firebase project, the same
+    // project APG Keystone keeps its records in. Which project that is (its
+    // name and its web API key) is not written in the source: the release
+    // build puts both in from the repository secrets FIREBASE_PROJECT_ID and
+    // FIREBASE_API_KEY (see register/README.md), as assembly metadata on
+    // IdMaker.Core.
     //
-    // A build without it (a developer's, CI's for a pull request) has no
-    // built-in register: it keeps its own list, and an address can still be
-    // saved on a computer (Issued IDs -> Shared register), which always wins.
+    // A build without them (a developer's, CI's for a pull request) has no
+    // shared register: it keeps its own list.
     //
-    // shortcut: anyone with the released .exe can still dig the address out
-    // of it, since the app must call it; the real fix is a register that
-    // asks who is calling. Revisit if the .exe is ever handed outside the office.
-    public static readonly string RegisterUrl = BuiltInRegisterUrl();
+    // Neither value opens the register. Signing in does (an account the CEO
+    // made in Keystone), and the project's security rules decide what a
+    // sign-in may do. No password is ever written here or built in.
+    public static readonly RegisterProject? Register = BuiltInRegister();
 
-    private static string BuiltInRegisterUrl() =>
-        typeof(CardConfig).Assembly
+    private static RegisterProject? BuiltInRegister()
+    {
+        var built = typeof(CardConfig).Assembly
             .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
             .OfType<System.Reflection.AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "RegisterUrl")?.Value?.Trim() ?? "";
-    public static readonly TimeSpan RegisterTimeout = TimeSpan.FromSeconds(20);   // Apps Script is slow to wake
+            .ToDictionary(a => a.Key, a => a.Value?.Trim() ?? "");
+        var project = built.GetValueOrDefault("FirebaseProjectId") ?? "";
+        var key = built.GetValueOrDefault("FirebaseApiKey") ?? "";
+        return project.Length > 0 && key.Length > 0 ? new RegisterProject(project, key) : null;
+    }
+
+    public static readonly TimeSpan RegisterTimeout = TimeSpan.FromSeconds(20);
 
     public static readonly QrSpec Qr = new(2, 66.567, 8.8, "https://alphapremiergroup.com/", 'M', "#FFFFFF", "#000000");
 
