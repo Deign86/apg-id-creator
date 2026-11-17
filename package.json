@@ -14,7 +14,8 @@
     "test:steps": "node test/steps.mjs",
     "test:duplicate": "node test/duplicate.mjs",
     "test:photo": "node test/photo.mjs",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "test:signing": "node test/signing.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.24.2",

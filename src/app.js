@@ -42,6 +42,11 @@ const STEPS = [
   { id: 'check',  label: 'Check',     fields: [] },
 ];
 const LAST_STEP = STEPS.length - 1;
+const SIGN_STEP = STEPS.findIndex((s) => s.id === 'sign');
+
+// Signing holds the pointer on the pad and turns clicks elsewhere off
+// until Enter (finish) or Esc (stop) — see "signing" below.
+const signing = { on: false };
 
 const state = {
   templates: null,
@@ -282,6 +287,7 @@ function furthestStep(p = problems()) {
  * already queued. Everything else is capped.
  */
 function goStep(i, { focus = true, force = false } = {}) {
+  if (signing.on) stopSigning();
   const want = Math.max(0, Math.min(LAST_STEP, i));
   state.step = force ? want : Math.min(want, furthestStep());
   if (state.step === LAST_STEP) buildReview();
@@ -846,10 +852,90 @@ $('btn-copy-prompt').addEventListener('click', async () => {
 const pad = createSignaturePad($('f-signature'), (sig) => {
   state.example = false; touch('signature'); state.signature = sig; state.side = 'front'; render();
 });
-$('btn-clear-sig').addEventListener('click', () => {
+function clearSignature() {
   if (state.signature?.kind === 'image') { state.signature = null; touch('signature'); render(); }
   pad.clear();
+}
+$('btn-clear-sig').addEventListener('click', clearSignature);
+
+/* ---- signing: the pointer stays on the pad ------------------------
+   A pen tablet whose driver acts as a mouse moves the ordinary cursor,
+   and it wandered off the pad mid-signature; the next tap then clicked
+   Next or a step chip. So putting the pen or mouse down on the pad starts
+   signing, and until it ends:
+     - in the desktop app the cursor cannot leave the pad (ClipCursor,
+       hold_cursor in app/src-tauri/src/main.rs)
+     - nothing but the pad answers the pointer, in a browser too
+     - the pad is ringed in gold and says how to finish
+   The keyboard ends it:
+     Enter      finished: move on to Check
+     Backspace  start the signature again
+     Esc        stop, and stay on this step
+   The window also lets the cursor go when it loses focus or closes.
+   ------------------------------------------------------------------ */
+
+const tauri = window.__TAURI__?.core;
+
+function holdCursor(on) {
+  if (!tauri) return;
+  const r = $('f-signature').getBoundingClientRect();
+  const ask = on
+    ? tauri.invoke('hold_cursor', { x: r.left, y: r.top, w: r.width, h: r.height })
+    : tauri.invoke('release_cursor');
+  ask.catch(() => { /* pad off screen: leave the cursor free */ });
+}
+
+function renderSignKeys() {
+  $('sign-keys').innerHTML = signing.on
+    ? 'Signing. Press <kbd>Enter</kbd> when finished · <kbd>Backspace</kbd> to start again · <kbd>Esc</kbd> to stop.'
+    : 'Touch the pad to start. While you sign, the pointer stays on the pad; press <kbd>Enter</kbd> when finished.';
+}
+
+function startSigning() {
+  if (signing.on || state.step !== SIGN_STEP) return;
+  signing.on = true;
+  document.body.classList.add('signing');
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  renderSignKeys();
+  holdCursor(true);
+}
+
+function stopSigning() {
+  if (!signing.on) return;
+  signing.on = false;
+  document.body.classList.remove('signing');
+  renderSignKeys();
+  holdCursor(false);
+}
+
+$('f-signature').addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'mouse' || e.button === 0) startSigning();
 });
+
+// Clicks anywhere but the pad do nothing while signing. The stylesheet
+// already makes the page ignore the pointer; this catches the rest.
+for (const type of ['pointerdown', 'mousedown', 'click', 'dblclick', 'auxclick', 'contextmenu']) {
+  window.addEventListener(type, (e) => {
+    if (!signing.on || e.target.closest?.('.sig-pad')) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+}
+window.addEventListener('wheel', (e) => { if (signing.on) e.preventDefault(); }, { passive: false, capture: true });
+
+// Before every other key handler: while signing, only these keys count.
+window.addEventListener('keydown', (e) => {
+  if (!signing.on) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (e.key === 'Enter') { stopSigning(); nextStep(); }
+  else if (e.key === 'Escape') stopSigning();
+  else if (e.key === 'Backspace' || e.key === 'Delete') clearSignature();
+}, true);
+
+// The window lets the cursor go when it loses focus; take it again on return.
+window.addEventListener('focus', () => { if (signing.on) holdCursor(true); });
+window.addEventListener('resize', () => { if (signing.on) holdCursor(true); });
 $('f-sig-image').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   e.target.value = '';
@@ -1695,6 +1781,7 @@ for (const id of ['f-tpl-front', 'f-tpl-back']) $(id).addEventListener('change',
 new ResizeObserver(drawPreview).observe(previewBox);
 
 $('app-version').textContent = `${APP_NAME} ${APP_VERSION}`;
+renderSignKeys();
 $('brand-logo').src = ASSETS.logo;
 buildPrintControls();
 const restored = restoreDraft();

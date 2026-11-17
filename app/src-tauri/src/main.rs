@@ -12,7 +12,7 @@
 //! the card has not changed — only the window around it.
 
 use tauri::webview::{DownloadEvent, WebviewWindowBuilder};
-use tauri::{Url, WebviewUrl};
+use tauri::{RunEvent, Url, WebviewUrl, WebviewWindow, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 
 /// Is this somewhere the app window is allowed to go?
@@ -33,9 +33,61 @@ fn is_ours(url: &Url) -> bool {
     }
 }
 
+/// Hold the cursor inside the signature pad while somebody signs.
+///
+/// A pen tablet whose driver acts as a mouse moves the ordinary cursor,
+/// and an absolute pen drifts off the pad as easily as it lands on it;
+/// once off, the next tap clicks whatever is there. `x, y, w, h` are the
+/// pad's box in CSS pixels, from the page's `getBoundingClientRect`.
+///
+/// The cursor belongs to every program on the computer, so it is let go
+/// by `release_cursor`, and also whenever this window loses focus or
+/// closes (below). Ctrl+Alt+Del frees it too.
+#[tauri::command]
+fn hold_cursor(window: WebviewWindow, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::UI::WindowsAndMessaging::ClipCursor;
+
+        let origin = window.inner_position().map_err(|e| e.to_string())?;
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        // one pixel in from each edge, so the cursor stays over the pad
+        let rect = RECT {
+            left: origin.x + (x * scale).ceil() as i32 + 1,
+            top: origin.y + (y * scale).ceil() as i32 + 1,
+            right: origin.x + ((x + w) * scale).floor() as i32 - 1,
+            bottom: origin.y + ((y + h) * scale).floor() as i32 - 1,
+        };
+        if rect.right <= rect.left || rect.bottom <= rect.top {
+            return Err("the signature pad is not on screen".into());
+        }
+        unsafe { ClipCursor(Some(&rect)) }.map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    let _ = (window, x, y, w, h);
+    Ok(())
+}
+
+/// Let the cursor go anywhere again. Harmless when it is not held.
+#[tauri::command]
+fn release_cursor() {
+    #[cfg(windows)]
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::ClipCursor(None);
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![hold_cursor, release_cursor])
+        // never keep the cursor once this window is not the one in use
+        .on_window_event(|_window, event| {
+            if matches!(event, WindowEvent::Focused(false) | WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed) {
+                release_cursor();
+            }
+        })
         .setup(|app| {
             let for_links = app.handle().clone();
             let for_saves = app.handle().clone();
@@ -74,6 +126,11 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("the ID Maker window could not be created");
+        .build(tauri::generate_context!())
+        .expect("the ID Maker window could not be created")
+        .run(|_app, event| {
+            if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
+                release_cursor();
+            }
+        });
 }
