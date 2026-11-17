@@ -14,6 +14,8 @@ public partial class App : Application
         // down where it can be sent to whoever maintains the app, and keep
         // the window open — a card half made is worth more than a clean exit.
         DispatcherUnhandledException += OnUnhandled;
+        // light or dark, as Windows is set, before anything is drawn
+        ThemeManager.Apply(ThemeManager.SystemTheme());
         var window = new MainWindow();
         MainWindow = window;
         window.Show();
@@ -35,11 +37,16 @@ public partial class App : Application
     }
 }
 
-/// <summary>The brushes and styles in Theme.xaml, by name, for the parts of the window built in code.</summary>
+/// <summary>The brushes and styles in Theme.xaml and the Colors files, by name, for the parts of the window built in code.</summary>
 public static class Theme
 {
-    // SAFETY (both casts): every key asked for is defined in Theme.xaml with this type, and the
-    // window-construction test opens every screen, so a wrong key fails there rather than in use.
-    public static Brush Brush(string key) => (Brush)Application.Current.FindResource(key);
+    /// <summary>
+    /// Give an element's colour by name, so it changes with light and dark
+    /// mode. Setting the brush itself would freeze it at the mode it was in.
+    /// </summary>
+    public static void Paint(FrameworkElement element, DependencyProperty property, string key) => element.SetResourceReference(property, key);
+
+    // SAFETY: every key asked for is defined in Theme.xaml as a Style, and the window
+    // tests open every screen, so a wrong key fails there rather than in use.
     public static Style Style(string key) => (Style)Application.Current.FindResource(key);
 }

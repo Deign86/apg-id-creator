@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using IdMaker.App;
@@ -626,6 +627,76 @@ public class WindowTests
             Assert.Equal(Visibility.Collapsed, window.Drawer.Visibility);
             window.Close();
         });
+    }
+
+    private static Color PixelOf(BitmapSource picture, int x, int y)
+    {
+        var px = new byte[4];
+        picture.CopyPixels(new Int32Rect(x, y, 1, 1), px, 4, 0);
+        return Color.FromRgb(px[2], px[1], px[0]);
+    }
+
+    private static BitmapSource Snapshot(Window window)
+    {
+        var shot = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        shot.Render(window);
+        return shot;
+    }
+
+    [Fact]
+    public void The_window_follows_light_and_dark_mode_without_reopening()
+    {
+        var folder = Files.TempFolder();
+        try
+        {
+            // whatever this machine is set to, reading it must not fail
+            Ui.Run(() => Assert.True(Enum.IsDefined(ThemeManager.SystemTheme())));
+
+            var window = Ui.Run(() => { ThemeManager.Apply(AppTheme.Dark); return Open(folder); });
+            Ui.Settle();
+            Ui.Run(() =>
+            {
+                Assert.Equal(AppTheme.Dark, ThemeManager.Current);
+                var darkSurface = ((SolidColorBrush)window.FormPanel.Background).Color;
+                Assert.Equal(Color.FromRgb(0x1C, 0x1B, 0x19), darkSurface);
+                Assert.Equal(Color.FromRgb(0xEC, 0xE8, 0xDE), ((SolidColorBrush)window.Foreground).Color);
+                // a border set from code, by name, follows too
+                Assert.Equal(Color.FromRgb(0x7B, 0x77, 0x6D), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
+
+                // open the printer setting, which shows a drop-down list and a tick box drawn by the theme
+                Click(window.RailPrinter);
+                window.UpdateLayout();
+            });
+            Ui.Settle();
+            Ui.Run(() =>
+            {
+                var shot = Snapshot(window);
+                ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-dark.png"));
+                var corner = window.FormPanel.TranslatePoint(new Point(40, 40), window);
+                Assert.Equal(Color.FromRgb(0x1C, 0x1B, 0x19), PixelOf(shot, (int)corner.X, (int)corner.Y));
+                var list = window.CmbFlip.TranslatePoint(new Point(window.CmbFlip.ActualWidth - 50, window.CmbFlip.ActualHeight / 2), window);
+                var listPixel = PixelOf(shot, (int)list.X, (int)list.Y);
+                Assert.True(listPixel.R < 60 && listPixel.G < 60, $"the drop-down list should be dark in dark mode, but is {listPixel}");
+
+                // Windows switches back to light: the same window, still open, follows
+                ThemeManager.Apply(AppTheme.Light);
+            });
+            Ui.Settle();
+            Ui.Run(() =>
+            {
+                Assert.Equal(Colors.White, ((SolidColorBrush)window.FormPanel.Background).Color);
+                Assert.Equal(Color.FromRgb(0x8C, 0x87, 0x7B), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
+                var shot = Snapshot(window);
+                ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-light.png"));
+                var corner = window.FormPanel.TranslatePoint(new Point(40, 40), window);
+                Assert.Equal(Colors.White, PixelOf(shot, (int)corner.X, (int)corner.Y));
+                window.Close();
+            });
+        }
+        finally
+        {
+            Ui.Run(() => ThemeManager.Apply(AppTheme.Light));      // the other tests expect the default
+        }
     }
 
     [Fact]

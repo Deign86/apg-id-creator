@@ -103,6 +103,10 @@ public partial class MainWindow : Window
         CardSurface.SizeChanged += (_, _) => DrawPreview();
         CardBox.SizeChanged += (_, _) => DrawPreview();
         Loaded += (_, _) => Boot();
+        // light or dark, as Windows is set, and follow it if it changes while the app is open
+        SourceInitialized += (_, _) => ThemeManager.Follow(this);
+        ThemeManager.Changed += OnThemeChanged;
+        Closed += (_, _) => ThemeManager.Changed -= OnThemeChanged;
         Closed += (_, _) => _remover?.Dispose();
         Render();
     }
@@ -178,6 +182,11 @@ public partial class MainWindow : Window
 
     private void ApplyGeometry() => _session.Geometry = _templates.Geometry();
 
+    // Everything named by DynamicResource has already changed colour. What is
+    // left are the few pictures drawn from the window's colours — none at the
+    // moment, but the preview is cheap to redraw and keeps that true.
+    private void OnThemeChanged() => Render();
+
     /* ---- drawing the screen --------------------------------------- */
 
     private static void Show(UIElement element, bool visible) => element.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
@@ -192,7 +201,7 @@ public partial class MainWindow : Window
     {
         SetText(message, error);
         AutomationProperties.SetHelpText(input, error);
-        input.BorderBrush = Theme.Brush(error.Length > 0 ? "Color.Danger" : "Color.ControlBorder");
+        Theme.Paint(input, Control.BorderBrushProperty, error.Length > 0 ? "Color.Danger" : "Color.ControlBorder");
     }
 
     internal void Render()
@@ -755,7 +764,7 @@ public partial class MainWindow : Window
     {
         var sig = _session.Signature;
         var scan = sig as ScannedSignature;
-        SigFrame.BorderBrush = Theme.Brush(error.Length > 0 ? "Color.Danger" : "Color.ControlBorder");
+        Theme.Paint(SigFrame, Border.BorderBrushProperty, error.Length > 0 ? "Color.Danger" : "Color.ControlBorder");
         Show(SigPreview, scan is null);
         Show(SigImage, scan is not null);
         if (scan is not null && !ReferenceEquals(_scanShown, scan))

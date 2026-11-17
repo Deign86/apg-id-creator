@@ -134,7 +134,8 @@ public partial class MainWindow
                 var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
                 if (c.Current)
                 {
-                    var tag = new TextBlock { Text = "on screen", FontSize = 13, Foreground = Theme.Brush("Color.AccentSolid"), VerticalAlignment = VerticalAlignment.Center };
+                    var tag = new TextBlock { Text = "on screen", FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+                    Theme.Paint(tag, TextBlock.ForegroundProperty, "Color.AccentSolid");
                     DockPanel.SetDock(tag, Dock.Right);
                     row.Children.Add(tag);
                 }
@@ -147,11 +148,13 @@ public partial class MainWindow
                     DockPanel.SetDock(remove, Dock.Right);
                     row.Children.Add(remove);
                 }
-                row.Children.Add(new TextBlock
+                var who = new TextBlock
                 {
-                    Text = $"{i + 1}.  {c.Label} · {c.Id}", FontSize = 14, Foreground = Theme.Brush("Color.TrayInk"),
+                    Text = $"{i + 1}.  {c.Label} · {c.Id}", FontSize = 14,
                     VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = $"{c.Label} · {c.Id}",
-                });
+                };
+                Theme.Paint(who, TextBlock.ForegroundProperty, "Color.TrayInk");
+                row.Children.Add(who);
                 JobList.Children.Add(row);
             }
         }

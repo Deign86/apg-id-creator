@@ -268,18 +268,19 @@ public sealed class SignWindow : Window
         ResizeMode = ResizeMode.NoResize;
         WindowState = WindowState.Maximized;
         ShowInTaskbar = false;
-        Background = Theme.Brush("Color.Tray");
+        Theme.Paint(this, BackgroundProperty, "Color.Tray");
         FontFamily = new FontFamily("Segoe UI");
         UseLayoutRounding = true;
 
         var heading = new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(signerName) ? "Sign here" : $"{signerName}, sign here",
-            FontSize = 28, FontWeight = FontWeights.SemiBold, Foreground = Theme.Brush("Color.TrayInk"),
+            FontSize = 28, FontWeight = FontWeights.SemiBold,
             HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
         };
         _status.FontSize = 15;
-        _status.Foreground = Theme.Brush("Color.TrayMuted");
+        Theme.Paint(heading, TextBlock.ForegroundProperty, "Color.TrayInk");
+        Theme.Paint(_status, TextBlock.ForegroundProperty, "Color.TrayMuted");
         _status.HorizontalAlignment = HorizontalAlignment.Center;
         _status.Margin = new Thickness(0, 8, 0, 0);
         _status.TextWrapping = TextWrapping.Wrap;

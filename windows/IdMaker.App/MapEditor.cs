@@ -53,27 +53,33 @@ public sealed class MapEditor : Canvas
         foreach (var (key, label) in Placeholders)
         {
             var shape = new Polygon { Fill = new SolidColorBrush(Color.FromArgb(0x2E, 0xD4, 0xAF, 0x37)), IsHitTestVisible = false };
+            var tagText = new TextBlock { Text = label, FontSize = 13 };
+            Theme.Paint(tagText, TextBlock.ForegroundProperty, "Color.TrayInk");
             var tag = new Border
             {
-                Background = Theme.Brush("Color.Tray"), CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2, 6, 2),
+                CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 2, 6, 2),
                 HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
-                Child = new TextBlock { Text = label, FontSize = 13, Foreground = Theme.Brush("Color.TrayInk") },
+                Child = tagText,
             };
+            Theme.Paint(tag, Border.BackgroundProperty, "Color.Tray");
             var grip = new Border
             {
-                Width = GripSize, Height = GripSize, Background = Theme.Brush("Color.AccentSolid"), BorderBrush = Theme.Brush("Color.Tray"),
+                Width = GripSize, Height = GripSize,
                 BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Cursor = Cursors.SizeNWSE,
             };
+            Theme.Paint(grip, Border.BackgroundProperty, "Color.AccentSolid");
+            Theme.Paint(grip, Border.BorderBrushProperty, "Color.Tray");
             var inner = new Grid();
             inner.Children.Add(shape);
             inner.Children.Add(tag);
             inner.Children.Add(grip);
             var frame = new Border
             {
-                BorderBrush = Theme.Brush("Color.AccentSolid"), BorderThickness = new Thickness(2), Background = Brushes.Transparent,
+                BorderThickness = new Thickness(2), Background = Brushes.Transparent,
                 Focusable = true, Cursor = Cursors.SizeAll, Child = inner, FocusVisualStyle = null,
             };
+            Theme.Paint(frame, Border.BorderBrushProperty, "Color.AccentSolid");
             AutomationProperties.SetName(frame, $"{label} box. Arrow keys move it; Shift and arrow keys resize it.");
             var k = key;
             frame.MouseLeftButtonDown += (_, e) => Grab(k, e);
