@@ -271,6 +271,76 @@ public class RenderTests
         });
     }
 
+    private static (byte R, byte G, byte B) PixelAt(System.Windows.Media.Imaging.BitmapSource bmp, double xMm, double yMm, double ppm)
+    {
+        var data = CardRenderer.ToRgba(bmp).Data;
+        var o = ((int)(yMm * ppm) * bmp.PixelWidth + (int)(xMm * ppm)) * 4;
+        return (data[o], data[o + 1], data[o + 2]);
+    }
+
+    [Fact]
+    public void A_photo_that_stops_short_fades_out_instead_of_ending_in_a_hard_edge()
+    {
+        Ui.Run(() =>
+        {
+            var (renderer, art) = Load();
+            const double ppm = 8;
+            // a flat magenta "photo" that ends at 50 mm, well inside the window
+            var flat = new RgbaImage(40, 40);
+            for (var i = 0; i < flat.Data.Length; i += 4) { flat.Data[i] = 255; flat.Data[i + 1] = 0; flat.Data[i + 2] = 255; flat.Data[i + 3] = 255; }
+            var placement = new PhotoPlacement(20, 20, 30, 30, ShortBy: 16);
+            var card = new CardData("", "", 2026, null, flat, placement, null);
+            var faded = renderer.RenderFront(art, CardGeometry.BuiltIn, card, ppm);
+            var bare = renderer.RenderFront(art, CardGeometry.BuiltIn, null, ppm);
+
+            // well above the fade the photo is solid
+            var solid = PixelAt(faded, 35, 30, ppm);
+            Assert.True(solid.R > 240 && solid.G < 20 && solid.B > 240, $"solid part is {solid}");
+            // just above its bottom edge it has all but gone, and the artwork shows through
+            var edge = PixelAt(faded, 35, 49.7, ppm);
+            var under = PixelAt(bare, 35, 49.7, ppm);
+            Assert.InRange(edge.G - under.G, -40, 40);
+            Assert.True(Math.Abs(edge.R - under.R) < 60, $"edge {edge} against artwork {under}");
+            // halfway down the fade it is a mix
+            var mid = PixelAt(faded, 35, 46.5, ppm);
+            var midUnder = PixelAt(bare, 35, 46.5, ppm);
+            static int Apart((byte R, byte G, byte B) a, (byte R, byte G, byte B) b) => Math.Max(Math.Abs(a.R - b.R), Math.Max(Math.Abs(a.G - b.G), Math.Abs(a.B - b.B)));
+            Assert.True(Apart(mid, solid) > 25 && Apart(mid, midUnder) > 25, $"halfway down the fade is {mid}; solid photo {solid}, bare artwork {midUnder}");
+        });
+    }
+
+    [Fact]
+    public void A_scanned_signature_prints_in_white_inside_its_box_and_the_photo_stays_inside_its_window()
+    {
+        Ui.Run(() =>
+        {
+            var (renderer, art) = Load();
+            const double ppm = 10;
+            var alpha = Enumerable.Repeat((byte)255, 60 * 20).ToArray();
+            var scan = new ScannedSignature(60, 20, alpha, "sign.png");
+            // a photo far larger than the card: it must not spill over the artwork outside its window
+            var flat = new RgbaImage(8, 8);
+            for (var i = 0; i < flat.Data.Length; i += 4) { flat.Data[i] = 0; flat.Data[i + 1] = 255; flat.Data[i + 2] = 0; flat.Data[i + 3] = 255; }
+            var card = new CardData("Ana Reyes", "HR Associate", 2026, 7, flat, new PhotoPlacement(-50, -50, 200, 200, 0), scan);
+            var front = renderer.RenderFront(art, CardGeometry.BuiltIn, card, ppm);
+            var bare = renderer.RenderFront(art, CardGeometry.BuiltIn, null, ppm);
+
+            var box = CardConfig.Signature.Box;
+            var ink = PixelAt(front, box.X + box.W / 2, box.Y + box.H / 2, ppm);
+            Assert.True(ink.R > 240 && ink.G > 240 && ink.B > 240, $"signature ink is {ink}");
+
+            // inside the photo window: the photo
+            var inside = PixelAt(front, 36, 30, ppm);
+            Assert.True(inside.G > 240 && inside.R < 20, $"inside the window: {inside}");
+            // left of the window (the logo side) and in the band below: untouched artwork
+            Assert.Equal(PixelAt(bare, 8, 30, ppm), PixelAt(front, 8, 30, ppm));
+            Assert.Equal(PixelAt(bare, 45, 82, ppm), PixelAt(front, 45, 82, ppm));
+            // the band over the shoulders is drawn back over the photo (two spots inside both the band and the photo window, clear of any text)
+            Assert.Equal(PixelAt(bare, 20, 66.5, ppm), PixelAt(front, 20, 66.5, ppm));
+            Assert.Equal(PixelAt(bare, 52.5, 58.2, ppm), PixelAt(front, 52.5, 58.2, ppm));
+        });
+    }
+
     [Fact]
     public void A_sheet_is_the_size_of_its_paper_and_the_pdf_has_a_page_per_side()
     {

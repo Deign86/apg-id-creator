@@ -471,6 +471,9 @@ public sealed class CardRenderer
 /// <summary>Opening and saving picture files with Windows' own codecs.</summary>
 public static class ImageFiles
 {
+    // 120 megapixels: several times the largest phone camera, and about half a gigabyte unpacked
+    private const long MaxPixels = 120_000_000;
+
     /// <summary>What went wrong the last time a picture would not open, for whoever is diagnosing it.</summary>
     internal static string LastFault { get; private set; } = "";
 
@@ -480,8 +483,15 @@ public static class ImageFiles
         try
         {
             using var stream = File.OpenRead(path);
-            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            // Not cached on load: the size is read from the header first, so a
+            // small file that unpacks into an enormous picture is turned away
+            // before any of it is unpacked.
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.None);
             BitmapSource frame = decoder.Frames[0];
+            if ((long)frame.PixelWidth * frame.PixelHeight > MaxPixels)
+            {
+                return (null, $"This picture is {frame.PixelWidth} × {frame.PixelHeight} pixels, which is more than this app can open. Save a smaller copy and use that.");
+            }
             // only a camera's JPEG carries a "which way up" note; asking a PNG for one is an error, not an empty answer
             var turn = decoder is JpegBitmapDecoder ? Orientation(frame) : Rotation.Rotate0;
             if (turn != Rotation.Rotate0)

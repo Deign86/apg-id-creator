@@ -54,10 +54,10 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          foreach ($f in 'front-against-web.txt', 'font-metrics.txt') {
-            $p = Join-Path $env:IDMAKER_REPORT_DIR $f
-            if (Test-Path $p) { "--- $f"; Get-Content $p | Select-Object -First 60 } else { "--- $f was not written" }
-          }
+          $fonts = Join-Path $env:IDMAKER_REPORT_DIR 'font-metrics.txt'
+          if (Test-Path $fonts) { Get-Content $fonts | Select-Object -First 1 } else { 'font-metrics.txt was not written' }
+          $card = Join-Path $env:IDMAKER_REPORT_DIR 'front-against-web.txt'
+          if (Test-Path $card) { Get-Content $card } else { 'front-against-web.txt was not written' }
       - name: Keep the rendered card
         if: always()
         uses: actions/upload-artifact@v4
