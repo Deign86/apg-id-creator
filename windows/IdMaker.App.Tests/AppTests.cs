@@ -240,7 +240,8 @@ public class RenderTests
             var bare = CardRenderer.ToRgba(renderer.RenderFront(art, CardGeometry.BuiltIn, null, ppm)).Data;
             (int L, int T, int R, int B) Ink(byte[] picture, RectMm box)
             {
-                int x0 = (int)((box.X - 1) * ppm), y0 = (int)((box.Y - 0.6) * ppm), x1 = (int)((box.Right + 1) * ppm), y1 = (int)((box.Bottom + 0.6) * ppm);
+                // a margin at the sides only: the name's box and the title's touch, so looking above or below one finds the other's ink
+                int x0 = (int)((box.X - 1) * ppm), y0 = (int)Math.Ceiling(box.Y * ppm), x1 = (int)((box.Right + 1) * ppm), y1 = (int)(box.Bottom * ppm);
                 int l = int.MaxValue, t = int.MaxValue, r = -1, b = -1;
                 for (var y = y0; y < y1; y++)
                 {
