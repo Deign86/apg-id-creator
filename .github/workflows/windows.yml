@@ -81,8 +81,16 @@ jobs:
       - name: Check the installer installs and the app starts
         shell: pwsh
         run: ./windows/installer/selftest.ps1
+      - name: Build the single .exe and check it starts
+        shell: pwsh
+        run: ./windows/installer/portable.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: AlphaPremierIdMaker-setup
           path: windows/dist/AlphaPremierIdMaker-setup.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlphaPremierIdMaker-exe
+          path: windows/dist/AlphaPremierIdMaker.exe
           if-no-files-found: error

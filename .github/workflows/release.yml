@@ -71,21 +71,30 @@ jobs:
         shell: pwsh
         run: ./windows/installer/selftest.ps1
 
+      - name: Build the single .exe and check it starts
+        if: steps.version.outputs.exists == 'false'
+        shell: pwsh
+        run: ./windows/installer/portable.ps1
+
       - name: Publish the release
         if: steps.version.outputs.exists == 'false'
         shell: pwsh
         run: |
           $tag = '${{ steps.version.outputs.tag }}'
           $zip = "windows/dist/AlphaPremierIdMaker-$tag-setup.zip"
+          $exe = "windows/dist/AlphaPremierIdMaker-$tag.exe"
           Copy-Item windows/dist/AlphaPremierIdMaker-setup.zip $zip
-          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
-          "$hash  AlphaPremierIdMaker-$tag-setup.zip" | Set-Content windows/dist/SHA256SUMS.txt -Encoding ascii
+          Copy-Item windows/dist/AlphaPremierIdMaker.exe $exe
+          $sums = foreach ($f in $zip, $exe) { "$((Get-FileHash -Algorithm SHA256 $f).Hash.ToLowerInvariant())  $(Split-Path -Leaf $f)" }
+          $sums | Set-Content windows/dist/SHA256SUMS.txt -Encoding ascii
           $notes = @"
           Alpha Premier ID Maker $tag for Windows.
 
-          **To install:** download ``AlphaPremierIdMaker-$tag-setup.zip``, right-click it and choose *Extract All*, then double-click **Install** in the folder that appears. The app needs no administrator. The installer also adds the XP-Pen Deco Fun pen tablet driver if the computer has no tablet driver, and Windows asks for permission for that one step.
+          **To install (the office computers):** download ``AlphaPremierIdMaker-$tag-setup.zip``, right-click it and choose *Extract All*, then double-click **Install** in the folder that appears. The app needs no administrator. The installer also adds the XP-Pen Deco Fun pen tablet driver if the computer has no tablet driver, and Windows asks for permission for that one step.
+
+          **To just run it:** download ``AlphaPremierIdMaker-$tag.exe`` and double-click it. Nothing is installed. It does not set up the pen tablet driver.
 
           Built from $env:GITHUB_SHA.
           "@
-          gh release create $tag $zip windows/dist/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Alpha Premier ID Maker $tag" --notes $notes
+          gh release create $tag $zip $exe windows/dist/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Alpha Premier ID Maker $tag" --notes $notes
           if ($LASTEXITCODE -ne 0) { throw 'The release was not published.' }

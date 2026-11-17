@@ -108,12 +108,22 @@ That writes `windows/dist/AlphaPremierIdMaker-setup.zip`: the app with
 zip on every push and keeps it as an artifact named
 `AlphaPremierIdMaker-setup`.
 
+To make one `.exe` that runs without installing:
+
+```powershell
+./windows/installer/portable.ps1
+```
+
+That writes `windows/dist/AlphaPremierIdMaker.exe` and starts it once to
+prove it opens. It carries everything except the pen tablet driver.
+
 ### Releases
 
 Releases build themselves. When a change to the app reaches `main`,
 `.github/workflows/release.yml` runs every test, builds the package,
 proves it installs and starts, and publishes it as a GitHub release
-named after the version (`v2.0.0`), with a `SHA256SUMS.txt` beside it.
+named after the version (`v2.0.1`): the installer zip, the single `.exe`,
+and a `SHA256SUMS.txt` for both.
 
 The version is `Version` in `IdMaker.App.csproj`. A version that is
 already released is not released again, so a change HR should install
@@ -247,6 +257,7 @@ Most changes are numbers in `IdMaker.Core/Config.cs`.
 | Different number format | `EmployeePrefix`, `EmployeeDigits`, `EmployeeLabel` |
 | Paper sizes, margins, crop marks | `Papers`, `SheetMarginMm`, `SheetGapMm`, `CropMark*` |
 | New card artwork, built in | replace `assets/front-template.png` and `assets/back.png` at the top of the repository (638 × 1004 or 638 × 1011), re-trace `FrontOutline` and `PhotoArea` if the band or the photo window moved |
+| Change the app's icon | `IdMaker.App/AppIcon.ico`. The logo it is made from is `assets/id-maker-logo.png`, and the editable original is in Canva ("Logo - Employee IDs", page 4) |
 | Restyle the window after a rebrand | the colours at the top of `IdMaker.App/Theme.xaml`. None of them touch the printed card |
 | Point at a different register | `CardConfig.RegisterUrl`. Treat it as a password; see `register/README.md` |
 | The version | `CardConfig.AppVersion`, and `Version` in `IdMaker.App.csproj` and `app.manifest` |
