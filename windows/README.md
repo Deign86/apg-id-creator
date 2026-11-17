@@ -52,7 +52,7 @@ windows/
     Fonts/               the three card fonts (see its README)
   IdMaker.Tests/       tests that run anywhere (Linux, macOS, Windows)
   IdMaker.App.Tests/   tests that need Windows: the renderer, the window
-  installer/           Install.ps1, the pinned driver, the packaging script
+  installer/           the setup program's script, the pinned driver, the build scripts
 ```
 
 The rule that shapes it: **`IdMaker.Core` decides, `IdMaker.App` shows.**
@@ -97,23 +97,59 @@ To run the app while working on it:
 dotnet run --project windows/IdMaker.App
 ```
 
-To make the package HR is given (on Windows, in PowerShell):
+To make the setup program HR is given (on Windows, in PowerShell, with
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) installed):
 
 ```powershell
 ./windows/installer/package.ps1
 ```
 
-That writes `windows/dist/AlphaPremierIdMaker-setup.zip`: the app with
-.NET built in, `Install.cmd`, and XP-Pen's driver. CI builds the same
-zip on every push and keeps it as an artifact named
-`AlphaPremierIdMaker-setup`.
+That writes `windows/dist/AlphaPremierIdMaker-Setup.exe`. It installs the
+way any Windows app does: a wizard, a Start-menu shortcut, an optional
+desktop shortcut, and an entry under Settings → Apps → Installed apps
+with an Uninstall button. Run over an older copy, it upgrades it. It
+installs for the person signed in and needs no administrator.
+
+```powershell
+./windows/installer/selftest.ps1
+```
+
+proves all of that on the machine it runs on: it installs silently,
+checks the shortcut and the Installed apps entry, installs again over the
+top, starts the app, then uninstalls and checks nothing is left but the
+user's own data. CI runs both on every push and keeps the setup program
+as an artifact named `AlphaPremierIdMaker-Setup`.
+
+For deploying with nobody at the keyboard (Action1 and the like):
+
+```powershell
+AlphaPremierIdMaker-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+```
+
+Add `/TASKS=""` to leave the tablet driver out. With it in, run the
+command as an administrator, or the driver step stops at a Windows prompt
+nobody is there to answer.
+
+Inno Setup is the one build tool beyond the .NET SDK. Writing a Windows
+installer by hand — the uninstaller, the Installed apps entry, upgrades,
+files in use — is the kind of thing it exists so that nobody has to.
+
+To make one `.exe` that runs without installing:
+
+```powershell
+./windows/installer/portable.ps1
+```
+
+That writes `windows/dist/AlphaPremierIdMaker.exe` and starts it once to
+prove it opens. It carries everything except the pen tablet driver.
 
 ### Releases
 
 Releases build themselves. When a change to the app reaches `main`,
 `.github/workflows/release.yml` runs every test, builds the package,
 proves it installs and starts, and publishes it as a GitHub release
-named after the version (`v2.0.0`), with a `SHA256SUMS.txt` beside it.
+named after the version (`v2.0.1`): the setup program, the single
+portable `.exe`, and a `SHA256SUMS.txt` for both.
 
 The version is `Version` in `IdMaker.App.csproj`. A version that is
 already released is not released again, so a change HR should install
@@ -183,11 +219,11 @@ signing still works.
 
 **The driver.** `installer/Driver.psd1` names one exact file: XP-Pen's
 Deco Fun driver 4.0.21, its address on XP-Pen's server and its SHA-256.
-`package.ps1` puts that file in the package; `Install.ps1` runs it only
-if the computer has no tablet driver and only if the checksum matches.
-It is XP-Pen's own installer (built with Inno Setup, run with Inno
-Setup's switches for no questions). Installing a driver needs an
-administrator, so Windows asks once; the app itself never does.
+`package.ps1` downloads it, refuses it unless the checksum matches, and
+packs it inside the setup program. Setup offers it only when the computer
+has no tablet driver, and runs XP-Pen's own installer (itself built with
+Inno Setup, run with its switches for no questions). Installing a driver
+needs an administrator, so Windows asks once; the app itself never does.
 
 To move to a newer driver, change `Driver.psd1` and try it on one
 computer first.
@@ -247,6 +283,7 @@ Most changes are numbers in `IdMaker.Core/Config.cs`.
 | Different number format | `EmployeePrefix`, `EmployeeDigits`, `EmployeeLabel` |
 | Paper sizes, margins, crop marks | `Papers`, `SheetMarginMm`, `SheetGapMm`, `CropMark*` |
 | New card artwork, built in | replace `assets/front-template.png` and `assets/back.png` at the top of the repository (638 × 1004 or 638 × 1011), re-trace `FrontOutline` and `PhotoArea` if the band or the photo window moved |
+| Change the app's icon | `IdMaker.App/AppIcon.ico`. The logo it is made from is `assets/id-maker-logo.png`, and the editable original is in Canva ("Logo - Employee IDs", page 4) |
 | Restyle the window after a rebrand | the colours at the top of `IdMaker.App/Theme.xaml`. None of them touch the printed card |
 | Point at a different register | `CardConfig.RegisterUrl`. Treat it as a password; see `register/README.md` |
 | The version | `CardConfig.AppVersion`, and `Version` in `IdMaker.App.csproj` and `app.manifest` |
@@ -263,10 +300,10 @@ done from the machine this was written on, which is not Windows.
 
 1. **Sign with the Deco Fun.** Check the line thickens with pressure,
    with *Windows Ink* both ticked and unticked in the XP-Pen settings.
-2. **Run the installer on an office computer** and let it install the
-   driver. The silent switches are Inno Setup's standard ones and the
-   installer was confirmed to be Inno Setup, but the driver's install has
-   not been run end to end.
+2. **Run the setup on an office computer** and let it install the
+   driver. CI installs and uninstalls the app itself on every push, but
+   always with the driver step left out: the driver's own install has not
+   been run end to end.
 3. **Print one card at 100%** and measure it against an existing card.
 4. **Try real staff photos** through the background remover.
 Not carried over from the web app, on purpose:

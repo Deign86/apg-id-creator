@@ -25,10 +25,10 @@ Scope: The web ID Maker rebuilt as a native C# / WPF Windows program that prints
   EXPECT: /Passed!\s+- Failed:\s+0/
   EVIDENCE: Passed on windows-latest (run 43999369620, job "test").
 
-- [x] G5: The package installs for the signed-in user without an administrator, carries XP-Pen's driver with the pinned checksum, and the installed program starts and shows its window.
+- [ ] G5: The setup program installs the app like a native Windows app (Start-menu shortcut, an Installed apps entry with version, publisher and uninstaller), with no administrator; upgrades in place; the installed app starts; and it uninstalls cleanly, leaving the user's data.
   CHECK: pwsh -File windows/installer/package.ps1; pwsh -File windows/installer/selftest.ps1
-  EXPECT: Installed, started and removed.
-  EVIDENCE: Passed on windows-latest (run 43999369620, job "package"), and again in the release run 43999867580, which published v2.0.0 with AlphaPremierIdMaker-v2.0.0-setup.zip (127 MB) and SHA256SUMS.txt.
+  EXPECT: Installed, upgraded in place, started, and uninstalled cleanly.
+  EVIDENCE: pending
 
 - [ ] G6: Signing with the XP-Pen Deco Fun draws a line that thickens with pressure, with "Windows Ink" both ticked and unticked in the XP-Pen settings, and the pen cannot leave the signing screen.
   EVIDENCE: pending
@@ -43,6 +43,6 @@ Scope: The web ID Maker rebuilt as a native C# / WPF Windows program that prints
   EVIDENCE: pending
 
 ABANDON: G6 needs the tablet in someone's hand; the machine this was built on is not Windows and has no tablet. The pressure path was written from the WinTab specification and the WPF stylus API, and compiles; it has not been drawn with.
-ABANDON: G7 needs an office computer and an administrator to answer the prompt. The driver installer was downloaded and confirmed to be Inno Setup, whose silent switches are the ones used; the install itself was not run.
+ABANDON: G7 needs an office computer and an administrator to answer the prompt. The driver installer was downloaded and confirmed to be Inno Setup, whose silent switches are the ones used; the install itself was not run. CI always installs with the driver step left out.
 ABANDON: G8 needs a printer and a ruler. The PDF's page size and pixel dimensions are tested (638 × 1011 at 54 × 85.6 mm).
 ABANDON: G9 needs real photographs of real staff, which must not leave the company. The model was measured on the repository's sample portrait over test backgrounds only.

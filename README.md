@@ -10,23 +10,30 @@ cut.
 
 ## Installing it
 
-1. Get **`AlphaPremierIdMaker-setup.zip`** from IT.
-2. Right-click it and choose **Extract All**.
-3. In the folder that appears, double-click **Install**.
-4. If Windows says **"Windows protected your PC"**, click **More info**,
+1. Get **`AlphaPremierIdMaker-Setup`** from IT, or from the Releases page
+   of this repository.
+2. Double-click it.
+3. If Windows says **"Windows protected your PC"**, click **More info**,
    then **Run anyway**. It says that about any program it has not seen
    before.
+4. Click through the setup. It does not ask for an administrator password.
 
-The app itself does not ask for an administrator password. You will find
-**Alpha Premier ID Maker** in the Start menu; right-click it there to pin
-it to the taskbar.
+It installs like any other Windows app. You will find **Alpha Premier ID
+Maker** in the Start menu; right-click it there to pin it to the taskbar.
+Tick **Put a shortcut on the desktop** during setup if you want one.
 
-**The pen tablet.** The installer also sets up the **XP-Pen Deco Fun**
-driver if this computer does not already have a tablet driver. That one
-step does ask for permission ("Do you want to allow this app to make
-changes") because a driver is installed for the whole computer. Say
-**Yes**, then unplug the tablet and plug it back in. If you say No, the
-app still works; you sign with the mouse, or use a scan.
+**The pen tablet.** If this computer has no tablet driver, setup offers to
+install the **XP-Pen Deco Fun** driver, already ticked. That one step does
+ask for permission ("Do you want to allow this app to make changes"),
+because a driver is installed for the whole computer. Say **Yes**, then
+unplug the tablet and plug it back in. If you say No, the app still works;
+you sign with the mouse, or use a scan.
+
+**Updating.** Run the newer setup over the top. It replaces the old
+version and keeps your issued-ID list and settings.
+
+**Removing it.** Settings → Apps → Installed apps → Alpha Premier ID Maker
+→ Uninstall. Your issued-ID list is left on the computer.
 
 Nothing else needs installing first.
 
@@ -206,7 +213,7 @@ way to get a clean one.
 
 **The pen does nothing, or draws but the line never gets thicker.** Unplug
 the tablet and plug it back in. If the signing screen says no tablet
-driver was found, run the installer again and say **Yes** when Windows
+driver was found, run the setup again and say **Yes** when Windows
 asks. The mouse always works in the meantime.
 
 **The back of the card prints upside down.** Click **Printer setting** on

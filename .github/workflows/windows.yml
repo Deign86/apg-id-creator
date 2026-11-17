@@ -75,14 +75,29 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Package the installer
+      - name: Make sure Inno Setup is there
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y; if ($LASTEXITCODE -ne 0) { throw 'Inno Setup could not be installed.' } }
+          & $iscc /? | Select-Object -First 1
+          $global:LASTEXITCODE = 0
+      - name: Build the setup program
         shell: pwsh
         run: ./windows/installer/package.ps1
-      - name: Check the installer installs and the app starts
+      - name: Check it installs, starts and uninstalls like a Windows app
         shell: pwsh
         run: ./windows/installer/selftest.ps1
+      - name: Build the single .exe and check it starts
+        shell: pwsh
+        run: ./windows/installer/portable.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: AlphaPremierIdMaker-setup
-          path: windows/dist/AlphaPremierIdMaker-setup.zip
+          name: AlphaPremierIdMaker-Setup
+          path: windows/dist/AlphaPremierIdMaker-Setup.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlphaPremierIdMaker-exe
+          path: windows/dist/AlphaPremierIdMaker.exe
           if-no-files-found: error
