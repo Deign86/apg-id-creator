@@ -61,12 +61,21 @@ jobs:
         if: steps.version.outputs.exists == 'false'
         run: dotnet test windows/IdMaker.sln -c Release
 
-      - name: Package the installer
+      - name: Make sure Inno Setup is there
+        if: steps.version.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y; if ($LASTEXITCODE -ne 0) { throw 'Inno Setup could not be installed.' } }
+          & $iscc /? | Select-Object -First 1
+          $global:LASTEXITCODE = 0
+
+      - name: Build the setup program
         if: steps.version.outputs.exists == 'false'
         shell: pwsh
         run: ./windows/installer/package.ps1
 
-      - name: Check the installer installs and the app starts
+      - name: Check it installs, starts and uninstalls like a Windows app
         if: steps.version.outputs.exists == 'false'
         shell: pwsh
         run: ./windows/installer/selftest.ps1
@@ -81,18 +90,20 @@ jobs:
         shell: pwsh
         run: |
           $tag = '${{ steps.version.outputs.tag }}'
-          $zip = "windows/dist/AlphaPremierIdMaker-$tag-setup.zip"
-          $exe = "windows/dist/AlphaPremierIdMaker-$tag.exe"
-          Copy-Item windows/dist/AlphaPremierIdMaker-setup.zip $zip
+          $zip = "windows/dist/AlphaPremierIdMaker-Setup-$tag.exe"
+          $exe = "windows/dist/AlphaPremierIdMaker-Portable-$tag.exe"
+          Copy-Item windows/dist/AlphaPremierIdMaker-Setup.exe $zip
           Copy-Item windows/dist/AlphaPremierIdMaker.exe $exe
           $sums = foreach ($f in $zip, $exe) { "$((Get-FileHash -Algorithm SHA256 $f).Hash.ToLowerInvariant())  $(Split-Path -Leaf $f)" }
           $sums | Set-Content windows/dist/SHA256SUMS.txt -Encoding ascii
           $notes = @"
           Alpha Premier ID Maker $tag for Windows.
 
-          **To install (the office computers):** download ``AlphaPremierIdMaker-$tag-setup.zip``, right-click it and choose *Extract All*, then double-click **Install** in the folder that appears. The app needs no administrator. The installer also adds the XP-Pen Deco Fun pen tablet driver if the computer has no tablet driver, and Windows asks for permission for that one step.
+          **To install:** download ``AlphaPremierIdMaker-Setup-$tag.exe`` and double-click it. It installs like any Windows app: a Start-menu shortcut, and an entry under Settings, Apps, Installed apps with an Uninstall button. It needs no administrator. It also offers the XP-Pen Deco Fun pen tablet driver when the computer has no tablet driver, and Windows asks for permission for that one step.
 
-          **To just run it:** download ``AlphaPremierIdMaker-$tag.exe`` and double-click it. Nothing is installed. It does not set up the pen tablet driver.
+          **To run it without installing:** download ``AlphaPremierIdMaker-Portable-$tag.exe`` and double-click it. It does not set up the pen tablet driver.
+
+          Windows may say "Windows protected your PC" the first time, because the files are not code-signed. Choose *More info*, then *Run anyway*.
 
           Built from $env:GITHUB_SHA.
           "@
