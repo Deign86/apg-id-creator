@@ -22,11 +22,10 @@ Set-up takes about ten minutes and needs no server.
    - Execute as: **Me**
    - Who has access: **Anyone**. The dropdown offers *Only myself*
      (the default), *Anyone with Google account* and *Anyone*, and only
-     the last one works. The app calls the script from the browser
-     without sign-in cookies, so either of the other two answers with a
-     redirect towards a login page — and a login page sends no
-     `Access-Control-Allow-Origin` header, so the browser blocks it and
-     every check fails. Opening the address in your own browser tab is
+     the last one works. The app calls the script without being signed
+     in to Google, so either of the other two answers with a login page
+     instead of the register, and every check fails. (The app says so
+     when that happens.) Opening the address in your own browser tab is
      not a test of this: you are signed in there, so it answers you
      whatever the setting. See the warning below for what "Anyone" means.
 5. Google asks for permission and warns that *this app hasn't been verified*.
@@ -43,9 +42,10 @@ appears in the Sheet.
 
 ## 2. Tell the app about it
 
-Put the web-app address in `CONFIG.register.url` in `src/config.js` and run
-`node build.mjs`. There is no setting for it in the app: it is on, and it
-cannot be switched off by accident.
+Put the web-app address in `CardConfig.RegisterUrl` in
+`windows/IdMaker.Core/Config.cs`. Every copy of the app built after that
+uses it without anyone setting anything up, and it cannot be switched off
+by accident.
 
 > **Treat that address as a password.** The deployment is open to "Anyone",
 > so whoever holds the address can read every issued ID and add rows. It is
@@ -55,12 +55,12 @@ cannot be switched off by accident.
 >
 > If it leaks, or the repository is made public: *Deploy → Manage
 > deployments*, archive the deployment, create a new one, and put the new
-> address in `config.js`. The old one stops working the moment it is
+> address in `Config.cs`. The old one stops working the moment it is
 > archived.
 
-For a development copy pointed at a local stand-in, set
-`localStorage['apg-id-register-url']` in the browser console; it overrides
-the built-in address without touching the source.
+One computer can be pointed somewhere else without rebuilding: **Issued
+IDs → Shared register address → Test and save**. That overrides the
+built-in address on that computer only; clearing the box goes back to it.
 
 ## What changes in the app
 

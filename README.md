@@ -109,6 +109,44 @@ with everyone already added still there.
 
 ---
 
+## Making many cards at once
+
+Click **Batch from CSV** in the list on the left.
+
+1. **Save an example list to fill in**, open it in Excel, and fill it in,
+   one person per row. Save it as CSV.
+
+   | Column | |
+   | --- | --- |
+   | `last`, `first`, `title`, `seq` | needed |
+   | `middle`, `suffix` | the rest of the name, if any |
+   | `title2` | a second role, joined with `title` the way the form does it |
+   | `name` | an older list with one whole-name column still works |
+   | `year` | leave empty for this year |
+   | `photo` | the photo's file name, such as `aureo.png` |
+   | `signature` | the file name of a scanned signature, if there is one |
+   | `replacement` | `yes` to allow a number that is already issued |
+
+2. **Choose the list**, then **all the photos**, then the scanned
+   signatures if you have them. Files are matched by name, ignoring
+   capitals and even the ending, so `Aureo.JPG` finds `aureo.png`.
+3. Choose the **print layout** and the paper.
+4. **Make the batch** and choose where to save the PDF.
+
+Each row is checked exactly as a single card is: numbers already used,
+names too long for the card, photos that are missing or cannot be used.
+Good rows go into one PDF and are recorded as issued. Rows with a problem
+are listed underneath with the reason and are left out — nothing is half
+done. Fix those rows and run them again as a smaller list.
+
+A row that names a signature file you did not choose is left out, rather
+than quietly printed without it. A row with no signature at all is
+printed with the signature space empty, and says so in the list.
+
+Up to 200 people at a time.
+
+---
+
 ## Changing the card design
 
 Two things can be changed here without waiting for a new version of the
@@ -205,9 +243,6 @@ replaced or wiped, the sheet still has everything.
 ---
 
 ## Getting help
-
-The full procedure, including making many cards at once from a
-spreadsheet, is in **[PROCESS.md](PROCESS.md)**.
 
 If you look after the app itself, see **[windows/README.md](windows/README.md)**.
 

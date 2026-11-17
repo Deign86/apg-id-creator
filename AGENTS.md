@@ -4,9 +4,11 @@ Alpha Premier ID Maker makes employee ID cards. The app is the native
 Windows program in `windows/` (C#, .NET 8, WPF). Start with
 `windows/README.md`; the people who use the app read `README.md`.
 
-The web app (`src/`, `build.mjs`, `test/*.mjs`,
-`Alpha Premier ID Maker.html`) is what it replaced. It is kept until the
-native app has been through a real card run. Do not add to it.
+It replaced a web app (plain HTML and TypeScript in a Tauri window),
+removed on 17 Nov 2026 and still in git history. `test/golden-front.png`
+is the card that web app printed, and
+`windows/IdMaker.Tests/Fixtures/web-reference.json` the numbers it
+produced; the native app is held to both.
 
 ## Rules
 

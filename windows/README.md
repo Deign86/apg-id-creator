@@ -4,10 +4,11 @@ Alpha Premier ID Maker as a native Windows program: C# on .NET 8, drawn
 with WPF. No browser inside it and no web page: the card, the form, the
 PDF and the signing screen are all Windows' own.
 
-It replaces the web app at the top of this repository (`src/`,
-`Alpha Premier ID Maker.html`). The Tauri window that used to wrap the
-web app is gone; the web app itself is still here until this one has
-been used on a real card run. See [What is still to do](#what-is-still-to-do).
+It replaced a web app (plain HTML and TypeScript, in a Tauri window),
+which was removed on 17 Nov 2026 and is in git history before that. Two
+things of it remain on purpose: `test/golden-front.png`, the card it
+printed, and `IdMaker.Tests/Fixtures/web-reference.json`, the numbers it
+produced. The tests hold this app to both.
 
 The people who use the app want the **[README at the top](../README.md)**.
 This page is for whoever changes it.
@@ -268,12 +269,22 @@ done from the machine this was written on, which is not Windows.
    not been run end to end.
 3. **Print one card at 100%** and measure it against an existing card.
 4. **Try real staff photos** through the background remover.
-5. Then retire the web app: remove `src/`, `build.mjs`,
-   `serve.mjs`, `test/*.mjs`, `Alpha Premier ID Maker.html` and the web
-   half of `DEVELOPING.md`.
-
 Not carried over from the web app, on purpose:
 
 - **Typing coming back after a reload.** A program does not reload.
 - **Reading a colour-coded map picture.** Nothing in the web app used it
   any more either; the map is dragged on the card.
+
+---
+
+## Credits
+
+- **Fonts on the card:** Poppins and Montserrat (SIL Open Font License
+  1.1), Arimo (Apache License 2.0). See `IdMaker.App/Fonts/README.md`.
+- **QR code:** `IdMaker.Core/Qr.cs` follows qrcode-generator by Kazuhiko
+  Arase (MIT License) step for step, and its tables are that library's.
+  "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
+- **Background removal:** MODNet by Zhanghan Ke and others (Apache
+  License 2.0), run with ONNX Runtime (MIT License).
+- **Pen tablet driver:** XP-Pen's own, redistributed unchanged inside the
+  installer package. It is not part of this repository.
