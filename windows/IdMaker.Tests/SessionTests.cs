@@ -40,14 +40,46 @@ public class StepTests
         var chip = s.ChipPressed(4);
         Assert.False(chip.Moved);
         Assert.Equal(1, s.StepIndex);
-        Assert.Equal(Field.Title, chip.FocusField);
+        // the first thing the step asks is who the ID is for
+        Assert.Equal(Field.Kind, chip.FocusField);
         Assert.StartsWith("Can’t continue yet.", s.BlockedText);
+        Assert.Contains("employee or an intern", s.BlockedText);
+        s.PickKind(PersonKind.Intern);
+        Assert.Equal(Field.Title, s.ChipPressed(4).FocusField);
 
         // and it clears once the thing it named is fixed
         s.PickRole1("HR Associate");
         s.ClearBlockedIfFixed(s.Problems());
         Assert.Null(s.BlockedAbout);
         Assert.Equal("", s.BlockedText);
+    }
+
+    [Fact]
+    public void Who_the_id_is_for_is_asked_never_guessed_and_goes_on_the_record()
+    {
+        var store = new MemoryStore();
+        var s = Make.Session(Make.LocalRegister(store), store);
+        Make.FillForm(s);
+        Assert.Equal(PersonKind.Employee, s.Kind);
+
+        // anything but the two choices is no choice, and the form does not go past the step without one
+        s.PickKind("contractor");
+        Assert.Equal("", s.Kind);
+        Assert.Contains("employee or an intern", s.Problems()[Field.Kind]);
+        s.GoStep(Session.LastStep);
+        Assert.Equal((int)Step.Title, s.StepIndex);
+
+        s.PickKind(" Intern ");
+        Assert.Equal(PersonKind.Intern, s.Kind);
+        Assert.Equal("", s.Problems()[Field.Kind]);
+        s.GoStep(Session.LastStep);
+        Assert.Equal(Session.LastStep, s.StepIndex);
+        var issued = Assert.Single(s.MarkIssued());
+        Assert.Equal(PersonKind.Intern, issued.Kind);
+
+        // the next card starts with nothing chosen: the last answer is not carried over
+        s.NewId();
+        Assert.Equal("", s.Kind);
     }
 
     [Fact]
@@ -709,6 +741,15 @@ public class RegisterTests
         Assert.Equal(new[] { "by", "byEmail", "first", "id", "issuedAt", "last", "middle", "name", "replacement", "role1", "role2", "seq", "suffix", "title", "year" },
             doc.Select(f => f.Key).Order(StringComparer.Ordinal));
 
+        // who the card is for goes with it once the form has asked; a card from before then says nothing rather than guess
+        var intern = Ana with { Id = "APG-2026-126", Seq = 126, Name = "Ben Cruz", Kind = PersonKind.Intern };
+        Assert.Equal(SharedOutcome.Sent, (await r.RecordShared(intern)).Outcome);
+        Assert.Equal("intern", firebase.Docs["APG-2026-126"]["kind"]!["stringValue"]!.ToString());
+        Assert.False(doc.ContainsKey("kind"));
+        Assert.True(await r.LoadIndex(force: true));
+        Assert.Equal(PersonKind.Intern, r.FindSharedNow(2026, 126).Entry!.Kind);
+        Assert.Equal("", r.FindSharedNow(2026, 124).Entry!.Kind);
+
         r.NoteShared(Ana);
         Assert.Equal("Ana Reyes", r.FindSharedNow(2026, 124).Entry!.Name);
     }
@@ -1081,6 +1122,28 @@ public class BatchTests
         Assert.Contains("broken.png: This file couldn’t be opened", outcome.Results[8].Problem);
         Assert.Equal("No job title.", outcome.Results[9].Problem);
         Assert.Equal(5, outcome.Results[4].Line + 0 - 1);
+    }
+
+    [Fact]
+    public void A_list_says_who_is_an_intern_and_a_list_from_before_the_column_means_employees()
+    {
+        const string csv =
+            "last,first,title,seq,photo,kind\n" +
+            "Aureo,Chris,IT Associate,122,a.png,intern\n" +
+            "Reyes,Ana,HR Associate,123,a.png, Employee \n" +
+            "Cruz,Juan,Driver,124,a.png,\n" +                 // left empty: an employee
+            "Lim,Bea,Driver,125,a.png,volunteer\n";           // neither
+        var outcome = Batch.Run(csv, new[] { "a.png" }, null, Services());
+        Assert.Equal(new[] { PersonKind.Intern, PersonKind.Employee, PersonKind.Employee }, outcome.Good.Select(r => r.Entry!.Kind));
+        Assert.Contains("neither “intern” nor “employee”", outcome.Results[3].Problem);
+
+        // the example list HR is given to fill in is itself a list this reads, interns and all
+        var example = Batch.ReadRows(Batch.CsvTemplate);
+        Assert.Equal("", example.Error);
+        Assert.Equal(new[] { "employee", "employee", "intern" }, example.Rows!.Select(r => r["kind"]));
+
+        var old = Batch.Run("last,first,title,seq,photo\nUy,Di,Driver,126,a.png\n", new[] { "a.png" }, null, Services());
+        Assert.Equal(PersonKind.Employee, Assert.Single(old.Good).Entry!.Kind);
     }
 
     [Fact]

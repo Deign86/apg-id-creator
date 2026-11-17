@@ -296,6 +296,15 @@
                             <!-- 2. job title -->
                             <StackPanel x:Name="StepTitle" Visibility="Collapsed">
                                 <TextBlock Style="{StaticResource Text.Heading}" Text="What do they do?" />
+                                <!-- asked, never guessed: the attendance system takes interns, and only interns, from this -->
+                                <TextBlock x:Name="LblKind" Text="This ID is for" Style="{StaticResource Text.Label}" />
+                                <ComboBox x:Name="CmbKind" Style="{StaticResource Select}" Width="200" HorizontalAlignment="Left" SelectionChanged="CmbKind_Changed"
+                                          AutomationProperties.LabeledBy="{Binding ElementName=LblKind}">
+                                    <ComboBoxItem Content="An employee" Tag="employee" />
+                                    <ComboBoxItem Content="An intern" Tag="intern" />
+                                </ComboBox>
+                                <TextBlock x:Name="MsgKind" Style="{StaticResource Text.Error}" Margin="0,4,0,12" MinHeight="4" />
+                                <TextBlock Text="Job title" Style="{StaticResource Text.Label}" />
                                 <WrapPanel x:Name="TitleChips" AutomationProperties.Name="Job title" />
                                 <TextBox x:Name="TxtTitleCustom" Style="{StaticResource Input}" MaxLength="60" TextChanged="TitleCustom_TextChanged" LostFocus="TitleCustom_LostFocus"
                                          AutomationProperties.Name="Job title" Visibility="Collapsed" />

@@ -16,6 +16,7 @@ exposed personal data, or a broken release), **Nit**, or **Pre-existing**
 
 | When the diff touches | Check | From |
 | --- | --- | --- |
+| A new field on an issued ID | The rules in apg-keystone accept it and are published before the app that sends it is released; otherwise every card waits in the outbox | `kind`, v2.0.4 |
 | `Register.cs` requests, or anything sent to Firestore | The app still only *creates* documents: no PATCH, PUT or DELETE. The fields sent are exactly those in `register/README.md` and in `issuedId` in apg-keystone's `firestore.rules` | STATE-MACHINES issue 6: the old register wrote a second card over the first |
 | How a refused write is handled | A refusal is decided by reading the number's document, never from the status alone (409 and 403 both mean "already there"; 403 also means "not a member") | Pull request 9 |
 | `_index`, `_loading`, `_refreshing`, or sign-in state | Every change of sign-in advances `_version`, and a task already finished is never kept as "in flight" | STATE-MACHINES issues 2 and 7 |

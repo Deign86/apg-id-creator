@@ -45,12 +45,36 @@ public sealed record RegisterEntry
     public string Suffix { get; init; } = "";
     public string Role1 { get; init; } = "";
     public string Role2 { get; init; } = "";
+    /// <summary>Who the card is for: PersonKind.Employee or PersonKind.Intern. Empty on cards issued before the form asked.</summary>
+    public string Kind { get; init; } = "";
 
     /// <summary>"12 Nov 2026", or empty when the date cannot be read.</summary>
     public string IssuedOn =>
         DateTimeOffset.TryParse(IssuedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var d)
             ? d.ToLocalTime().ToString("d MMM yyyy", CultureInfo.GetCultureInfo("en-PH"))
             : "";
+}
+
+/// <summary>
+/// Who an ID is for. The attendance system keeps interns only, and is to
+/// take new interns from the register, so the register has to say which a
+/// card is.
+/// </summary>
+public static class PersonKind
+{
+    public const string Employee = "employee";
+    public const string Intern = "intern";
+
+    /// <summary>The kind as the register writes it, or "" when the text is neither.</summary>
+    public static string Parse(string? text) => (text ?? "").Trim().ToLowerInvariant() switch
+    {
+        Employee => Employee,
+        Intern => Intern,
+        _ => "",
+    };
+
+    /// <summary>"Employee" or "Intern", for a sentence or a list.</summary>
+    public static string Label(string kind) => kind == Intern ? "Intern" : kind == Employee ? "Employee" : "";
 }
 
 /// <summary>A failure the operator can act on: its message is shown as it is.</summary>
@@ -204,7 +228,7 @@ public sealed partial class Register
                     Id = id, Year = year, Seq = seq, Name = Cell(r, "name"), Title = Cell(r, "title"),
                     IssuedAt = Cell(r, "issuedat"), Replacement = Cell(r, "replacement").Equals("yes", StringComparison.OrdinalIgnoreCase),
                     Last = Cell(r, "last"), First = Cell(r, "first"), Middle = Cell(r, "middle"), Suffix = Cell(r, "suffix"),
-                    Role1 = Cell(r, "role1"), Role2 = Cell(r, "role2"),
+                    Role1 = Cell(r, "role1"), Role2 = Cell(r, "role2"), Kind = PersonKind.Parse(Cell(r, "kind")),
                 });
                 have.Add(id);
                 added++;
@@ -507,9 +531,9 @@ public sealed partial class Register
     private static JsonObject Str(string v) => new() { ["stringValue"] = v };
     private static JsonObject Whole(int v) => new() { ["integerValue"] = v.ToString(CultureInfo.InvariantCulture) };
 
-    private static JsonObject Document(RegisterEntry e, SavedSignIn by) => new()
+    private static JsonObject Document(RegisterEntry e, SavedSignIn by)
     {
-        ["fields"] = new JsonObject
+        var fields = new JsonObject
         {
             ["id"] = Str(e.Id), ["year"] = Whole(e.Year), ["seq"] = Whole(e.Seq), ["name"] = Str(e.Name), ["title"] = Str(e.Title),
             ["issuedAt"] = Str(e.IssuedAt), ["replacement"] = new JsonObject { ["booleanValue"] = e.Replacement },
@@ -517,8 +541,11 @@ public sealed partial class Register
             ["role1"] = Str(e.Role1), ["role2"] = Str(e.Role2),
             // who issued it: the rules check this is the account making the request
             ["by"] = Str(by.Uid), ["byEmail"] = Str(by.Email),
-        },
-    };
+        };
+        // only when it is known: a card waiting in the outbox since before the form asked has none, and the rules take that
+        if (PersonKind.Parse(e.Kind) is { Length: > 0 } kind) fields["kind"] = Str(kind);
+        return new JsonObject { ["fields"] = fields };
+    }
 
     private static string Value(JsonNode? wrapped)
     {
@@ -546,7 +573,7 @@ public sealed partial class Register
             Id = id, Year = N("year"), Seq = N("seq"), Name = F("name"), Title = F("title"),
             IssuedAt = F("issuedAt"), Replacement = F("replacement") is "true" or "yes",
             Last = F("last"), First = F("first"), Middle = F("middle"), Suffix = F("suffix"),
-            Role1 = F("role1"), Role2 = F("role2"),
+            Role1 = F("role1"), Role2 = F("role2"), Kind = PersonKind.Parse(F("kind")),
         };
     }
 
@@ -789,13 +816,13 @@ public sealed partial class Register
         static string Esc(object? v) => "\"" + (Convert.ToString(v, CultureInfo.InvariantCulture) ?? "").Replace("\"", "\"\"") + "\"";
         var rows = new List<string>
         {
-            string.Join(',', new[] { "id", "year", "seq", "last", "first", "middle", "suffix", "name", "title", "role1", "role2", "issuedAt", "replacement" }.Select(Esc)),
+            string.Join(',', new[] { "id", "year", "seq", "last", "first", "middle", "suffix", "name", "title", "role1", "role2", "issuedAt", "replacement", "kind" }.Select(Esc)),
         };
         foreach (var e in All())
         {
             rows.Add(string.Join(',', new object[]
             {
-                e.Id, e.Year, e.Seq, e.Last, e.First, e.Middle, e.Suffix, e.Name, e.Title, e.Role1, e.Role2, e.IssuedAt, e.Replacement ? "yes" : "no",
+                e.Id, e.Year, e.Seq, e.Last, e.First, e.Middle, e.Suffix, e.Name, e.Title, e.Role1, e.Role2, e.IssuedAt, e.Replacement ? "yes" : "no", e.Kind,
             }.Select(Esc)));
         }
         return "﻿" + string.Join("\r\n", rows);

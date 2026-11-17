@@ -10,7 +10,7 @@
     <AssemblyName>AlphaPremierIdMaker</AssemblyName>
     <ApplicationIcon>AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>2.0.3</Version>
+    <Version>2.0.4</Version>
     <Product>Alpha Premier ID Maker</Product>
     <Company>Alpha Premier Group of Companies</Company>
     <Description>Employee ID card maker</Description>

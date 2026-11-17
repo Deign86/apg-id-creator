@@ -15,6 +15,8 @@
 //   photo                       file name of the photo
 //   signature                   file name of a scanned signature (optional)
 //   replacement                 yes/true to allow an already-issued number
+//   kind                        intern or employee; employee when left out
+//                               (a list from before the column existed)
 //
 // Rows are never half-issued: a row that fails is skipped and reported, and
 // only the rows that made it into the PDF are written to the register.
@@ -47,10 +49,10 @@ public static partial class Batch
     public const int MaxRows = 200;
 
     public const string CsvTemplate =
-        "last,first,middle,suffix,title,title2,seq,year,photo,signature,replacement\r\n"
-        + "Aureo,\"Christopher Joseph\",Villanueva,,\"IT Associate\",,122,2026,aureo.png,aureo-sign.jpg,\r\n"
-        + "Reyes,Ana,Santos,,\"HR Associate\",\"Admin Associate\",123,2026,reyes.png,,\r\n"
-        + "\"dela Cruz\",Juan,Santos,Jr.,\"Marketing Associate\",,124,2026,cruz.png,,\r\n";
+        "last,first,middle,suffix,title,title2,seq,year,photo,signature,replacement,kind\r\n"
+        + "Aureo,\"Christopher Joseph\",Villanueva,,\"IT Associate\",,122,2026,aureo.png,aureo-sign.jpg,,employee\r\n"
+        + "Reyes,Ana,Santos,,\"HR Associate\",\"Admin Associate\",123,2026,reyes.png,,,employee\r\n"
+        + "\"dela Cruz\",Juan,Santos,Jr.,\"Marketing Associate\",,124,2026,cruz.png,,,intern\r\n";
 
     [GeneratedRegex(@"^\d{1,4}$")] private static partial Regex SeqDigits();
     [GeneratedRegex(@"^\d{4}$")] private static partial Regex YearDigits();
@@ -143,6 +145,9 @@ public static partial class Batch
         var name = split ? Naming.ComposeName(parts) : whole;
         if (!Session.NamePrints(name)) return Fail("The name has characters the card can’t print.");
         if (title.Length == 0) return Fail("No job title.");
+        var kindText = Col(row, "kind");
+        var kind = kindText.Length == 0 ? PersonKind.Employee : PersonKind.Parse(kindText);
+        if (kind.Length == 0) return Fail($"“{kindText}” is neither “intern” nor “employee”.");
 
         var seqText = Col(row, "seq");
         if (!SeqDigits().IsMatch(seqText) || int.Parse(seqText, CultureInfo.InvariantCulture) <= 0)
@@ -199,6 +204,7 @@ public static partial class Batch
                 First = split ? parts.First : "", Middle = split ? parts.Middle : "", Suffix = split ? parts.Suffix : "",
                 IssuedAt = s.Now().ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
                 Replacement = already is not null,
+                Kind = kind,
             },
         };
     }

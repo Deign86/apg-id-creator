@@ -13,7 +13,7 @@ namespace IdMaker.Core;
 
 public enum Step { Name = 0, Title = 1, Number = 2, Photo = 3, Sign = 4, Check = 5 }
 
-public enum Field { Last, First, Middle, Suffix, NameFit, Title, Title2, TitleFit, Seq, Photo, Signature }
+public enum Field { Last, First, Middle, Suffix, NameFit, Title, Title2, TitleFit, Seq, Photo, Signature, Kind }
 
 /// <summary>What the shared register says about the number on the form.</summary>
 public enum SharedAnswer
@@ -57,7 +57,7 @@ public sealed partial class Session
     public static readonly (Step Id, string Label, Field[] Fields)[] Steps =
     {
         (Step.Name, "Name", new[] { Field.Last, Field.First, Field.Middle, Field.Suffix, Field.NameFit }),
-        (Step.Title, "Job title", new[] { Field.Title, Field.Title2, Field.TitleFit }),
+        (Step.Title, "Job title", new[] { Field.Kind, Field.Title, Field.Title2, Field.TitleFit }),
         (Step.Number, "Number", new[] { Field.Seq }),
         (Step.Photo, "Photo", new[] { Field.Photo }),
         (Step.Sign, "Signature", new[] { Field.Signature }),
@@ -69,6 +69,7 @@ public sealed partial class Session
         Field.Last => "last name", Field.First => "first name", Field.Middle => "middle name", Field.Suffix => "suffix",
         Field.NameFit => "a shorter name", Field.Title => "job title", Field.Title2 => "second role",
         Field.TitleFit => "a shorter job title", Field.Seq => "employee number", Field.Photo => "photo",
+        Field.Kind => "employee or intern",
         _ => "signature",
     };
 
@@ -115,6 +116,8 @@ public sealed partial class Session
     public string First { get; private set; } = "";
     public string Middle { get; private set; } = "";
     public string Suffix { get; private set; } = "";
+    /// <summary>Who the ID is for: PersonKind.Employee, PersonKind.Intern, or "" until it is chosen.</summary>
+    public string Kind { get; private set; } = "";
     public RoleChoice Role1 { get; } = new();
     public RoleChoice Role2 { get; } = new();
     public bool ShowRole2 { get; private set; }
@@ -192,6 +195,8 @@ public sealed partial class Session
             [Field.Suffix] = suffix.Length > 0 && !SuffixChars().IsMatch(suffix) ? "Use something like Jr., Sr., II or III." : "",
             [Field.NameFit] = last.Length > 0 && first.Length > 0 && layout is { Name.Fits: false }
                 ? "This name is too long for the card, even at the smallest size. Try a shorter first name." : "",
+            // never guessed: the attendance system takes interns, and only interns, from this
+            [Field.Kind] = Kind.Length == 0 ? "Choose whether this ID is for an employee or an intern." : "",
             [Field.Title] = Role1.Pick.Length == 0 ? "Choose the job title."
                 : Role1.IsOther && Role1.Value.Length == 0 ? "Type the job title."
                 : Role1.IsOther && !TitleChars().IsMatch(Role1.Value) ? badTitle
@@ -451,6 +456,9 @@ public sealed partial class Session
         return tidy;
     }
 
+    /// <summary>Say who the ID is for. Anything but employee or intern clears the choice.</summary>
+    public void PickKind(string kind) { Example = false; Touched.Add(Field.Kind); Kind = PersonKind.Parse(kind); }
+
     public void PickRole1(string pick)
     {
         Example = false;
@@ -588,6 +596,7 @@ public sealed partial class Session
             Title = Naming.CollapseSpaces(data.Title), Role1 = Role1Value, Role2 = Role2Value,
             IssuedAt = _now().ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
             Replacement = Duplicate() is not null,
+            Kind = Kind,
         };
     }
 
@@ -644,6 +653,7 @@ public sealed partial class Session
     {
         CardSerial++;
         Last = First = Middle = Suffix = "";
+        Kind = "";
         Role1.Clear();
         Role2.Clear();
         ShowRole2 = false;
@@ -673,6 +683,7 @@ public sealed partial class Session
     {
         ClearCard();
         Last = "Aureo"; First = "Christopher Joseph"; Middle = "Villanueva"; Suffix = "";
+        Kind = PersonKind.Employee;
         Role1.Pick = "IT Associate";
         Seq = "122";
         Year = year;
