@@ -636,6 +636,22 @@ public class WindowTests
         return Color.FromRgb(px[2], px[1], px[0]);
     }
 
+    /// <summary>The colour most of an element is painted, on a grid of samples.
+    /// One fixed point can land on a heading; the background is what most of it shows.</summary>
+    private static Color MostOf(BitmapSource picture, FrameworkElement element, Window window)
+    {
+        var counts = new Dictionary<Color, int>();
+        for (var gx = 1; gx < 10; gx++)
+            for (var gy = 1; gy < 10; gy++)
+            {
+                var at = element.TranslatePoint(new Point(element.ActualWidth * gx / 10, element.ActualHeight * gy / 10), window);
+                // SAFETY: the point lies inside the element, which lies inside the window the picture was taken of
+                var c = PixelOf(picture, (int)at.X, (int)at.Y);
+                counts[c] = counts.GetValueOrDefault(c) + 1;
+            }
+        return counts.OrderByDescending(kv => kv.Value).First().Key;
+    }
+
     private static BitmapSource Snapshot(Window window)
     {
         var shot = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
@@ -672,8 +688,7 @@ public class WindowTests
             {
                 var shot = Snapshot(window);
                 ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-dark.png"));
-                var corner = window.FormPanel.TranslatePoint(new Point(40, 40), window);
-                Assert.Equal(Color.FromRgb(0x1C, 0x1B, 0x19), PixelOf(shot, (int)corner.X, (int)corner.Y));
+                Assert.Equal(Color.FromRgb(0x1C, 0x1B, 0x19), MostOf(shot, window.FormPanel, window));
                 var list = window.CmbFlip.TranslatePoint(new Point(window.CmbFlip.ActualWidth - 50, window.CmbFlip.ActualHeight / 2), window);
                 var listPixel = PixelOf(shot, (int)list.X, (int)list.Y);
                 Assert.True(listPixel.R < 60 && listPixel.G < 60, $"the drop-down list should be dark in dark mode, but is {listPixel}");
@@ -688,8 +703,7 @@ public class WindowTests
                 Assert.Equal(Color.FromRgb(0x8C, 0x87, 0x7B), ((SolidColorBrush)window.TxtLast.BorderBrush).Color);
                 var shot = Snapshot(window);
                 ImageFiles.SavePng(shot, Path.Combine(Files.ReportDirectory, "window-light.png"));
-                var corner = window.FormPanel.TranslatePoint(new Point(40, 40), window);
-                Assert.Equal(Colors.White, PixelOf(shot, (int)corner.X, (int)corner.Y));
+                Assert.Equal(Colors.White, MostOf(shot, window.FormPanel, window));
                 window.Close();
             });
         }
