@@ -55,7 +55,12 @@ normally; if you type all in small letters the app fixes the capitals when
 you leave the box. The line underneath shows exactly what will be printed
 on the card.
 
-**2. Job title** — pick from the list. If someone does two jobs, tick the
+**2. Employee or intern, and job title** — first choose who the ID is
+for: **An employee** or **An intern**. The app does not guess, and will
+not move on until you choose. The attendance system keeps interns only
+and takes new ones from this register, so get this one right.
+
+Then the job title — pick from the list. If someone does two jobs, tick the
 second role and pick that too; the card will say something like
 *IT/Admin Associate*. If the title you need is not listed, choose
 **Other…** and type it.

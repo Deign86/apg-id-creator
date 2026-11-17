@@ -246,6 +246,11 @@ public partial class MainWindow : Window
             NamePreview.Style = Theme.Style(fitError.Length > 0 ? "Text.Error" : "Text.Body");
             SetText(NamePreview, fitError.Length > 0 ? fitError : $"On the card: {(s.PrintedName.Length > 0 ? s.PrintedName : "—")}");
 
+            // who the ID is for
+            // SAFETY: CmbKind's items are the two ComboBoxItems in the markup, each with its kind as a string Tag.
+            CmbKind.SelectedItem = CmbKind.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.Kind);
+            FieldMessage(MsgKind, CmbKind, Shown(Field.Kind));
+
             // job title
             BuildTitleChips();
             SyncChips(TitleChips, s.Role1.Pick, null);
@@ -381,6 +386,7 @@ public partial class MainWindow : Window
         Field.Title or Field.TitleFit => TxtTitleCustom.IsVisible ? TxtTitleCustom : FirstChip(TitleChips),
         Field.Title2 => TxtTitle2Custom.IsVisible ? TxtTitle2Custom : FirstChip(Title2Chips),
         Field.Seq => TxtSeq, Field.Photo => BtnPhoto, Field.Signature => BtnSign,
+        Field.Kind => CmbKind,
         _ => null,
     };
 
@@ -392,7 +398,9 @@ public partial class MainWindow : Window
     private Control? LandingFor(int step) => step switch
     {
         0 => TxtLast,
-        1 => TitleChips.Children.OfType<RadioButton>().FirstOrDefault(c => c.IsChecked == true) ?? FirstChip(TitleChips),
+        // the step's first question until it is answered, then the job title
+        1 => _session.Kind.Length == 0 ? CmbKind
+            : TitleChips.Children.OfType<RadioButton>().FirstOrDefault(c => c.IsChecked == true) ?? FirstChip(TitleChips),
         2 => TxtSeq,
         3 => BtnPhoto,
         4 => BtnSign,
@@ -535,6 +543,14 @@ public partial class MainWindow : Window
             Show(chip, !hidden);
             chip.IsChecked = !hidden && value == selected;
         }
+    }
+
+    private void CmbKind_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        // SAFETY: CmbKind's items are the two ComboBoxItems in the markup, each with its kind as a string Tag.
+        if (_syncing || CmbKind.SelectedItem is not ComboBoxItem { Tag: string kind }) return;
+        _session.PickKind(kind);
+        Render();
     }
 
     private void TitleCustom_TextChanged(object sender, TextChangedEventArgs e) { if (_syncing) return; _session.TypeRole1(TxtTitleCustom.Text); Render(); }

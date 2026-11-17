@@ -627,6 +627,16 @@ public class WindowTests
             Assert.Equal(1, window.Session.StepIndex);
             Assert.Equal(Visibility.Collapsed, window.Blocked.Visibility);
 
+            // the step first asks who the ID is for, and does not move on without an answer
+            Click(window.BtnNext);
+            Assert.Equal(1, window.Session.StepIndex);
+            Assert.Contains("employee or an intern", window.Blocked.Text);
+            Assert.Null(window.CmbKind.SelectedItem);
+            window.CmbKind.SelectedIndex = 1;
+            Assert.Equal(PersonKind.Intern, window.Session.Kind);
+            window.CmbKind.SelectedIndex = 0;
+            Assert.Equal(PersonKind.Employee, window.Session.Kind);
+
             // the job-title chips, then the number
             var chip = window.TitleChips.Children.OfType<RadioButton>().First(c => (string)c.Content == "HR Associate");
             chip.IsChecked = true;
@@ -710,6 +720,7 @@ public class WindowTests
             window.Session.NewId();
             window.TxtLast.Text = "Reyes";
             window.TxtFirst.Text = "Ana";
+            window.Session.PickKind(PersonKind.Employee);
             window.Session.PickRole1("HR Associate");
             window.Session.SetSeq("7");
             window.Session.AcceptPhoto(new PhotoResult(new RgbaImage(8, 8), "p.png", PhotoBackground.Transparent,

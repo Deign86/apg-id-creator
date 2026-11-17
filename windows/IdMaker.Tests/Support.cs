@@ -141,6 +141,7 @@ internal static class Make
     {
         s.SetNamePart(Field.Last, "Reyes");
         s.SetNamePart(Field.First, "Ana");
+        s.PickKind(PersonKind.Employee);
         s.PickRole1("HR Associate");
         s.SetSeq(seq);
         s.AcceptPhoto(Photo());

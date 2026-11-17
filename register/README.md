@@ -49,9 +49,14 @@ keystone/apg/idreg/APG-2026-124/replacements/20261201T020000000Z
 | `last`, `first`, `middle`, `suffix`, `role1`, `role2` | as typed |
 | `issuedAt` | when the PDF was saved, ISO 8601, UTC |
 | `replacement` | whether it was issued as a replacement card |
+| `kind` | `intern` or `employee`: who the card is for. Left out on cards issued before the form asked (v2.0.3 and earlier) |
 | `by`, `byEmail` | the account that issued it |
 
 **No photograph and no signature.** Neither ever leaves the computer.
+
+`kind` is for the attendance system, which keeps interns only: it is how
+a new intern can be added there from the register (not built yet, as of
+v2.0.4). The form asks it of every card and never guesses.
 
 On the computer, in `%LOCALAPPDATA%\Alpha Premier\ID Maker\`:
 

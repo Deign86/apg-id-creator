@@ -52,7 +52,7 @@ public enum MiddleNameStyle { Initial, Full, None }
 public static class CardConfig
 {
     public const string AppName = "Alpha Premier ID Maker";
-    public const string AppVersion = "2.0.3";          // stamped into every PDF's metadata
+    public const string AppVersion = "2.0.4";          // stamped into every PDF's metadata
 
     // CR80 (ISO/IEC 7810 ID-1): 85.60 x 53.98 mm
     public const double CardWidthMm = 54;

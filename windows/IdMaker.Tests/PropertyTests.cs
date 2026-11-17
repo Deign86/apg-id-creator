@@ -35,6 +35,7 @@ public class PropertyTests
         Last = Text(r, 20), First = Text(r, 20), Middle = Text(r, 10), Suffix = Text(r, 5), Role1 = Text(r, 30), Role2 = Text(r, 30),
         IssuedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(r.Next(30_000_000)).AddMilliseconds(r.Next(1000)).ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
         Replacement = r.Next(4) == 0,
+        Kind = r.Next(3) switch { 0 => PersonKind.Intern, 1 => PersonKind.Employee, _ => "" },
     };
 
     [Fact]
