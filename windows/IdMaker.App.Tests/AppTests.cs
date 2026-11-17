@@ -645,10 +645,13 @@ public class WindowTests
             for (var gy = 1; gy < 10; gy++)
             {
                 var at = element.TranslatePoint(new Point(element.ActualWidth * gx / 10, element.ActualHeight * gy / 10), window);
-                // SAFETY: the point lies inside the element, which lies inside the window the picture was taken of
+                // a panel that scrolls reaches past the window: count only what is on screen
+                if (at.X < 0 || at.Y < 0 || at.X >= picture.PixelWidth || at.Y >= picture.PixelHeight) continue;
+                // SAFETY: the point was just checked to lie inside the picture
                 var c = PixelOf(picture, (int)at.X, (int)at.Y);
                 counts[c] = counts.GetValueOrDefault(c) + 1;
             }
+        Assert.True(counts.Values.Sum() >= 20, $"only {counts.Values.Sum()} of 81 sample points were on screen");
         return counts.OrderByDescending(kv => kv.Value).First().Key;
     }
 
