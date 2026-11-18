@@ -166,9 +166,8 @@ public sealed partial class Session
         SeqDigits().IsMatch(Seq) && int.Parse(Seq, CultureInfo.InvariantCulture) > 0 ? int.Parse(Seq, CultureInfo.InvariantCulture) : null;
 
     public NameParts NameParts => new(Last, First, Middle, Suffix);
-    public string Role1Value => Role1.Value;
     public string Role2Value => ShowRole2 ? Role2.Value : "";
-    public string JobTitle => Naming.ComposeTitle(Role1Value, Role2Value);
+    public string JobTitle => Naming.ComposeTitle(Role1.Value, Role2Value);
     public string PrintedName => Naming.ComposeName(NameParts);
 
     public CardData CardData() => new(
@@ -593,7 +592,7 @@ public sealed partial class Session
             Name = Naming.CollapseSpaces(data.Name),
             Last = Naming.CollapseSpaces(Last), First = Naming.CollapseSpaces(First),
             Middle = Naming.CollapseSpaces(Middle), Suffix = Naming.CollapseSpaces(Suffix),
-            Title = Naming.CollapseSpaces(data.Title), Role1 = Role1Value, Role2 = Role2Value,
+            Title = Naming.CollapseSpaces(data.Title), Role1 = Role1.Value, Role2 = Role2Value,
             IssuedAt = _now().ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
             Replacement = Duplicate() is not null,
             Kind = Kind,
@@ -799,7 +798,7 @@ public sealed partial class Session
     public IReadOnlyList<RegisterEntry> MarkIssued()
     {
         if (Example) return Array.Empty<RegisterEntry>();
-        if (Role1.IsOther) _titles.Remember(Role1Value);
+        if (Role1.IsOther) _titles.Remember(Role1.Value);
         if (ShowRole2 && Role2.IsOther) _titles.Remember(Role2Value);
         var issued = JobCards().Select(c => c.Entry).ToList();
         foreach (var e in issued) { _register.Record(e); _register.NoteShared(e); }
