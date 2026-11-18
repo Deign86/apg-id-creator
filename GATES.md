@@ -119,7 +119,7 @@ Scope: the ID Maker as a native Mac program (C# on AppKit, no web view) that sha
 
 - [x] M8: A release attaches a `.dmg` for Apple Silicon and Intel beside the Windows setup program, built with the register's project from the same secrets, and the app in it starts.
   CHECK: `mac/package.sh osx-arm64 AppleSilicon` and `mac/package.sh osx-x64 Intel` (the Mac app workflow's job `package`; the Release workflow's job `mac` adds `--needs-register`)
-  EVIDENCE: on macos-26 (run 44229876311, job package) both images were built, opened, and the app inside each passed its self-test and started ("The window opened and the card loaded."), the Intel one under Rosetta. Pending until this is merged: the release itself with both images attached and the register's project built in.
+  EVIDENCE: on macos-26 (run 44229876311, job package) both images were built, opened, and the app inside each passed its self-test and started ("The window opened and the card loaded."), the Intel one under Rosetta. Released: Release workflow run 44232710609, job mac, built both with `--needs-register` ("this build was given the register's project" passed for each), started each, and attached `AlphaPremierIdMaker-Mac-AppleSilicon-v2.0.4.dmg` and `AlphaPremierIdMaker-Mac-Intel-v2.0.4.dmg` to v2.0.4. Not shown: the app opened by a person on a Mac from a downloaded image, where macOS asks for Open Anyway.
 
 - [x] M9: The Mac window does what the Windows window does: batch from a list, the card design (map, artwork, reset), dragging the photo, dropping a picture, a sideways phone photo stood upright.
   CHECK: `AlphaPremierIdMaker --windowtest --repo <repository>`
