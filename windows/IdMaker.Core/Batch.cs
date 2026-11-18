@@ -234,6 +234,6 @@ public static partial class Batch
     {
         var stamp = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         return (sheets ? $"apg-id-sheets-{stamp}.pdf" : $"apg-id-batch-{stamp}.pdf",
-                $"Alpha Premier IDs — {cards} card{(cards == 1 ? "" : "s")} — {stamp}");
+                $"Alpha Premier IDs — {cards} card{Words.S(cards)} — {stamp}");
     }
 }

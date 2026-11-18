@@ -838,7 +838,7 @@ public sealed partial class Session
         if (plan is null) return "2 pages";
         var sheets = (int)Math.Ceiling(cards * PrintCopies(plan) / (double)plan.PerSheet);
         var pages = plan.Mode == SheetMode.Pairs ? sheets : sheets * 2;
-        return $"{pages} page{(pages == 1 ? "" : "s")} of {Paper}";
+        return $"{pages} page{Words.S(pages)} of {Paper}";
     }
 
     /// <summary>

@@ -124,6 +124,21 @@ public class WireFormatTests
         Assert.Equal(JuanFields.Replace("2026-11-17T01:30:00.000Z", stamp), firebase.Docs["APG-2026-124"].ToJsonString());
     }
 
+    [Theory]
+    [InlineData("intern", "intern")]
+    [InlineData("Intern", "intern")]
+    [InlineData(" EMPLOYEE ", "employee")]
+    [InlineData("volunteer", "")]
+    [InlineData("", "")]
+    public void What_is_sent_for_a_kind_is_what_would_be_read_back(string kept, string sent)
+    {
+        var kind = RegisterFields.Named("kind");
+        Assert.True(kind.OnlyWhenKnown);
+        Assert.Equal(sent, kind.Sent(Juan with { Kind = kept }));
+        // every other text field is sent as it is kept
+        Assert.All(RegisterFields.All.Where(f => f.Kind == RegisterFieldKind.Text && !f.OnlyWhenKnown), f => Assert.Equal(f.TextOf(Juan), f.Sent(Juan)));
+    }
+
     [Fact]
     public void The_saved_list_has_the_columns_it_always_had_and_every_field_is_one_of_them()
     {

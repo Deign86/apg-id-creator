@@ -40,6 +40,9 @@ public static class Words
     /// <summary>"" for one, "s" for any other count: "1 card", "2 cards".</summary>
     public static string S(int count) => count == 1 ? "" : "s";
 
+    /// <summary>The verb that goes with it: "1 card is", "2 cards are".</summary>
+    public static string IsAre(int count) => count == 1 ? "is" : "are";
+
     /// <summary>What the system said went wrong, in brackets, ready to sit inside a sentence.</summary>
     public static string Why(Exception e) => $"({e.Message.TrimEnd('.')})";
 }
@@ -426,10 +429,10 @@ public sealed record Screen(
             // who is signed in to the shared register on this computer
             Account: !shared ? "This copy of the app keeps its own list only."
                 : signedIn ? $"Signed in as {register.SignedInAs}."
-                    + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} still waiting to be written to it." : "")
+                    + (waiting > 0 ? $" {waiting} card{Words.S(waiting)} {Words.IsAre(waiting)} still waiting to be written to it." : "")
                 : (register.SignInProblem.Length > 0 ? register.SignInProblem + " " : "")
                     + "Sign in with your Keystone account, once on this computer, so numbers are checked against every computer."
-                    + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} waiting to be written to it." : ""),
+                    + (waiting > 0 ? $" {waiting} card{Words.S(waiting)} {Words.IsAre(waiting)} waiting to be written to it." : ""),
             SignInShown: shared && !signedIn,
             SignedInShown: shared && signedIn,
             // what the register has refused: duplicates that must not be handed out
@@ -462,7 +465,7 @@ public sealed record Screen(
     /// about, not merely the first thing in it. Landing on the year box when
     /// the step is about the number sent the typing to the wrong field.
     /// </summary>
-    public static FocusTarget LandingFor(Session s, int step, bool saved) => step switch
+    public static FocusTarget LandingFor(Session s, int step) => step switch
     {
         (int)Step.Name => FocusTarget.Last,
         // the step's first question until it is answered, then the job title
@@ -470,7 +473,9 @@ public sealed record Screen(
         (int)Step.Number => FocusTarget.Seq,
         (int)Step.Photo => FocusTarget.PhotoButton,
         (int)Step.Sign => FocusTarget.SignButton,
-        _ => saved ? FocusTarget.NewIdButton : FocusTarget.SaveButton,
+        // Never "Start a new ID": arriving at a step is a move to another step, and that
+        // forgets the save (AfterMove). The window sends the cursor there itself, after a save.
+        _ => FocusTarget.SaveButton,
     };
 
     /// <summary>
@@ -487,7 +492,7 @@ public sealed record Screen(
         // a different step is a different piece of work: what was saved is behind us
         var stillSaved = saved && !changed;
         var focus = result?.FocusField is { } field ? FocusFor(s, field)
-            : changed ? LandingFor(s, s.StepIndex, stillSaved)
+            : changed ? LandingFor(s, s.StepIndex)
             : null;
         return new MoveEffects(
             StepChanged: changed,

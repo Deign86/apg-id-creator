@@ -45,6 +45,24 @@ public class PhotoTests
     }
 
     [Fact]
+    public void A_head_too_small_to_show_a_face_is_refused_and_a_merely_small_one_is_warned_about()
+    {
+        // two limits on the width of the head, in the photo's own pixels: under 40 the photo cannot be used,
+        // under the card's 180 (PhotoSpec.MinHeadPx) it can, with a word about sharpness
+        var tiny = PhotoPipeline.Analyse(Make.Silhouette(120, 200, headTop: 12, headW: 30, headH: 40, neckW: 14, neckH: 8, bodyW: 100), "tiny.png", Spec).Check;
+        Assert.False(tiny.Ok);
+        Assert.Equal("This photo is too small to show the face. Please use a larger photo.", tiny.Problem);
+
+        var small = PhotoPipeline.Analyse(Make.Silhouette(300, 500, headTop: 30, headW: 100, headH: 130, neckW: 45, neckH: 20, bodyW: 260), "small.png", Spec).Check;
+        Assert.True(small.Ok, small.Problem);
+        Assert.InRange(small.Head!.Width, 40, Spec.MinHeadPx);
+        Assert.Contains(small.Warnings, w => w.StartsWith("This is a small photo, so the face may print slightly soft.", StringComparison.Ordinal));
+
+        var big = PhotoPipeline.Analyse(Make.Silhouette(600, 1000, headTop: 60, headW: 200, headH: 260, neckW: 90, neckH: 40, bodyW: 520), "big.png", Spec).Check;
+        Assert.DoesNotContain(big.Warnings, w => w.Contains("small photo", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_tuft_of_hair_standing_up_does_not_end_the_head_early()
     {
         // A narrow spike above the hair, with a dip before the head proper:

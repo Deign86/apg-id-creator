@@ -642,6 +642,34 @@ public class ScreenTests
     }
 
     [Fact]
+    public async Task The_issued_ids_drawer_counts_the_waiting_cards_in_words()
+    {
+        var firebase = new FakeFirebase();
+        var store = new MemoryStore();
+        var register = Make.SharedRegister(firebase, store);
+        var s = Make.Session(register, store);
+        string Account() => Must(Screen.From(s, Windows with { Tool = ToolKey.Register }).Register).Account;
+        RegisterEntry Card(int seq) => new() { Id = $"APG-2026-{seq}", Year = 2026, Seq = seq, Name = "Ana Reyes", IssuedAt = "2026-11-17T01:30:00.000Z" };
+
+        // nobody signed in
+        await register.RecordShared(Card(124));
+        Assert.EndsWith("every computer. 1 card is waiting to be written to it.", Account());
+        await register.RecordShared(Card(125));
+        Assert.EndsWith("every computer. 2 cards are waiting to be written to it.", Account());
+
+        // signed in on another computer, and the register out of reach
+        var elsewhere = new FakeFirebase();
+        var signedIn = await Make.SignedIn(elsewhere);
+        var t = Make.Session(signedIn);
+        string AccountThere() => Must(Screen.From(t, Mac with { Tool = ToolKey.Register }).Register).Account;
+        elsewhere.Offline = true;
+        await signedIn.RecordShared(Card(126));
+        Assert.Equal($"Signed in as {FakeFirebase.Email}. 1 card is still waiting to be written to it.", AccountThere());
+        await signedIn.RecordShared(Card(127));
+        Assert.Equal($"Signed in as {FakeFirebase.Email}. 2 cards are still waiting to be written to it.", AccountThere());
+    }
+
+    [Fact]
     public void A_refused_move_sends_the_cursor_to_what_is_wrong()
     {
         var s = Make.Session();
@@ -678,13 +706,23 @@ public class ScreenTests
         // the step's first question until it is answered, then the job title
         Assert.Equal(FocusTarget.Kind, title.Focus);
         s.PickKind(PersonKind.Intern);
-        Assert.Equal(FocusTarget.TitlePicked, Screen.LandingFor(s, (int)Step.Title, saved: false));
-        Assert.Equal(FocusTarget.Last, Screen.LandingFor(s, (int)Step.Name, saved: false));
-        Assert.Equal(FocusTarget.Seq, Screen.LandingFor(s, (int)Step.Number, saved: false));
-        Assert.Equal(FocusTarget.PhotoButton, Screen.LandingFor(s, (int)Step.Photo, saved: false));
-        Assert.Equal(FocusTarget.SignButton, Screen.LandingFor(s, (int)Step.Sign, saved: false));
-        Assert.Equal(FocusTarget.SaveButton, Screen.LandingFor(s, Session.LastStep, saved: false));
-        Assert.Equal(FocusTarget.NewIdButton, Screen.LandingFor(s, Session.LastStep, saved: true));
+        Assert.Equal(FocusTarget.TitlePicked, Screen.LandingFor(s, (int)Step.Title));
+        Assert.Equal(FocusTarget.Last, Screen.LandingFor(s, (int)Step.Name));
+        Assert.Equal(FocusTarget.Seq, Screen.LandingFor(s, (int)Step.Number));
+        Assert.Equal(FocusTarget.PhotoButton, Screen.LandingFor(s, (int)Step.Photo));
+        Assert.Equal(FocusTarget.SignButton, Screen.LandingFor(s, (int)Step.Sign));
+        Assert.Equal(FocusTarget.SaveButton, Screen.LandingFor(s, Session.LastStep));
+
+        // arriving anywhere forgets the save, so no arrival lands on "Start a new ID", saved or not
+        Make.FillForm(s);
+        s.GoStep(Session.LastStep);
+        var arrived = Screen.AfterMove(s, (int)Step.Sign, null, saved: true, openSigningOnArrival: true);
+        Assert.False(arrived.Saved);
+        Assert.Equal(FocusTarget.SaveButton, arrived.Focus);
+        // and staying on the saved print moves nothing
+        var stayed = Screen.AfterMove(s, Session.LastStep, null, saved: true, openSigningOnArrival: true);
+        Assert.True(stayed.Saved);
+        Assert.Null(stayed.Focus);
 
         // a move that goes nowhere leaves the cursor alone
         Assert.Null(Screen.AfterMove(s, s.StepIndex, null, saved: false, openSigningOnArrival: true).Focus);
