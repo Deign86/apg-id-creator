@@ -176,11 +176,34 @@ Each commit's `Verified:` line says which of these it had.
 
 ## Round 2 fixes
 
-(appended as the work is done)
+### 1. The screen model (root fix 1)
+
+- `17065c7` Core: `Screen.From(session, input)` in `windows/IdMaker.Core/Screen.cs`, with `ScreenTests` (29 tests, no window).
+  - H1 the line under the number; H2 "Still needed"; H3 the step chips; H4 "an error shows once its field was touched" and its three exceptions; H5 the photo step's ladder; H6 the stage captions and the sheet caption (`Session.SheetPreview`); H7 Back / Next; H8 where the cursor goes (`Screen.AfterMove`, `FocusFor`, `LandingFor`); H9 the check step; H10 the copies ceiling (`Session.MostCopies`, one constant, was written four times); H11 the "In this print" strip; H12 the Issued IDs drawer; H19 the batch chooser lines and layout line; H21 a batch row's report; H23 the contrast sentence; H25 which tool is open and its title; H27 the summary (one null check, not `!` in one window and a check in the other); H28 `Session.SecondRoleHides`; H29 the signature step; H68 `Words.S` / `Words.Why` for new Core code.
+  - N8: the windows no longer step `PreviewPage` blind; `TurnPreviewPage` and `SheetPreview` own the range. N10: `AfterMove(from)` takes no made-up `MoveResult`.
+- `bc47598` The platform flag is named `HostPlatform` (Apple's bindings have had a `Platform` of their own).
+- `2f8127f` The Windows window reads the model. `a703ea5` The Mac window reads the model.
+  - What each window still holds: which control is which (`ControlFor`), how a tone or a chip is painted, pictures, and the state Core cannot know (`ScreenState()`).
+
+Left from root fix 1: H30 (strings fixed in XAML and typed again in the Mac window's constructor: 77 pairs) and H67 (steps addressed by number in XAML tags and the Mac's `_steps[n]`). Both are markup-against-code and need the scanning test or a shared string table; neither is a rule. `Session.Touched` is still public (N7): tests read it. `PreviewPage`'s setter is still public: tests may set it.
 
 ## Differences preserved, for the owner to unify
 
-(appended as they are met)
+Each is kept exactly as it was on `main`; where Core now makes the choice it is by `HostPlatform`.
+
+1. Issued IDs listed in the drawer: Windows 25, Mac 12 (`Screen.IssuedListed`).
+2. The batch tool's name: "Batch from CSV" on Windows (button and drawer title), "Batch from a list" on the Mac (`Screen.ToolTitle`).
+3. The note when no tablet driver is found: Windows "…sign with the mouse or use a scan. The installer can add the XP-Pen driver."; Mac "…sign with the mouse or trackpad, or use a scan. The app can install the XP-Pen driver." (`Screen.From`, `SignView.TabletNote`). The second half is true of each platform, so only the first half is a candidate to unify.
+4. A row of the Issued IDs list: Windows puts the date at the right of the number; the Mac writes "number · date" in one label. Core gives the pieces (`IssuedRow.Head`, `.When`, `.Detail`).
+5. Removing a remembered job title: Windows by right-clicking its chip; the Mac by a button under the list for the title that is picked (`TitleView.ForgetShown`, read by the Mac only).
+6. Where the cursor lands on the job-title step: Windows on the chip that is ticked (or the first); the Mac on the list. Core says `TitlePicked` / `TitleChoice`; the Mac maps both to its one list.
+7. After a move to another step Windows scrolls the form to the top; the Mac's form does not scroll.
+8. "Saved … as pictures. The card is not issued until you save the PDF.": on Windows it is replaced at the next redraw; on the Mac it stays until "Start a new ID".
+9. The stage: Windows has a card view and a sheet view; the Mac shows both in one picture, and draws a grey hairline round the sheet (`PaperEdge`). The sheet is drawn 120 ms after the last change on Windows, at once on the Mac (X11).
+10. Messages that are empty: the Mac hides the label (photo message, caption, register message); Windows leaves an empty line of the same height.
+11. The photo button and the Sign button are drawn "strong" until there is a photo / signature on Windows only (the Mac has one button style).
+12. The mouse cursor over the card (four arrows when the photo can be dragged) is Windows only, and its rule does not look at the step as `CanDragPhoto` does; the card is hidden on the last step, so the two never disagree on screen. Left as written.
+13. `Screen.LandingFor` keeps the branch "saved → Start a new ID button" although no move can reach it (a move to another step always forgets the save first). Both windows had it; kept, not pruned.
 
 ## Calls made without the owner
 
