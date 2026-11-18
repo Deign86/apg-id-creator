@@ -81,6 +81,11 @@ public sealed partial class Session
     /// <summary>Would this whole name print? Shared with the batch reader.</summary>
     public static bool NamePrints(string name) => NameChars().IsMatch(name);
 
+    // The three print settings kept between runs: the key each is stored under and the values it takes.
+    private const string RotateBackKey = "rotate-back", On = "1", Off = "0";
+    private const string FlipKey = "duplex-flip", FlipShort = "short", FlipLong = "long";
+    private const string LayoutKey = "print-layout", LayoutDuplex = "duplex", LayoutPairs = "pairs";
+
     private readonly Register _register;
     private readonly TitleList _titles;
     private readonly IKeyValueStore _settings;
@@ -97,9 +102,9 @@ public sealed partial class Session
         _now = now ?? (() => DateTime.Now);
         _post = post ?? (a => a());
         Year = _now().Year;
-        RotateBack = settings.Get("rotate-back") == "1";
-        Flip = settings.Get("duplex-flip") == "short" ? DuplexFlip.ShortEdge : DuplexFlip.LongEdge;
-        Layout = settings.Get("print-layout") == "duplex" ? SheetMode.Duplex : SheetMode.Pairs;
+        RotateBack = settings.Get(RotateBackKey) == On;
+        Flip = settings.Get(FlipKey) == FlipShort ? DuplexFlip.ShortEdge : DuplexFlip.LongEdge;
+        Layout = settings.Get(LayoutKey) == LayoutDuplex ? SheetMode.Duplex : SheetMode.Pairs;
     }
 
     /// <summary>Raised whenever anything the window shows may have changed without the window asking.</summary>
@@ -737,11 +742,11 @@ public sealed partial class Session
         Layout = mode;
         PreviewPage = 0;
         Copies = null;                      // the two layouts hold different numbers
-        _settings.Set("print-layout", mode == SheetMode.Duplex ? "duplex" : "pairs");
+        _settings.Set(LayoutKey, mode == SheetMode.Duplex ? LayoutDuplex : LayoutPairs);
     }
 
-    public void SetRotateBack(bool on) { RotateBack = on; _settings.Set("rotate-back", on ? "1" : "0"); }
-    public void SetFlip(DuplexFlip flip) { Flip = flip; _settings.Set("duplex-flip", flip == DuplexFlip.ShortEdge ? "short" : "long"); }
+    public void SetRotateBack(bool on) { RotateBack = on; _settings.Set(RotateBackKey, on ? On : Off); }
+    public void SetFlip(DuplexFlip flip) { Flip = flip; _settings.Set(FlipKey, flip == DuplexFlip.ShortEdge ? FlipShort : FlipLong); }
 
     /// <summary>
     /// Which way up the backs are drawn. A short-edge turn lands the back of
