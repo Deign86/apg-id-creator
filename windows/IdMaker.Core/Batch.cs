@@ -46,6 +46,12 @@ public sealed record BatchOutcome(IReadOnlyList<BatchRowResult> Results, string 
 
 public static partial class Batch
 {
+    // The three ways a batch can be laid out, by the word each window keeps the choice under.
+    // The Windows markup carries the same words as the tags of its list.
+    public const string LayoutDuplex = "duplex";
+    public const string LayoutPairs = "pairs";
+    public const string LayoutCards = "cards";
+
     public const int MaxRows = 200;
 
     public const string CsvTemplate =
@@ -54,7 +60,6 @@ public static partial class Batch
         + "Reyes,Ana,Santos,,\"HR Associate\",\"Admin Associate\",123,2026,reyes.png,,,employee\r\n"
         + "\"dela Cruz\",Juan,Santos,Jr.,\"Marketing Associate\",,124,2026,cruz.png,,,intern\r\n";
 
-    [GeneratedRegex(@"^\d{1,4}$")] private static partial Regex SeqDigits();
     [GeneratedRegex(@"^\d{4}$")] private static partial Regex YearDigits();
     [GeneratedRegex(@"^(yes|y|true|1)$", RegexOptions.IgnoreCase)] private static partial Regex Yes();
 
@@ -150,7 +155,7 @@ public static partial class Batch
         if (kind.Length == 0) return Fail($"“{kindText}” is neither “intern” nor “employee”.");
 
         var seqText = Col(row, "seq");
-        if (!SeqDigits().IsMatch(seqText) || int.Parse(seqText, CultureInfo.InvariantCulture) <= 0)
+        if (!Session.IsSeqText(seqText) || int.Parse(seqText, CultureInfo.InvariantCulture) <= 0)
             return Fail($"“{seqText}” is not an employee number (1–4 digits).");
         var seq = int.Parse(seqText, CultureInfo.InvariantCulture);
         var year = YearDigits().IsMatch(Col(row, "year")) ? int.Parse(Col(row, "year"), CultureInfo.InvariantCulture) : s.Now().Year;

@@ -33,9 +33,13 @@ public sealed class FileStore : IKeyValueStore
 
     public string Directory => _dir;
 
+    // The app's folder inside the user's application data: the same two names on Windows and on the Mac.
+    public const string CompanyFolder = "Alpha Premier";
+    public const string AppFolder = "ID Maker";
+
     /// <summary>The per-user folder the installed app uses.</summary>
     public static string DefaultDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Alpha Premier", "ID Maker");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), CompanyFolder, AppFolder);
 
     private string PathOf(string key)
     {

@@ -146,8 +146,6 @@ public sealed class MacCardRenderer
 
     public MacCardRenderer(MacTextMeasurer measurer) { _measurer = measurer; }
 
-    public ITextMeasurer Measurer => _measurer;
-
     private static nfloat F(double value) => MacPictures.F(value);
 
     private static CGColor Solid(string hex)

@@ -111,8 +111,8 @@ internal static class SelfTest
     {
         var lines = new List<(string, bool)>();
         var renderer = new MacCardRenderer(MacTextMeasurer.Load(Path.Combine(repo, "windows", "IdMaker.App", "Fonts")));
-        var frontArt = MacPictures.Load(Path.Combine(repo, "assets", "front-template.png"));
-        var backArt = MacPictures.Load(Path.Combine(repo, "assets", "back.png"));
+        var frontArt = MacPictures.Load(Path.Combine(repo, "assets", CardConfig.FrontArtFile));
+        var backArt = MacPictures.Load(Path.Combine(repo, "assets", CardConfig.BackArtFile));
         var (cutOut, error) = MacPictures.Decode(Path.Combine(repo, "assets", "example-cut-out.png"));
         var goldenFile = MacPictures.Load(Path.Combine(repo, "test", "golden-front.png"));
         if (frontArt is null || backArt is null || cutOut is null || goldenFile is null)

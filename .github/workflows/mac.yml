@@ -27,17 +27,24 @@ concurrency:
   group: mac-${{ github.ref }}
   cancel-in-progress: true
 
+# Set for every job in this file.
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  # The Mac workload is tied to one Xcode. mac/workloads.json pins the
+  # one that builds with the Xcode the runner has; move both together.
+  MAC_XCODE: '/Applications/Xcode_26.6.app'
+  # The SDK band that workload belongs to; mac/global.json holds the same band.
+  MAC_DOTNET_SDK: '10.0.4xx'
+
 jobs:
   test:
     name: Mac tests
     runs-on: macos-26
     timeout-minutes: 30
     env:
-      DOTNET_NOLOGO: 'true'
-      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
-      # The Mac workload is tied to one Xcode. mac/workloads.json pins the
-      # one that builds with the Xcode the runner has; move both together.
-      MAC_XCODE: '/Applications/Xcode_26.6.app'
+      # where the self-test and the window tests leave the card and the screenshots they made
+      IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
     # Every dotnet command runs in mac/, where global.json keeps the SDK on
     # the 10.0.4xx band the pinned workload belongs to, whatever newer SDK
     # the runner also has.
@@ -48,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.4xx
+          dotnet-version: ${{ env.MAC_DOTNET_SDK }}
       - name: Workload and Xcode
         run: |
           sudo xcode-select -s "$MAC_XCODE"
@@ -57,20 +64,14 @@ jobs:
           dotnet workload list
       - name: Core tests, on a Mac
         run: dotnet test ../windows/IdMaker.Tests -c Release
-      - name: Build, as it is released
-        run: dotnet build IdMaker.Mac -c Release -r osx-arm64
       - name: Build, with the window tests in it
         run: dotnet build IdMaker.Mac -c Release -r osx-arm64 -p:WindowTest=true
       - name: Self-test
-        env:
-          IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
         run: |
           app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -path '*osx-arm64*' -name '*.app' | head -1)
           echo "$app"; ls "$app/Contents/MacOS" "$app/Contents/Resources"
           "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest --repo "$GITHUB_WORKSPACE"
       - name: Window tests
-        env:
-          IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
         run: |
           app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -path '*osx-arm64*' -name '*.app' | head -1)
           "$app/Contents/MacOS/AlphaPremierIdMaker" --windowtest --repo "$GITHUB_WORKSPACE"
@@ -102,10 +103,6 @@ jobs:
     name: Mac package
     runs-on: macos-26
     timeout-minutes: 30
-    env:
-      DOTNET_NOLOGO: 'true'
-      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
-      MAC_XCODE: '/Applications/Xcode_26.6.app'
     defaults:
       run:
         working-directory: mac
@@ -113,7 +110,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.4xx
+          dotnet-version: ${{ env.MAC_DOTNET_SDK }}
       - name: Workload and Xcode
         run: |
           sudo xcode-select -s "$MAC_XCODE"

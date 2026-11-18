@@ -72,9 +72,6 @@ public static class PersonKind
         Intern => Intern,
         _ => "",
     };
-
-    /// <summary>"Employee" or "Intern", for a sentence or a list.</summary>
-    public static string Label(string kind) => kind == Intern ? "Intern" : kind == Employee ? "Employee" : "";
 }
 
 /// <summary>A failure the operator can act on: its message is shown as it is.</summary>
@@ -252,7 +249,6 @@ public sealed partial class Register
     /// <summary>Is there a shared register at all in this build?</summary>
     public bool Shared => Project is not null;
 
-    /// <summary>Is somebody signed in on this computer?</summary>
     public bool SignedIn => SignInState() is not null;
 
     /// <summary>The email signed in on this computer, or "".</summary>

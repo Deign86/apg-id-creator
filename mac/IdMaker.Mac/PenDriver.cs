@@ -38,7 +38,6 @@ internal static class PenDriver
             || lower.Contains("wacom") || lower.Contains("huion");
     }
 
-    /// <summary>Is a pen tablet driver installed on this Mac?</summary>
     public static bool Installed => InstalledUnder("/Applications");
 
     internal static bool InstalledUnder(string applications)

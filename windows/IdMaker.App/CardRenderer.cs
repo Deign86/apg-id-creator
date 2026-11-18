@@ -147,8 +147,6 @@ public sealed class CardRenderer
 
     public CardRenderer(WpfTextMeasurer measurer) { _measurer = measurer; }
 
-    public ITextMeasurer Measurer => _measurer;
-
     /* ---- pixels in and out ---------------------------------------- */
 
     /// <summary>Straight RGBA to the premultiplied BGRA Windows draws with.</summary>

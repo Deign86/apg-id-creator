@@ -116,7 +116,7 @@ public partial class MainWindow : Window
 
     private static string BesideProgram(params string[] parts) => Path.Combine(new[] { AppContext.BaseDirectory }.Concat(parts).ToArray());
 
-    private string StoredArtwork(string side) => Path.Combine(_files.Directory, $"template-{side}.png");
+    private string StoredArtwork(string side) => Path.Combine(_files.Directory, TemplateStore.ArtworkFileName(side));
 
     private void Boot()
     {
@@ -124,8 +124,8 @@ public partial class MainWindow : Window
         {
             var measurer = WpfTextMeasurer.Load(BesideProgram("Fonts"));
             _renderer = new CardRenderer(measurer);
-            _builtInArt = new CardArt(ImageFiles.Load(BesideProgram("Assets", "front-template.png")), ImageFiles.Load(BesideProgram("Assets", "back.png")));
-            BrandLogo.Source = ImageFiles.Load(BesideProgram("Assets", "logo.png"));
+            _builtInArt = new CardArt(ImageFiles.Load(BesideProgram("Assets", CardConfig.FrontArtFile)), ImageFiles.Load(BesideProgram("Assets", CardConfig.BackArtFile)));
+            BrandLogo.Source = ImageFiles.Load(BesideProgram("Assets", CardConfig.LogoFile));
             _art = _builtInArt;
 
             // a design put in earlier is still the one in use
@@ -166,7 +166,7 @@ public partial class MainWindow : Window
             await _register.SendWaiting();
         }
         // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
-        if (_register.Refused.Count > 0) _tool = "register";
+        if (_register.Refused.Count > 0) _tool = ToolKey.Register;
         _session.RefreshDuplicate();
         Render();
     }
@@ -793,7 +793,7 @@ public partial class MainWindow : Window
         if (scan is not null && !ReferenceEquals(_scanShown, scan))
         {
             _scanShown = scan;
-            SigImage.Source = CardRenderer.TintedScan(scan, Color.FromRgb(0x1D, 0x1C, 0x1A));
+            SigImage.Source = CardRenderer.TintedScan(scan, SignaturePad.InkColor);
         }
         if (scan is null) { _scanShown = null; SigImage.Source = null; }
         if (!ReferenceEquals(_padShows, sig)) { _padShows = sig; SigPreview.Value = sig as DrawnSignature; }

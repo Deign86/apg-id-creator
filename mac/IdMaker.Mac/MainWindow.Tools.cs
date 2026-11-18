@@ -69,7 +69,7 @@ public sealed partial class MainWindow
             _btnBatch, _batchStatusLabel, _batchReport);
     }
 
-    private string BatchLayoutChoice => (int)_cmbBatchLayout.IndexOfSelectedItem switch { 1 => "pairs", 2 => "cards", _ => "duplex" };
+    private string BatchLayoutChoice => (int)_cmbBatchLayout.IndexOfSelectedItem switch { 1 => Batch.LayoutPairs, 2 => Batch.LayoutCards, _ => Batch.LayoutDuplex };
 
     private string BatchPaperChoice
     {
@@ -88,11 +88,11 @@ public sealed partial class MainWindow
         Ui.SetText(_sigsMsg, _batchSigs.Length > 0 ? $"{_batchSigs.Length} signature{(_batchSigs.Length == 1 ? "" : "s")} chosen." : "Photos or scans of signatures on white paper. Rows without one get a card with no signature.");
 
         var layout = BatchLayoutChoice;
-        Ui.Show(_batchPaperField, layout != "cards");
-        if (layout == "cards") Ui.SetText(_layoutMsg, "Two pages per person, each the size of the card.");
+        Ui.Show(_batchPaperField, layout != Batch.LayoutCards);
+        if (layout == Batch.LayoutCards) Ui.SetText(_layoutMsg, "Two pages per person, each the size of the card.");
         else
         {
-            var plan = Sheets.Plan(BatchPaperChoice, layout == "pairs" ? SheetMode.Pairs : SheetMode.Duplex);
+            var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex);
             Ui.SetText(_layoutMsg, plan is null ? "" : $"{plan.PerSheet} cards per sheet ({plan.Cols} × {plan.Rows}, {(plan.Landscape ? "landscape" : "portrait")}).");
         }
         Ui.SetText(_batchStatusLabel, _batchStatus);
@@ -132,7 +132,7 @@ public sealed partial class MainWindow
 
     private void ChooseBatchSave()
     {
-        var path = AskWhereToSave("Save the batch", Batch.FileFor(1, BatchLayoutChoice != "cards", DateTime.Now).FileName);
+        var path = AskWhereToSave("Save the batch", Batch.FileFor(1, BatchLayoutChoice != Batch.LayoutCards, DateTime.Now).FileName);
         if (path is not null) _ = RunBatch(path);
     }
 
@@ -174,15 +174,15 @@ public sealed partial class MainWindow
             var entries = good.Where(r => r.Data is not null).Select(r => r.Data!).ToList();       // SAFETY: filtered to the rows that have one on the same line
             var layout = BatchLayoutChoice;
             List<Func<PdfPage>> pages;
-            if (layout == "cards") pages = _renderer.CardPdfPages(_art, geometry, entries, _session.RotateBack);
+            if (layout == Batch.LayoutCards) pages = _renderer.CardPdfPages(_art, geometry, entries, _session.RotateBack);
             else
             {
-                var plan = Sheets.Plan(BatchPaperChoice, layout == "pairs" ? SheetMode.Pairs : SheetMode.Duplex);
+                var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex);
                 if (plan is null) { BatchSays("That paper is not one this app prints on."); return; }
                 var backUp = plan.Mode == SheetMode.Duplex && _session.Flip == DuplexFlip.ShortEdge ? !_session.RotateBack : _session.RotateBack;
                 pages = _renderer.SheetPdfPages(_art, geometry, plan, entries, Sheets.Pages(entries.Count, plan, _session.Flip), backUp);
             }
-            var (_, title) = Batch.FileFor(good.Count, layout != "cards", DateTime.Now);
+            var (_, title) = Batch.FileFor(good.Count, layout != Batch.LayoutCards, DateTime.Now);
             BatchSays("Building the PDF…");
             var error = await WritePdf(savePath, pages, title);
             if (error.Length > 0) { BatchSays(error); return; }
@@ -236,7 +236,7 @@ public sealed partial class MainWindow
 
     private bool EditingMap => !_map.Hidden;
 
-    private string StoredArtwork(string side) => Path.Combine(_files.Directory, $"template-{side}.png");
+    private string StoredArtwork(string side) => Path.Combine(_files.Directory, TemplateStore.ArtworkFileName(side));
 
     private void ApplyGeometry() => _session.Geometry = _templates.Geometry();
 
@@ -357,7 +357,7 @@ public sealed partial class MainWindow
         // what Discard puts back: the map as it was when the editor opened
         _editSnapshot = _templates.Snapshot();
         _front = true;
-        _tool = "design";
+        _tool = ToolKey.Design;
         _map.Hidden = false;
         _map.Refresh();
         Render();

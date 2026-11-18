@@ -168,10 +168,6 @@ public sealed record PhotoCheck
     public HeadInfo? Head { get; init; }
     public PhotoPlacement? Placement { get; init; }
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
-    // kept for diagnosis
-    public double Sharpness { get; init; }
-    public double HoleFraction { get; init; }
-    public double TorsoRatio { get; init; }
 }
 
 public sealed record PhotoResult(RgbaImage Image, string FileName, PhotoBackground Background, PhotoCheck Check);
@@ -466,7 +462,7 @@ public static partial class PhotoPipeline
         {
             return new PhotoCheck
             {
-                Head = head, HoleFraction = holeFraction, TorsoRatio = torsoRatio, FixIsPrompt = true,
+                Head = head, FixIsPrompt = true,
                 Problem = "Clothing is too close to the background colour — redo the photo with a blue background or a different top.",
             };
         }
@@ -515,7 +511,7 @@ public static partial class PhotoPipeline
 
         return new PhotoCheck
         {
-            Ok = true, Head = head, Sharpness = sharpness, HoleFraction = holeFraction, TorsoRatio = torsoRatio,
+            Ok = true, Head = head,
             Placement = new PhotoPlacement(
                 spec.HeadCenterX - head.CenterX * mmPerPx,
                 spec.HeadTop - head.Top * mmPerPx,

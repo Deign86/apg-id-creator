@@ -13,7 +13,7 @@ public enum SheetMode { Pairs, Duplex }
 public enum DuplexFlip { LongEdge, ShortEdge }
 
 public sealed record SheetPlan(
-    string PaperName, SheetMode Mode, bool Turned, bool Landscape, int Cols, int Rows,
+    SheetMode Mode, bool Turned, bool Landscape, int Cols, int Rows,
     double PageWidthMm, double PageHeightMm, double CardW, double CardH, double CellW, double CellH,
     double Left, double Top)
 {
@@ -61,7 +61,7 @@ public static class Sheets
                     // centre the grid on the page
                     var gridW = cols * cellW + (cols - 1) * gap;
                     var gridH = rows * cellH + (rows - 1) * gap;
-                    best = new SheetPlan(paper.Key, mode, turned, landscape, cols, rows, pw, ph,
+                    best = new SheetPlan(mode, turned, landscape, cols, rows, pw, ph,
                         cardW, cardH, cellW, cellH, (pw - gridW) / 2, (ph - gridH) / 2);
                     bestCount = count;
                     bestWaste = waste;

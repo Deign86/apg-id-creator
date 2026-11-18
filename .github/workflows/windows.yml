@@ -23,14 +23,17 @@ concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
 
+# Set for every job in this file.
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
 jobs:
   test:
     name: Windows tests
     runs-on: windows-latest
     timeout-minutes: 25
     env:
-      DOTNET_NOLOGO: 'true'
-      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
       IDMAKER_REPORT_DIR: ${{ github.workspace }}\report
     steps:
       - uses: actions/checkout@v4
@@ -99,9 +102,6 @@ jobs:
     name: Windows package
     runs-on: windows-latest
     timeout-minutes: 25
-    env:
-      DOTNET_NOLOGO: 'true'
-      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
     steps:
       - uses: actions/checkout@v4
       # The runner image already has a .NET 8 SDK. Installing one again costs

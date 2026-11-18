@@ -35,7 +35,8 @@ public sealed class SignaturePad : FrameworkElement
     private bool _stylusStroke;
 
     public static readonly Brush PaperBrush = Frozen(Color.FromRgb(0xFF, 0xFF, 0xFF));
-    public static readonly Brush InkBrush = Frozen(Color.FromRgb(0x1D, 0x1C, 0x1A));
+    public static readonly Color InkColor = Color.FromRgb(0x1D, 0x1C, 0x1A);
+    public static readonly Brush InkBrush = Frozen(InkColor);
     private static readonly Brush LineBrush = Frozen(Color.FromRgb(0xC9, 0xC4, 0xB8));
     private static readonly Brush HintBrush = Frozen(Color.FromRgb(0x66, 0x62, 0x5A));
 

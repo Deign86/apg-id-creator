@@ -29,14 +29,6 @@ public sealed record CardGeometry(
         CardConfig.NameText, CardConfig.TitleText, CardConfig.EmployeeNoText,
         CardConfig.Photo, CardConfig.Qr, CardConfig.Signature,
         CardConfig.PhotoArea, CardConfig.FrontOutline);
-
-    public TextSpec Text(BoxKey key) => key switch
-    {
-        BoxKey.Name => Name,
-        BoxKey.Title => Title,
-        BoxKey.EmployeeNo => EmployeeNo,
-        _ => throw new ArgumentOutOfRangeException(nameof(key)),
-    };
 }
 
 /// <summary>A moved map and, optionally, replaced artwork: what is kept between runs.</summary>
@@ -59,7 +51,8 @@ public sealed class TemplateStore
     private const double ShapeSlack = 0.02;           // how far off the card's proportions artwork may be
     private const double MinBoxMm = 2;                // a box smaller than this cannot be grabbed
 
-    public static readonly BoxKey[] BoxKeys = { BoxKey.Name, BoxKey.Title, BoxKey.EmployeeNo, BoxKey.Signature, BoxKey.Qr };
+    /// <summary>The file a replaced design's picture is kept in, in the app's data folder. The side is "front" or "back".</summary>
+    public static string ArtworkFileName(string side) => $"template-{side}.png";
 
     private readonly IKeyValueStore _store;
 

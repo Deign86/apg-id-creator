@@ -93,7 +93,7 @@ public sealed partial class MainWindow
     private readonly NSButton _chkRotate;
 
     private readonly NSSegmentedControl _sideTabs = new() { SegmentCount = 2, TranslatesAutoresizingMaskIntoConstraints = false };
-    private readonly NSImageView _cardImage = Ui.Picture(400, 634);
+    private readonly NSImageView _cardImage = Ui.Picture(CardPointsWide, 634);
     private readonly NSTextField _cardLoading = Ui.Note("Loading the card…");
     private readonly NSTextField _caption = Ui.Note();
     private readonly NSStackView _sheetNav;
@@ -188,7 +188,7 @@ public sealed partial class MainWindow
 
     /// <summary>Where this Mac's user keeps the app's list of issued IDs and settings.</summary>
     public static string DefaultDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Alpha Premier", "ID Maker");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), FileStore.CompanyFolder, FileStore.AppFolder);
 
     internal MainWindow(FileStore files, Register? register)
     {
@@ -200,10 +200,10 @@ public sealed partial class MainWindow
         Confirm = AskYesNo;
 
         /* ---- rail ---- */
-        _railRegister = Ui.Button("Issued IDs", () => ToggleTool("register"));
-        _railBatch = Ui.Button("Batch from a list", () => ToggleTool("batch"));
-        _railPrinter = Ui.Button("Printer setting", () => ToggleTool("printer"));
-        _railDesign = Ui.Button("Card design", () => ToggleTool("design"));
+        _railRegister = Ui.Button("Issued IDs", () => ToggleTool(ToolKey.Register));
+        _railBatch = Ui.Button("Batch from a list", () => ToggleTool(ToolKey.Batch));
+        _railPrinter = Ui.Button("Printer setting", () => ToggleTool(ToolKey.Printer));
+        _railDesign = Ui.Button("Card design", () => ToggleTool(ToolKey.Design));
         var rail = Ui.Column(10,
             _logo,
             Ui.Label("Alpha Premier", 12, muted: true, maxWidth: 150),
@@ -302,7 +302,7 @@ public sealed partial class MainWindow
         _cmbKind = Ui.Popup("This ID is for", new[] { "Choose…", "An employee", "An intern" }, index =>
         {
             if (_syncing || index < 1) return;
-            _session.PickKind(index == 2 ? "intern" : "employee");
+            _session.PickKind(index == 2 ? PersonKind.Intern : PersonKind.Employee);
             Render();
         });
         _cmbTitle = Ui.Popup("Job title", Array.Empty<string>(), index =>
@@ -490,12 +490,12 @@ public sealed partial class MainWindow
         {
             var measurer = MacTextMeasurer.Load(InBundle("Fonts"));
             _renderer = new MacCardRenderer(measurer);
-            var front = MacPictures.Load(InBundle("Assets", "front-template.png"));
-            var back = MacPictures.Load(InBundle("Assets", "back.png"));
+            var front = MacPictures.Load(InBundle("Assets", CardConfig.FrontArtFile));
+            var back = MacPictures.Load(InBundle("Assets", CardConfig.BackArtFile));
             if (front is null || back is null) throw new IOException("the card artwork is missing.");
             _builtInArt = new CardArt(front, back);
             _art = _builtInArt;
-            using var logo = MacPictures.Load(InBundle("Assets", "logo.png"));
+            using var logo = MacPictures.Load(InBundle("Assets", CardConfig.LogoFile));
             if (logo is not null) _logo.Image = new NSImage(logo, new CGSize(56, 56));
 
             // a design put in earlier is still the one in use
@@ -538,7 +538,7 @@ public sealed partial class MainWindow
             await _register.SendWaiting();
         }
         // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
-        if (_register.Refused.Count > 0) _tool = "register";
+        if (_register.Refused.Count > 0) _tool = ToolKey.Register;
         _session.RefreshDuplicate();
         Render();
     }
@@ -548,7 +548,7 @@ public sealed partial class MainWindow
         var (remover, problem) = await Task.Run(() =>
         {
             // the model sits with the app's other resources, not beside the program as on Windows
-            var made = OnnxBackgroundRemover.TryCreate(out var why, InBundle("Models", "modnet.onnx"));
+            var made = OnnxBackgroundRemover.TryCreate(out var why, InBundle(OnnxBackgroundRemover.ModelFolder, OnnxBackgroundRemover.ModelFile));
             return (made, why);
         });
         _remover = remover;
@@ -602,23 +602,23 @@ public sealed partial class MainWindow
             FieldMessage(_msgFirst, _txtFirst, Shown(Field.First));
             FieldMessage(_msgMiddle, _txtMiddle, Shown(Field.Middle));
             FieldMessage(_msgSuffix, _txtSuffix, Shown(Field.Suffix));
-            Ui.SyncText(_txtLast, s.Last);
-            Ui.SyncText(_txtFirst, s.First);
-            Ui.SyncText(_txtMiddle, s.Middle);
-            Ui.SyncText(_txtSuffix, s.Suffix);
+            Ui.SetText(_txtLast, s.Last);
+            Ui.SetText(_txtFirst, s.First);
+            Ui.SetText(_txtMiddle, s.Middle);
+            Ui.SetText(_txtSuffix, s.Suffix);
             var fitError = s.Touched.Contains(Field.Last) && s.Touched.Contains(Field.First) ? p[Field.NameFit] : "";
             _namePreview.TextColor = fitError.Length > 0 ? NSColor.SystemRed : NSColor.Label;
             Ui.SetText(_namePreview, fitError.Length > 0 ? fitError : $"On the card: {(s.PrintedName.Length > 0 ? s.PrintedName : "—")}");
 
             // who the ID is for
-            _cmbKind.SelectItem(s.Kind == "intern" ? 2 : s.Kind == "employee" ? 1 : 0);
+            _cmbKind.SelectItem(s.Kind == PersonKind.Intern ? 2 : s.Kind == PersonKind.Employee ? 1 : 0);
             FieldMessage(_msgKind, _cmbKind, Shown(Field.Kind));
 
             // job title
             BuildTitles();
             _cmbTitle.SelectItem(Math.Max(0, _titleValues.IndexOf(s.Role1.Pick)));
             Ui.Show(_txtTitleCustom, s.Role1.IsOther);
-            Ui.SyncText(_txtTitleCustom, s.Role1.Custom);
+            Ui.SetText(_txtTitleCustom, s.Role1.Custom);
             FieldMessage(_msgTitle, _txtTitleCustom, Shown(Field.Title));
             // a title this computer remembered can be dropped again
             Ui.Show(_btnForgetTitle, s.Role1.Pick.Length > 0 && !s.Role1.IsOther && !TitleList.IsStandard(s.Role1.Pick));
@@ -626,7 +626,7 @@ public sealed partial class MainWindow
             Ui.Show(_btnRoleAdd, !s.ShowRole2);
             _cmbTitle2.SelectItem(Math.Max(0, _title2Values.IndexOf(s.Role2.Pick)));
             Ui.Show(_txtTitle2Custom, s.ShowRole2 && s.Role2.IsOther);
-            Ui.SyncText(_txtTitle2Custom, s.Role2.Custom);
+            Ui.SetText(_txtTitle2Custom, s.Role2.Custom);
             FieldMessage(_msgTitle2, _txtTitle2Custom, Shown(Field.Title2));
             var titleFit = s.Touched.Contains(Field.Title) ? p[Field.TitleFit] : "";
             Ui.Show(_titlePreview, titleFit.Length > 0);
@@ -646,7 +646,7 @@ public sealed partial class MainWindow
             _msgSeq.TextColor = seqError.Length > 0 ? NSColor.SystemRed : NSColor.SecondaryLabel;
             Ui.SetText(_msgSeq, seqError.Length > 0 ? seqError : seqHelp);
             _txtSeq.AccessibilityHelp = seqError;
-            Ui.SyncText(_txtSeq, s.Seq);
+            Ui.SetText(_txtSeq, s.Seq);
             _cmbYear.SelectItem(Math.Max(0, _years.IndexOf(s.Year)));
             Ui.Show(_reissueWrap, dup is not null && dup.Value.Source != Session.DuplicateSource.Queue);
             _chkReissue.State = s.Reissue ? NSCellStateValue.On : NSCellStateValue.Off;
@@ -790,9 +790,6 @@ public sealed partial class MainWindow
         _session.GoStep(step);
         AfterMove(from, new MoveResult(true, null));
     }
-
-    /// <summary>Press Next, as the button does.</summary>
-    internal void PressNext() => AfterMove(_session.StepIndex, _session.NextStep());
 
     /* ---- what the operator types ----------------------------------- */
 
@@ -1056,7 +1053,7 @@ public sealed partial class MainWindow
             var copies = s.PrintCopies(plan);
             var total = cards.Count * copies;
             var sheets = (int)Math.Ceiling(total / (double)per);
-            if (!ReferenceEquals(Window.FirstResponder, _txtCopies.CurrentEditor)) Ui.SyncText(_txtCopies, copies.ToString(CultureInfo.InvariantCulture));
+            if (!ReferenceEquals(Window.FirstResponder, _txtCopies.CurrentEditor)) Ui.SetText(_txtCopies, copies.ToString(CultureInfo.InvariantCulture));
             _copiesDown.Enabled = copies > 1;
             _copiesUp.Enabled = copies < per * 20;
             Ui.SetText(_copiesLabel, cards.Count > 1 ? "Copies of each card" : "Copies of this card");
@@ -1246,7 +1243,7 @@ public sealed partial class MainWindow
 
     /* ---- the preview ---------------------------------------------- */
 
-    private const double PreviewPpm = 800 / CardConfig.CardWidthMm;         // twice the points it is shown at, for a Retina screen
+    private const double PreviewPpm = 2 * CardPointsWide / CardConfig.CardWidthMm;         // twice the points it is shown at, for a Retina screen
     private const double SheetPreviewPpm = 96 / 25.4;
 
     private void DrawPreview()
@@ -1316,7 +1313,7 @@ public sealed partial class MainWindow
 
     private static readonly Dictionary<string, string> ToolTitles = new()
     {
-        ["register"] = "Issued IDs", ["batch"] = "Batch from a list", ["printer"] = "Printer setting", ["design"] = "Card design",
+        [ToolKey.Register] = "Issued IDs", [ToolKey.Batch] = "Batch from a list", [ToolKey.Printer] = "Printer setting", [ToolKey.Design] = "Card design",
     };
 
     private void RenderTools()
@@ -1324,28 +1321,28 @@ public sealed partial class MainWindow
         // the design can only be changed before an ID is started
         var designOk = _session.DesignAllowed;
         Ui.Show(_railDesign, designOk);
-        if (!designOk && _tool == "design") _tool = null;
+        if (!designOk && _tool == ToolKey.Design) _tool = null;
 
         // Editing the map and having the Card design drawer open are the
         // same state, and this is where that is enforced rather than in each
         // of the handlers that can close it: the Keep button lives in that
         // drawer, so any route that closed the drawer without it would leave
         // the boxes on the card with no button anywhere to finish with.
-        if (EditingMap && _tool != "design") StopAdjusting();
+        if (EditingMap && _tool != ToolKey.Design) StopAdjusting();
 
         Ui.Show(_drawer, _tool is not null);
         var all = _register.All();
         _railRegister.Title = all.Count > 0 ? $"Issued IDs ({all.Count})" : "Issued IDs";
         if (_tool is null) return;
-        Ui.SetText(_drawerTitle, _tool == "register" && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
-        Ui.Show(_toolRegister, _tool == "register");
-        Ui.Show(_toolBatch, _tool == "batch");
-        Ui.Show(_toolPrinter, _tool == "printer");
-        Ui.Show(_toolDesign, _tool == "design");
-        if (_tool == "register") RenderRegister(all);
-        if (_tool == "batch") RenderBatch();
-        if (_tool == "design") RenderDesign();
-        if (_tool == "printer")
+        Ui.SetText(_drawerTitle, _tool == ToolKey.Register && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
+        Ui.Show(_toolRegister, _tool == ToolKey.Register);
+        Ui.Show(_toolBatch, _tool == ToolKey.Batch);
+        Ui.Show(_toolPrinter, _tool == ToolKey.Printer);
+        Ui.Show(_toolDesign, _tool == ToolKey.Design);
+        if (_tool == ToolKey.Register) RenderRegister(all);
+        if (_tool == ToolKey.Batch) RenderBatch();
+        if (_tool == ToolKey.Design) RenderDesign();
+        if (_tool == ToolKey.Printer)
         {
             _cmbFlip.SelectItem(_session.Flip == DuplexFlip.ShortEdge ? 1 : 0);
             _chkRotate.State = _session.RotateBack ? NSCellStateValue.On : NSCellStateValue.Off;
@@ -1521,7 +1518,6 @@ public sealed partial class MainWindow
     internal NSTextField LastBox => _txtLast;
     internal NSTextField FirstBox => _txtFirst;
     internal NSTextField SeqBox => _txtSeq;
-    internal NSTextField TitleCustomBox => _txtTitleCustom;
     internal NSPopUpButton KindBox => _cmbKind;
     internal NSPopUpButton TitleBox => _cmbTitle;
     internal string BlockedLine => _blocked.Hidden ? "" : _blocked.StringValue;
