@@ -83,6 +83,9 @@ public partial class MainWindow : Window
         _built = true;
         MapOverlay.Store = _templates;
         MapOverlay.Changed += moved => { if (moved) { ApplyGeometry(); DrawPreview(); } DesignReadout.Text = MapOverlay.Readout(); };
+        // Still needed: Render runs on every keystroke and every change of the window's size, and a
+        // sheet is every card in the print drawn again. The sheet is drawn once nothing has asked for
+        // it for 120 ms. (The Mac draws it at once; AppTests waits for this timer.)
         _sheetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _sheetTimer.Tick += (_, _) => { _sheetTimer.Stop(); DrawSheetPreview(); };
 

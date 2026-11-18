@@ -309,6 +309,7 @@ public partial class MainWindow
         if (m.Register is { } register) RenderRegister(register);
         if (_tool == ToolKey.Printer)
         {
+            // SAFETY: CmbFlip's two items carry "long" and "short" as string Tags in the markup.
             foreach (var item in CmbFlip.Items.OfType<ComboBoxItem>())
                 item.IsSelected = (string)item.Tag == (_session.Flip == DuplexFlip.ShortEdge ? "short" : "long");
             ChkRotate.IsChecked = _session.RotateBack;
@@ -559,12 +560,14 @@ public partial class MainWindow
             if (outcome.Error.Length > 0) { BatchStatus.Text = outcome.Error; return; }
 
             var good = outcome.Good;
+            // SAFETY: Batch.PrepareRow gives every row that is Ok its Data and its Entry.
             var entries = good.Select(r => r.Data!).ToList();
             var layout = BatchLayoutChoice;
             List<Func<PdfPage>> pages;
             if (layout == Batch.LayoutCards) pages = _renderer.CardPdfPages(_art, geometry, entries, _session.RotateBack);
             else
             {
+                // SAFETY: Sheets.Plan falls back to the default paper for a name it does not know, and one card fits every paper in CardConfig.Papers.
                 var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex)!;
                 pages = _renderer.SheetPdfPages(_art, geometry, plan, entries, Sheets.Pages(entries.Count, plan, _session.Flip), _session.BackUpsideDown(plan));
             }
@@ -574,6 +577,7 @@ public partial class MainWindow
             if (error.Length > 0) { BatchStatus.Text = error; return; }
 
             // only the rows that made it into the PDF are issued
+            // SAFETY: as for Data above.
             var issued = good.Select(r => r.Entry!).ToList();
             // here at once; the shared register is told while the result is put on screen (Session.IssueBatch)
             var telling = _session.IssueBatch(issued);
