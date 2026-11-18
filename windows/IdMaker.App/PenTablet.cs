@@ -106,7 +106,7 @@ public sealed class PenTablet : IDisposable
 
             var context = new LogContext();
             if (WTInfoContext(WTI_DEFSYSCTX, 0, ref context) == 0) return null;
-            context.lcName = "Alpha Premier ID Maker";
+            context.lcName = Core.CardConfig.AppName;
             // CXO_SYSTEM leaves the pen moving the pointer as usual; CXO_MESSAGES posts each packet to the window
             context.lcOptions |= CXO_SYSTEM | CXO_MESSAGES;
             context.lcPktData = PacketData;
