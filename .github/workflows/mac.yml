@@ -31,6 +31,12 @@ jobs:
       # The Mac workload is tied to one Xcode. mac/workloads.json pins the
       # one that builds with the Xcode the runner has; move both together.
       MAC_XCODE: '/Applications/Xcode_26.6.app'
+    # Every dotnet command runs in mac/, where global.json keeps the SDK on
+    # the 10.0.4xx band the pinned workload belongs to, whatever newer SDK
+    # the runner also has.
+    defaults:
+      run:
+        working-directory: mac
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -40,14 +46,14 @@ jobs:
         run: |
           sudo xcode-select -s "$MAC_XCODE"
           dotnet --version
-          dotnet workload install macos --from-rollback-file mac/workloads.json
+          dotnet workload install macos --from-rollback-file workloads.json
           dotnet workload list
       - name: Core tests, on a Mac
-        run: dotnet test windows/IdMaker.Tests -c Release
+        run: dotnet test ../windows/IdMaker.Tests -c Release
       - name: Build
-        run: dotnet build mac/IdMaker.Mac -c Release
+        run: dotnet build IdMaker.Mac -c Release
       - name: Self-test
         run: |
-          app=$(find mac/IdMaker.Mac/bin/Release -maxdepth 4 -name '*.app' | head -1)
+          app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -name '*.app' | head -1)
           echo "$app"; ls "$app/Contents/MacOS"
           "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest --repo "$GITHUB_WORKSPACE"
