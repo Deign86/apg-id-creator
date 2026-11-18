@@ -302,7 +302,7 @@ public sealed partial class MainWindow
         _cmbKind = Ui.Popup("This ID is for", new[] { "Choose…", "An employee", "An intern" }, index =>
         {
             if (_syncing || index < 1) return;
-            _session.PickKind(index == 2 ? "intern" : "employee");
+            _session.PickKind(index == 2 ? PersonKind.Intern : PersonKind.Employee);
             Render();
         });
         _cmbTitle = Ui.Popup("Job title", Array.Empty<string>(), index =>
@@ -611,7 +611,7 @@ public sealed partial class MainWindow
             Ui.SetText(_namePreview, fitError.Length > 0 ? fitError : $"On the card: {(s.PrintedName.Length > 0 ? s.PrintedName : "—")}");
 
             // who the ID is for
-            _cmbKind.SelectItem(s.Kind == "intern" ? 2 : s.Kind == "employee" ? 1 : 0);
+            _cmbKind.SelectItem(s.Kind == PersonKind.Intern ? 2 : s.Kind == PersonKind.Employee ? 1 : 0);
             FieldMessage(_msgKind, _cmbKind, Shown(Field.Kind));
 
             // job title
