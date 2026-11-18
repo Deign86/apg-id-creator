@@ -111,9 +111,38 @@ public class JobTests : IDisposable
 
         var saved = await s.SavePrint(path, JobOf(s), new List<Func<PdfPage>> { () => throw new InvalidOperationException("A page of the print could not be drawn.") });
 
-        Assert.Contains("(A page of the print could not be drawn)", saved.Error);
+        // said as what it is: the folder is not at fault, so there is no advice about the file being open elsewhere
+        Assert.Equal("A page of this print couldn’t be drawn (A page of the print could not be drawn). Nothing was saved. Try again; if it happens again, close the app and open it again.", saved.Error);
+        Assert.Equal(0, saved.Cards);
         Assert.Empty(register.All());
         Assert.Empty(Directory.GetFiles(_folder));
+    }
+
+    [Fact]
+    public async Task A_slip_in_page_drawing_is_not_reported_as_a_file_open_in_another_program()
+    {
+        var path = Path.Combine(_folder, "batch.pdf");
+        int? none = null;
+
+        // what a programming error in a renderer looks like from here: the same exception type a window uses to say "could not draw"
+        var error = await PrintFiles.Write(path, new List<Func<PdfPage>> { BlankPage, () => { _ = none!.Value; return BlankPage(); } }, "Batch", new DateTime(2026, 11, 17));
+
+        Assert.StartsWith("A page of this print couldn’t be drawn (", error);
+        Assert.DoesNotContain("another program", error);
+        Assert.DoesNotContain("different folder", error);
+        Assert.Empty(Directory.GetFiles(_folder));
+    }
+
+    [Fact]
+    public async Task A_failure_of_another_kind_in_page_drawing_is_not_caught_as_a_save_that_failed()
+    {
+        var path = Path.Combine(_folder, "batch.pdf");
+
+        // not something the operator can act on, so it is not turned into a message here: it reaches the app's own last-error report
+        await Assert.ThrowsAsync<FormatException>(() =>
+            PrintFiles.Write(path, new List<Func<PdfPage>> { () => throw new FormatException("Not a number.") }, "Batch", new DateTime(2026, 11, 17)));
+
+        Assert.False(File.Exists(path));
     }
 
     [Fact]
@@ -132,6 +161,85 @@ public class JobTests : IDisposable
         Assert.Single(register.All());
         Assert.StartsWith("APG-2026-124 was not written to the shared register", await saved.Trouble);
         Assert.Equal(1, register.WaitingForShared);
+    }
+
+    /// <summary>Two cards in one print: Reyes (124) queued, Cruz (125) on screen.</summary>
+    private static Session TwoCardsToPrint(Register register, IKeyValueStore store)
+    {
+        var s = ReadyToPrint(register, store);
+        Assert.True(s.AddAnother());
+        Make.FillForm(s, "125");
+        s.SetNamePart(Field.Last, "Cruz");
+        s.GoStep(Session.LastStep);
+        Assert.Equal(Session.LastStep, s.StepIndex);
+        return s;
+    }
+
+    // The form stays live while the file is written: only Save, the pictures
+    // and "Add another ID" are off. The page function below stands in for the
+    // operator doing something in that time.
+
+    [Fact]
+    public async Task A_queued_card_removed_while_the_file_is_written_is_still_issued_as_printed()
+    {
+        var store = new MemoryStore();
+        var register = Make.LocalRegister(store);
+        var s = TwoCardsToPrint(register, store);
+        var job = JobOf(s);
+        Assert.Equal(2, job.Cards);
+        var pages = new List<Func<PdfPage>> { () => { s.RemoveFromQueue(0); return BlankPage(); } };
+
+        var saved = await s.SavePrint(Path.Combine(_folder, "print.pdf"), job, pages);
+
+        Assert.Equal("", saved.Error);
+        Assert.Equal(2, saved.Cards);
+        // the PDF holds both cards, so both numbers are taken
+        Assert.Equal(new[] { "APG-2026-124 Ana Reyes", "APG-2026-125 Ana Cruz" }, register.All().OrderBy(e => e.Seq).Select(e => $"{e.Id} {e.Name}"));
+        Assert.Empty(s.Queue);
+    }
+
+    [Fact]
+    public async Task A_name_typed_again_while_the_file_is_written_does_not_change_what_is_issued()
+    {
+        var store = new MemoryStore();
+        var register = Make.LocalRegister(store);
+        var s = TwoCardsToPrint(register, store);
+        var job = JobOf(s);
+        var pages = new List<Func<PdfPage>>
+        {
+            () =>
+            {
+                s.GoStep(0);
+                s.SetNamePart(Field.Last, "Santos");
+                s.GoStep(Session.LastStep);
+                return BlankPage();
+            },
+        };
+
+        var saved = await s.SavePrint(Path.Combine(_folder, "print.pdf"), job, pages);
+
+        Assert.Equal("", saved.Error);
+        // the paper says Cruz
+        Assert.Equal(new[] { "APG-2026-124 Ana Reyes", "APG-2026-125 Ana Cruz" }, register.All().OrderBy(e => e.Seq).Select(e => $"{e.Id} {e.Name}"));
+        Assert.Equal("Cruz", Assert.Single(register.All(), e => e.Seq == 125).Last);
+        // and the form now says that number is taken, by the card that was printed
+        Assert.Equal("Ana Cruz", s.Duplicate()?.Entry.Name);
+    }
+
+    [Fact]
+    public void A_print_job_carries_the_cards_it_will_issue()
+    {
+        var store = new MemoryStore();
+        var s = TwoCardsToPrint(Make.LocalRegister(store), store);
+
+        var job = JobOf(s);
+
+        Assert.False(job.Issue.Example);
+        Assert.Equal(new[] { "APG-2026-124", "APG-2026-125" }, job.Issue.Cards.Select(c => c.Entry.Id));
+        // the very cards the pages are drawn from, in the same order (one copy of each here)
+        Assert.Equal(2, job.Entries.Count);
+        Assert.Same(job.Issue.Cards[0].Data, job.Entries[0]);
+        Assert.Same(job.Issue.Cards[1].Data, job.Entries[1]);
     }
 
     [Fact]

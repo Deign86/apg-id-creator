@@ -185,7 +185,9 @@ public static partial class PhotoPipeline
     private const int MinRowsToJudgeBody = 8;
     // Sharpness: variance of the Laplacian over the face, on the analysis copy.
     private const double BlurVariance = 55;
-    private const double MinHeadPx = 40;        // narrower than this: the face cannot be seen
+    // Narrower than this and the face cannot be seen: the photo is refused. Not PhotoSpec.MinHeadPx
+    // (180, the card's own), under which a photo is used with a warning that it may print soft.
+    private const double UnusableHeadPx = 40;
     public const int AnalysisMaxHeight = 800;   // head detection works on a copy this tall
     public const int WorkingMaxHeight = 2400;   // the keyed image kept for the card
 
@@ -431,7 +433,7 @@ public static partial class PhotoPipeline
         var centerX = sum / Math.Max(1, n);
 
         var head = new HeadInfo(top * scale, headW * scale, centerX * scale, neckY * scale);
-        if (head.Width < MinHeadPx) return new PhotoCheck { Head = head, Problem = "This photo is too small to show the face. Please use a larger photo." };
+        if (head.Width < UnusableHeadPx) return new PhotoCheck { Head = head, Problem = "This photo is too small to show the face. Please use a larger photo." };
         if (top <= 1) framing.Add("The top of the head reaches the edge of the photo. Check on the card that nothing is cut off.");
 
         // Did the key eat the clothing? Holes inside the outline below the

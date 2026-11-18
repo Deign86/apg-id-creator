@@ -290,7 +290,7 @@ public partial class MainWindow : Window
 
             RenderPhotoStep(m.Photo);
             RenderSignStep(m.Sign);
-            RenderCheckStep(m.Check);
+            if (m.Check is { } check) RenderCheckStep(check);
 
             // one step at a time
             var steps = new FrameworkElement[] { StepName, StepTitle, StepNumber, StepPhoto, StepSign, StepCheck };

@@ -296,3 +296,115 @@ The form and the batch (H63). They now ask the same `CardRules`, but not all the
 11. Drawing plan: operations carry pixels for text, ink and pictures and millimetres for clips and the QR code, rather than card units throughout, so that no coordinate is computed differently from before. Only the front was planned; sheets, the PDF pages and the back were left.
 12. Tests: of the tests round 1 listed, three were changed or removed (each its own commit) and the rest kept with the reason given under fix 7. None of them was strictly unable to fail.
 13. `HomeTests` needed five values to have a Core home that had none (`Publisher`, `ProgramName`, `LastErrorFile`, `BrandGold`, `ScreenInk`); they were added to `CardConfig` with the values the other files already had.
+
+---
+
+# ID Maker untangle, round 3: decision log
+
+Branch `refactor/untangle-3` (from `main` at `109988a`, which holds rounds 1 and 2). Seven commits, nothing pushed. It answers the independent review of round 2 (PR #16): one issuing hole older than the untangle, and the ten things the review's Part 2 called safe to do without the owner. Review item numbers below are that review's (P1, M1, m1 to m7, and Part 2 items 1 to 10).
+
+**Not released.** Rounds 1 and 2 are on `main`; round 3 is on this branch and will be on `main` once it is merged. None of the three is in a release: the version was not bumped in any round. It is still 2.0.4 (`CardConfig.AppVersion`, both `.csproj` files, `app.manifest`), and `v2.0.4` was tagged on 17 Nov 2026, before round 1's first commit. The app HR runs is the one from before the untangle, the issuing hole in fix 1 included. A version bump publishes a release to HR and is the owner's call.
+
+What could be checked here, and what could not (the same as round 2):
+
+- `windows/IdMaker.Core` builds on this machine from a copy in `/tmp`, against an empty package source, warnings as errors: 0 warnings, 0 errors after every commit.
+- Console programs against that build, kept outside the repository: the review's `save-while-editing` and `register-old-vs-new`, and two written for this round (six ways a PDF write can end; 54 screens drawn before and after). Each was run on the commit before a change and on the commit after it.
+- The Core tests, compiled with warnings as errors and run against a small local stand-in for xunit (every test file except `VisionTests.cs`): 223 passed on `main`, 255 at the end of the round (each row of a theory counted). A stand-in is not xunit, and its analyzers do not run here.
+- `windows/IdMaker.App`, `windows/IdMaker.App.Tests` and `mac/IdMaker.Mac` cannot be built here. One line changed in each window (fix 4), checked by reading. CI on Windows and macOS is the check.
+
+## Round 3 fixes
+
+### 1. A saved print issues the cards that were printed (review P1, Part 2 item 1)
+
+- `3dfd145` `Session.SavePrint` wrote the PDF and then called `MarkIssued()`, which read the form again. The form stays live during the write (only Save, the pictures and "Add another ID" are off), so:
+  - a queued card removed meanwhile was in the PDF and never in the register, its number free to be given to somebody else;
+  - a name typed again meanwhile was registered as typed, for a card printed with the earlier name.
+  - Both windows did the same before the untangle; round 2 carried the order into Core unchanged.
+- Now `Session.Print()` fixes what the print issues in a `PrintIssue` carried by the `PrintJob` (the job's cards, whether it is the example, the job titles typed under "Other…"), lays the pages out from that same list of cards, and `SavePrint` records exactly that. A queued card that was in the print leaves the queue by reference; `MarkIssued()` with no argument still means "the form as it stands", for its tests.
+- No window edit: `Print()` and `SavePrint(path, job, pages)` have the signatures they had.
+- Tests (`JobTests`): `A_queued_card_removed_while_the_file_is_written_is_still_issued_as_printed`, `A_name_typed_again_while_the_file_is_written_does_not_change_what_is_issued`, `A_print_job_carries_the_cards_it_will_issue`.
+- Harness (`save-while-editing`), two cards in the print:
+
+  | While the file is written | Register before | Register after |
+  | --- | --- | --- |
+  | a queued card is removed | APG-2026-125 Ana Cruz | APG-2026-124 Ana Reyes, APG-2026-125 Ana Cruz |
+  | the name is typed again | APG-2026-124 Ana Reyes, APG-2026-125 Ana Santos | APG-2026-124 Ana Reyes, APG-2026-125 Ana Cruz |
+  | nothing | APG-2026-124 Ana Reyes, APG-2026-125 Ana Cruz | the same |
+
+- `docs/STATE-MACHINES.md` section 6 gains the invariant (I5) and `REVIEW.md` a row for it, under AGENTS.md's "a miss becomes a rule". That is a change to the list changes are judged by, made in the same branch as the code it describes; the pull request should say so at its top.
+
+### 2. A batch year in other digits (review m5, Part 2 item 2)
+
+- `72b6ca4` The `year` column was matched with `\d{4}`, which takes Arabic-Indic and full-width digits, and then parsed with the invariant culture, which does not: one such row stopped the whole batch with `FormatException`. Round 2 fixed the same fault in `seq` and left this one. `CardRules.YearNumber` takes four of 0 to 9; anything else is no year and the row gets this year, as a year in words always did.
+- Tests (`RulesTests`): `A_year_is_four_of_the_digits_the_card_prints` (10 rows), `A_year_in_other_digits_falls_back_to_this_year_and_the_batch_goes_on`.
+- Harness (`register-old-vs-new`, `main` against this commit): 172 lines before, 178 after, and the only difference is the `batch-year-arabic` case (THROWS `FormatException` before; `APG-2026-012` made after).
+
+### 3. A page that could not be drawn says so (review m1, Part 2 item 3)
+
+- `9fafb30` `PrintFiles.Write` caught every `InvalidOperationException` and answered "The file couldn’t be saved there (…). If it is open in another program, close it, or choose a different folder." That type is what a window's page function throws when it cannot draw, and also what a slip in the drawing code throws, for a print and for a batch.
+- Now each page function is wrapped: an `InvalidOperationException` out of one becomes Core's own `PageNotDrawnException` (private to `PrintFiles`), the only one of the kind `Write` catches. Its message: "A page of this print couldn’t be drawn (…). Nothing was saved. Try again; if it happens again, close the app and open it again." A file that cannot be written reads as before. Nothing is issued either way.
+- Tests (`JobTests`): `A_page_that_cannot_be_drawn_fails_the_save_and_leaves_no_half_file` (now holds the whole message), `A_slip_in_page_drawing_is_not_reported_as_a_file_open_in_another_program`, `A_failure_of_another_kind_in_page_drawing_is_not_caught_as_a_save_that_failed`.
+- Harness (six ways a write can end, before and after): the three `InvalidOperationException` cases changed message; a folder that is not there, a good save and an uncaught `FormatException` are unchanged.
+
+### 4. One count of the cards per redraw (review m6, Part 2 item 4)
+
+- `274659f` `Screen.From` built the check step at every step, and `PrintFileLine` counted the print's cards a second time (making a second register entry for the card on screen, to throw away). `Screen.Check` is now null off the last step, and `PrintFileLine(cards)` takes the count `Screen.From` already has.
+- The two windows: `RenderCheckStep(m.Check);` became `if (m.Check is { } check) RenderCheckStep(check);`, the same line in `MainWindow.xaml.cs` and in the Mac's `MainWindow.cs`. Both already returned from `RenderCheckStep` before reading the view unless the last step was open, so what is shown is the same. Not compiled here.
+- Tests (`ScreenTests`): `The_check_step_is_made_only_where_it_is_shown`, `A_redraw_counts_the_cards_in_the_print_once`.
+- Harness (54 screens: 18 states of the form, three inputs, both platforms; before and after): every part but the check step identical at every step, the check step identical on the last step, 109 lines with no difference. Clock reads in one redraw of a finished card off the last step: 2 before, 1 after.
+
+### 5. Four names (review Part 2 items 5, 7, 8, 9)
+
+- `2d2be67`
+  - Item 5: `RegisterField.Sent(entry)` names what `Register.Document` spelled as `field.TextOf(field.With(new RegisterEntry(), field.TextOf(e)))`. Test: `What_is_sent_for_a_kind_is_what_would_be_read_back`. Harness (`register-old-vs-new`): 178 lines identical to the commit before; against `main` the only difference is still fix 2's. The Firestore document is field for field what it was.
+  - Item 7 (H65): the private `MinHeadPx` in `Photo.cs` (40, a refusal) is `UnusableHeadPx`; `PhotoSpec.MinHeadPx` (180, a warning) keeps its name. Neither number moved. Test: `A_head_too_small_to_show_a_face_is_refused_and_a_merely_small_one_is_warned_about`, which nothing pinned before.
+  - Item 8 (H68): `Words.S` in `Batch.FileFor`, `Session.PrintFileLine` and the two "waiting to be written" lines of the Issued IDs drawer, with a new `Words.IsAre` for the verb in the last two. The pinning tests (`The_issued_ids_drawer_counts_the_waiting_cards_in_words`, one more line in the batch file-name test) were written first and passed on the old code.
+  - Item 9 (difference 13 of round 2): `Screen.LandingFor` has no `saved` parameter and no branch for it. `AfterMove` was its only caller and passed false whenever it called. `FocusTarget.NewIdButton` stays: each window sends the cursor there itself after a save.
+
+### 6. Two things held by tests (review Part 2 items 6 and 10)
+
+- `e20f9ff` No code changed.
+  - Item 6: `The_migration_script_sends_the_fields_of_the_list_under_the_same_names` reads `register/migrate.mjs`: the fields `documentOf` writes are the always-sent fields of `RegisterFields.All`, in order and of the same kind, then `by` and `byEmail`; every sheet column it reads is a field of the list. With the table in `register/README.md` (round 2), two of H61's three places outside the app's code are now held to the list; `firestore.rules` in apg-keystone is still held by nothing here.
+  - Item 10: `DrawingTests` for left, centred and right text in all three boxes; a name on two lines; a scan in a signature box that was moved, wide and tall. They assert on `CardDrawing.Front`'s operations, with the expected numbers written from the box rather than by calling the code that places them. Each was seen to fail against a copy with the fault it is for.
+  - These hold Core's arithmetic. They do not show that either renderer draws what the list says: that is still only the golden card.
+
+### 7. This section
+
+- This commit: the section above, invariant I5 in `docs/STATE-MACHINES.md` section 6, one row in `REVIEW.md`.
+
+## Found by the review and not changed
+
+Recorded so they are not found again as news.
+
+- **M1 (coverage gap, no defect seen).** No Mac test draws a scanned signature or a photo that fades: `MacCard.cs`'s `ScanOp` branch and the fading half of its `PhotoOp` branch were rewritten in round 2 (`80494d1`) and have never produced a pixel anybody compared. The numbers handed to them are the old ones (the review's replay: 960 cases, 218,672 drawing steps, 0 differ), and round 3's drawing tests hold those numbers in Core. A Mac is needed to hold the pixels.
+- **m2 (ordering, undeclared in round 2, harmless).** The shared register is told before the window shows "saved" (`SavePrint` and `IssueBatch` start the request themselves); the windows used to start it after redrawing. Only the start of the request moved.
+- **m3 (ordering of clocks, undeclared, harmless in the app).** A form print's PDF takes its creation date from the Session's clock; a batch's PDF still takes `DateTime.Now` from the window while its entries are stamped by the Session's clock. The same clock in the shipped app, two under a test clock.
+- **m4 (ordering, undeclared, invisible).** Windows writes "Reading the signature…" before a file that is refused outright, and the Mac redraws when a second photo is offered while one is being checked. Both are overwritten in the same turn.
+- **m7 (declared in round 2).** `WpfTextMeasurer.Words` and `MacTextMeasurer.Words` are dead copies of `CardDrawing.Words`.
+
+## What is left
+
+Needs a compiler for the windows, a Mac, or the owner:
+
+- A Mac test that draws a scanned signature and a fading photo (M1).
+- One clock for a batch (m3): the window passes `DateTime.Now` to `PrintFiles.Write` and `Batch.FileFor`; it should be the Session's.
+- Deleting the two dead `Words` methods (m7): public members of window files.
+- The store reporting a failed write (X2, root fix 9): `FileStore.Set` still drops a write that fails, an issued card included.
+- The drawing plan for the back, the sheets and the PDF pages (H35, H36, H37): only the front is a list of operations.
+- The batch's orchestration, still about 45 lines in each window (H20's larger half), and the state of a save (`_saving`, `_saved`, `_savedCount`, `_savedPath`).
+
+Seen while doing this round, and left:
+
+- An exception from page drawing that is neither an `InvalidOperationException` nor one of the file errors is not caught by `PrintFiles.Write` (it never was): the `.part` file stays on disk and the window is left saying "Saving the PDF…" until the app's own error report takes over. Catching more would hide slips; removing the `.part` file in a `finally` would be safe.
+- After a save, the number on the form is marked as taken by the last card issued (`DupLocal`), as before. If the operator changed the number on the form during the write, that mark is for the printed card's number, not the one now typed, until the next keystroke checks again.
+- `Session.Print()` still asks for the print's cards twice (once for what it issues and its pages, once more inside `PrintFile` for the title). Same answer both times, in the same turn.
+
+## Calls made without the owner, round 3
+
+1. Fix 1 records the titles typed under "Other…" as they were on the card when the print was made, not when the write ended, so that everything a save remembers comes from the print.
+2. Fix 1 removes from the queue the cards that were printed, rather than emptying it. Today those are the same cards (nothing can be added during a write); if that ever changes, a card that was not printed stays queued and unissued.
+3. Fix 3 wraps only `InvalidOperationException` from a page function, as the review asked, not every exception: the rule is that an exception is caught by type where something can be done about it.
+4. Fix 3's message tells the operator to try again and then to restart the app. There is nothing more exact to say from Core about a page the window could not draw.
+5. Fix 4 made `Screen.Check` nullable, which needs one line in each window, rather than handing the windows a made-up check step off the last step that nothing reads. A null cannot be mistaken for a real one.
+6. Fix 5 added `Words.IsAre` beside `Words.S` so "card is / cards are" is not a third spelling.
+7. `REVIEW.md` and `docs/STATE-MACHINES.md` were changed in this branch (see fix 1).

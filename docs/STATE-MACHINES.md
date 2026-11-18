@@ -251,19 +251,29 @@ its cards. **Code:** `IdMaker.App/MainWindow.Print.cs` (`SavePrint`,
   as `name.pdf.part` and renamed.
 - I3. One save at a time.
 - I4. The example card is never issued.
+- I5. The cards issued are the cards in the PDF. What a print issues is
+  fixed when the print is made (`Session.Print`, `PrintIssue`) and is not
+  read from the form again when the write ends: the form stays live
+  while the file is written (a queued card can be removed, a name typed
+  again).
 
 | From | Event | Guard | To | Side effects | Code |
 | --- | --- | --- | --- | --- | --- |
 | Reviewing | Save the PDF | a card to print | Saving | button says so and is disabled | `SavePrint` |
 | Saving | Save pressed again | | Saving | ignored | `SavePrint` |
-| Saving | file written and renamed | | Saved | cards issued locally; shared writes begin | `MarkIssued` |
+| Saving | file written and renamed | | Saved | the print's cards issued locally, as printed; shared writes begin | `Session.SavePrint` |
 | Saving | write fails | | Reviewing | `.part` removed; error says how to recover; nothing issued | `WritePdf` |
 | Saved | Start a new ID | | (step 1) | | `NewId` |
 
 Saving as pictures never issues a card: pictures are a proof to look at.
 
 **Checked and holding.** A print that cannot be saved issues nothing
-(test `A_print_that_cannot_be_saved_issues_nothing`). The web app could
+(test `A_print_that_cannot_be_saved_issues_nothing`). A card removed
+from the print, or a name typed again, while the file is written is
+still issued as printed (tests
+`A_queued_card_removed_while_the_file_is_written_is_still_issued_as_printed`,
+`A_name_typed_again_while_the_file_is_written_does_not_change_what_is_issued`;
+I5 was broken in both windows until untangle round 3). The web app could
 not make this promise — a browser download gives no answer — so it
 recorded the cards the moment the download was started.
 

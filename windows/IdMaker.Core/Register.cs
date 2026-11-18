@@ -117,6 +117,15 @@ public sealed class RegisterField
     public RegisterEntry With(RegisterEntry e, string value) => _withText is null ? throw NotA("text") : _withText(e, value);
     public RegisterEntry With(RegisterEntry e, int value) => _withWhole is null ? throw NotA("a whole number") : _withWhole(e, value);
     public RegisterEntry With(RegisterEntry e, bool value) => _withYes is null ? throw NotA("a yes or no") : _withYes(e, value);
+
+    /// <summary>
+    /// What is sent to Firestore for a text field: the entry's value as it
+    /// would be read back, so nothing is written that reading would not
+    /// return. For most fields that is the value itself; a kind goes through
+    /// PersonKind.Parse on the way in, so "Intern" is sent as "intern" and a
+    /// word that is no kind as "" (and, being OnlyWhenKnown, not at all).
+    /// </summary>
+    public string Sent(RegisterEntry e) => TextOf(With(new RegisterEntry(), TextOf(e)));
 }
 
 /// <summary>
@@ -658,8 +667,8 @@ public sealed partial class Register
         fields[RegisterFields.ByEmail] = Str(by.Email);
         foreach (var field in RegisterFields.All.Where(f => f.OnlyWhenKnown))
         {
-            // through With, so what is sent is what would be read back (a kind is "intern", "employee" or not there)
-            if (field.TextOf(field.With(new RegisterEntry(), field.TextOf(e))) is { Length: > 0 } known) fields[field.Name] = Str(known);
+            // a kind is "intern", "employee" or not there
+            if (field.Sent(e) is { Length: > 0 } known) fields[field.Name] = Str(known);
         }
         return new JsonObject { ["fields"] = fields };
     }

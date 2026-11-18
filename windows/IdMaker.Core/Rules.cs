@@ -36,6 +36,14 @@ public static partial class CardRules
     public static int? SeqNumber(string text) =>
         IsSeqText(text) && int.Parse(text, CultureInfo.InvariantCulture) is var number and > 0 ? number : null;
 
+    /// <summary>
+    /// The year a list gives for a card: four of the digits 0 to 9, or null.
+    /// Like the number, only the digits the card prints count; anything else
+    /// is not a year, and the batch falls back to this year.
+    /// </summary>
+    public static int? YearNumber(string text) =>
+        text.Length == 4 && text.All(char.IsAsciiDigit) ? int.Parse(text, CultureInfo.InvariantCulture) : null;
+
     /// <summary>What the number box keeps of what was typed into it: digits only, and no more than fit.</summary>
     public static string SeqTyped(string typed) => new(typed.Where(char.IsAsciiDigit).Take(MostSeqDigits).ToArray());
 }

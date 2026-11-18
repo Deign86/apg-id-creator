@@ -1155,5 +1155,6 @@ public class BatchTests
         var none = Batch.Run("name,title,seq\nJuan,Driver,7\n", Array.Empty<string>(), null, Services());
         Assert.Contains("None of the rows", none.Error);
         Assert.Equal(("apg-id-sheets-2026-11-17.pdf", "Alpha Premier IDs — 1 card — 2026-11-17"), Batch.FileFor(1, true, new DateTime(2026, 11, 17)));
+        Assert.Equal(("apg-id-batch-2026-11-17.pdf", "Alpha Premier IDs — 2 cards — 2026-11-17"), Batch.FileFor(2, false, new DateTime(2026, 11, 17)));
     }
 }

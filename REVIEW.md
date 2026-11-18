@@ -31,6 +31,7 @@ exposed personal data, or a broken release), **Nit**, or **Pre-existing**
 | `CardRenderer.cs`, `TextFit.cs`, `Geometry.cs`, fonts, `assets/` | `RenderTests` still pass against `test/golden-front.png`. If the card moved on purpose, the commit says so | AGENTS.md |
 | Photos or signatures | Nothing stores one, sends one, or writes one to a log, a test report or the register | AGENTS.md |
 | `Session.cs` steps or `MarkIssued` | Nothing is issued until the PDF is known to be saved | STATE-MACHINES issue 5 |
+| `SavePrint`, `MarkIssued`, or anything read after an `await` in a job | What is issued or written is what was fixed before the wait (the print job's own cards), never the form read again afterwards: the form stays live while a file is written | Untangle round 3: a card removed during the write was printed and not issued |
 
 ## The code
 

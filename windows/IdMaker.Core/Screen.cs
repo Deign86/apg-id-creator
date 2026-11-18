@@ -40,6 +40,9 @@ public static class Words
     /// <summary>"" for one, "s" for any other count: "1 card", "2 cards".</summary>
     public static string S(int count) => count == 1 ? "" : "s";
 
+    /// <summary>The verb that goes with it: "1 card is", "2 cards are".</summary>
+    public static string IsAre(int count) => count == 1 ? "is" : "are";
+
     /// <summary>What the system said went wrong, in brackets, ready to sit inside a sentence.</summary>
     public static string Why(Exception e) => $"({e.Message.TrimEnd('.')})";
 }
@@ -137,7 +140,7 @@ public sealed record MoveEffects(bool StepChanged, bool ShowFront, bool Saved, F
 /// <summary>Everything the window shows that is decided by a rule.</summary>
 public sealed record Screen(
     int StepIndex, StageView Stage, NameView Name, TitleView Title, NumberView Number, PhotoView Photo, SignView Sign,
-    CheckView Check, IReadOnlyList<StepChip> Chips, FooterView Footer, JobView Job, ToolsView Tools, RegisterView? Register)
+    CheckView? Check, IReadOnlyList<StepChip> Chips, FooterView Footer, JobView Job, ToolsView Tools, RegisterView? Register)
 {
     /// <summary>How many issued IDs the drawer lists. The two windows differ: see the decision log.</summary>
     public static int IssuedListed(HostPlatform platform) => platform == HostPlatform.Windows ? 25 : 12;
@@ -154,6 +157,7 @@ public sealed record Screen(
         // An error shows only once its field was touched.
         string Shown(Field f) => s.Touched.Contains(f) ? p[f] : "";
         var onCheck = s.StepIndex == Session.LastStep;
+        // once a redraw: making the list asks what the card on screen would be recorded as
         var cards = s.JobCards();
         var tools = ToolRail(s, input);
 
@@ -177,7 +181,8 @@ public sealed record Screen(
             Number: NumberStep(s, Shown(Field.Seq)),
             Photo: PhotoStep(s, p, input),
             Sign: SignStep(s, Shown(Field.Signature), input),
-            Check: CheckStep(s, p, cards, input),
+            // only where it is shown: neither window reads it on another step
+            Check: onCheck ? CheckStep(s, p, cards, input) : null,
             Chips: StepChips(s, p),
             Footer: FooterLine(s, p, onCheck, input),
             Job: JobStrip(s, cards, onCheck, input),
@@ -306,7 +311,7 @@ public sealed record Screen(
             CopiesLabel: cards.Count > 1 ? "Copies of each card" : "Copies of this card",
             // how many fit, and the sheet count only when it is more than one
             PrintNote: plan is null ? "" : $"{plan.PerSheet} cards per {s.Paper} sheet" + (sheets > 1 ? $" · {total} cards, {sheets} sheets" : "") + ".",
-            FileLine: s.PrintFileLine(),
+            FileLine: s.PrintFileLine(cards.Count),
             SaveEnabled: cards.Count > 0 && !input.Saving,
             SaveTitle: input.Saving ? "Saving the PDF…" : "Save the PDF",
             PicturesEnabled: hasCurrent && !input.Saving,
@@ -424,10 +429,10 @@ public sealed record Screen(
             // who is signed in to the shared register on this computer
             Account: !shared ? "This copy of the app keeps its own list only."
                 : signedIn ? $"Signed in as {register.SignedInAs}."
-                    + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} still waiting to be written to it." : "")
+                    + (waiting > 0 ? $" {waiting} card{Words.S(waiting)} {Words.IsAre(waiting)} still waiting to be written to it." : "")
                 : (register.SignInProblem.Length > 0 ? register.SignInProblem + " " : "")
                     + "Sign in with your Keystone account, once on this computer, so numbers are checked against every computer."
-                    + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} waiting to be written to it." : ""),
+                    + (waiting > 0 ? $" {waiting} card{Words.S(waiting)} {Words.IsAre(waiting)} waiting to be written to it." : ""),
             SignInShown: shared && !signedIn,
             SignedInShown: shared && signedIn,
             // what the register has refused: duplicates that must not be handed out
@@ -460,7 +465,7 @@ public sealed record Screen(
     /// about, not merely the first thing in it. Landing on the year box when
     /// the step is about the number sent the typing to the wrong field.
     /// </summary>
-    public static FocusTarget LandingFor(Session s, int step, bool saved) => step switch
+    public static FocusTarget LandingFor(Session s, int step) => step switch
     {
         (int)Step.Name => FocusTarget.Last,
         // the step's first question until it is answered, then the job title
@@ -468,7 +473,9 @@ public sealed record Screen(
         (int)Step.Number => FocusTarget.Seq,
         (int)Step.Photo => FocusTarget.PhotoButton,
         (int)Step.Sign => FocusTarget.SignButton,
-        _ => saved ? FocusTarget.NewIdButton : FocusTarget.SaveButton,
+        // Never "Start a new ID": arriving at a step is a move to another step, and that
+        // forgets the save (AfterMove). The window sends the cursor there itself, after a save.
+        _ => FocusTarget.SaveButton,
     };
 
     /// <summary>
@@ -485,7 +492,7 @@ public sealed record Screen(
         // a different step is a different piece of work: what was saved is behind us
         var stillSaved = saved && !changed;
         var focus = result?.FocusField is { } field ? FocusFor(s, field)
-            : changed ? LandingFor(s, s.StepIndex, stillSaved)
+            : changed ? LandingFor(s, s.StepIndex)
             : null;
         return new MoveEffects(
             StepChanged: changed,

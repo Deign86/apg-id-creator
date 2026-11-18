@@ -651,7 +651,7 @@ public sealed partial class MainWindow
 
             RenderPhotoStep(m.Photo);
             RenderSignStep(m.Sign);
-            RenderCheckStep(m.Check);
+            if (m.Check is { } check) RenderCheckStep(check);
 
             // one step at a time
             for (var i = 0; i < _steps.Length; i++) Ui.Show(_steps[i], i == m.StepIndex);

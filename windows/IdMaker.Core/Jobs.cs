@@ -16,8 +16,19 @@ namespace IdMaker.Core;
 public sealed record SignInReport(bool Ok, string Message);
 
 /// <summary>A print ready to be drawn and saved.</summary>
+/// <param name="Issue">What saving this print issues. The window never needs to look inside.</param>
 public sealed record PrintJob(
-    SheetPlan Plan, IReadOnlyList<CardData> Entries, IReadOnlyList<SheetPage> Pages, bool BackUpsideDown, string Title, int Cards);
+    SheetPlan Plan, IReadOnlyList<CardData> Entries, IReadOnlyList<SheetPage> Pages, bool BackUpsideDown, string Title, int Cards, PrintIssue Issue);
+
+/// <summary>
+/// The cards a print issues, fixed when the print is made. The form stays
+/// live while the file is written (a queued card can be removed, a name
+/// typed again), and what is on the paper is what was on the form when the
+/// pages were laid out, so that is what the register is given.
+/// </summary>
+/// <param name="Example">The print is of the example card: nothing is issued.</param>
+/// <param name="TypedTitles">Job titles typed under "Other…" on the card that was on screen, to be offered next time.</param>
+public sealed record PrintIssue(bool Example, IReadOnlyList<JobCard> Cards, IReadOnlyList<string> TypedTitles);
 
 /// <summary>What became of a print.</summary>
 /// <param name="Error">Why the PDF could not be saved, or "". When it is not "", nothing was issued.</param>
@@ -42,28 +53,48 @@ public static class PrintFiles
     public static async Task<string> Write(string path, IReadOnlyList<Func<PdfPage>> pages, string title, DateTime created, Action<int, int>? progress = null)
     {
         var partial = path + ".part";
+        var drawn = pages.Select(Drawn).ToList();
         try
         {
             await Task.Run(() =>
             {
                 using (var stream = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
-                    PdfWriter.Write(stream, pages, title, created, progress);
+                    PdfWriter.Write(stream, drawn, title, created, progress);
                 }
                 File.Move(partial, path, overwrite: true);
             });
             return "";
         }
-        // InvalidOperationException is a page that could not be drawn (the window is closing, a picture is gone)
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or OutOfMemoryException or InvalidOperationException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or OutOfMemoryException or PageNotDrawnException)
         {
             try { File.Delete(partial); }
             catch (Exception d) when (d is IOException or UnauthorizedAccessException) { /* nothing more to be done about a file that will not go */ }
-            return e is OutOfMemoryException
-                ? "This print is too large for this computer’s memory. Print fewer cards at a time."
-                : $"The file couldn’t be saved there {Words.Why(e)}. If it is open in another program, close it, or choose a different folder.";
+            return e switch
+            {
+                OutOfMemoryException => "This print is too large for this computer’s memory. Print fewer cards at a time.",
+                // not the folder's fault, so no advice about the folder
+                PageNotDrawnException => $"A page of this print couldn’t be drawn {Words.Why(e)}. Nothing was saved. Try again; if it happens again, close the app and open it again.",
+                _ => $"The file couldn’t be saved there {Words.Why(e)}. If it is open in another program, close it, or choose a different folder.",
+            };
         }
     }
+
+    /// <summary>
+    /// A page the window could not draw (it is closing, a picture is gone).
+    /// A window's page function says so with InvalidOperationException, which
+    /// is also what a slip in the drawing code throws; only one that came out
+    /// of a page function becomes this, and Write catches this and no other
+    /// InvalidOperationException, so neither is taken for a file that is open
+    /// in another program.
+    /// </summary>
+    private sealed class PageNotDrawnException(InvalidOperationException cause) : Exception(cause.Message, cause);
+
+    private static Func<PdfPage> Drawn(Func<PdfPage> page) => () =>
+    {
+        try { return page(); }
+        catch (InvalidOperationException e) { throw new PageNotDrawnException(e); }
+    };
 
     /// <summary>Where the back goes when the front is saved as a picture: beside it, "-front" swapped for "-back".</summary>
     public static string BackPictureFor(string frontPath, string folderIfNone) =>
@@ -151,14 +182,17 @@ public sealed partial class Session
     /// <summary>The print as it stands: what to draw. Null when there is nothing to print.</summary>
     public PrintJob? Print()
     {
-        if (PrintPages() is not { } print || print.Entries.Count == 0) return null;
-        return new PrintJob(print.Plan, print.Entries, print.Pages, BackUpsideDown(print.Plan), PrintFile().Title, JobCards().Count);
+        var issue = Issuing();
+        if (PrintPages(issue.Cards) is not { } print || print.Entries.Count == 0) return null;
+        return new PrintJob(print.Plan, print.Entries, print.Pages, BackUpsideDown(print.Plan), PrintFile().Title, issue.Cards.Count, issue);
     }
 
     /// <summary>
     /// Write the PDF, and only once it is safely on disk mark its cards as
     /// issued. A print that failed to save has issued nothing. The shared
     /// register is told after that, and the answer follows in Trouble.
+    /// The cards issued are the job's, not the form's as it stands when the
+    /// write ends: the register must say what the paper says.
     /// </summary>
     /// <param name="pages">The job's pages, drawn by the window's renderer when each is asked for.</param>
     public async Task<PrintSaved> SavePrint(string path, PrintJob job, IReadOnlyList<Func<PdfPage>> pages)
@@ -166,7 +200,7 @@ public sealed partial class Session
         var error = await PrintFiles.Write(path, pages, job.Title, _now());
         if (error.Length > 0) return new PrintSaved(error, 0, Task.FromResult(""));
         // Only now: the file is whole and under its own name.
-        var issued = MarkIssued();
+        var issued = MarkIssued(job.Issue);
         return new PrintSaved("", job.Cards, TellShared(issued));
     }
 
