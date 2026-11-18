@@ -50,4 +50,4 @@ jobs:
         run: |
           app=$(find mac/IdMaker.Mac/bin/Release -maxdepth 4 -name '*.app' | head -1)
           echo "$app"; ls "$app/Contents/MacOS"
-          "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest
+          "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest --repo "$GITHUB_WORKSPACE"
