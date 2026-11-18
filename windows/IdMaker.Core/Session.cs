@@ -775,11 +775,13 @@ public sealed partial class Session
         plan.Mode == SheetMode.Duplex && Flip == DuplexFlip.ShortEdge ? !RotateBack : RotateBack;
 
     /// <summary>The cards to print, each repeated by the number of copies, and the pages they fall on.</summary>
-    public (SheetPlan Plan, List<CardData> Entries, IReadOnlyList<SheetPage> Pages)? PrintPages()
+    public (SheetPlan Plan, List<CardData> Entries, IReadOnlyList<SheetPage> Pages)? PrintPages() => PrintPages(JobCards());
+
+    // For a print about to be saved: its pages are laid out from the very cards it will issue.
+    private (SheetPlan Plan, List<CardData> Entries, IReadOnlyList<SheetPage> Pages)? PrintPages(IReadOnlyList<JobCard> cards)
     {
         var plan = CurrentPlan();
         if (plan is null) return null;
-        var cards = JobCards();
         var copies = PrintCopies(plan);
         var entries = new List<CardData>();
         foreach (var c in cards) for (var n = 0; n < copies; n++) entries.Add(c.Data);
@@ -842,15 +844,32 @@ public sealed partial class Session
     /// Records them on this computer at once and returns the entries, for
     /// the caller to send on to the shared register. An example is never recorded.
     /// </summary>
-    public IReadOnlyList<RegisterEntry> MarkIssued()
+    public IReadOnlyList<RegisterEntry> MarkIssued() => MarkIssued(Issuing());
+
+    /// <summary>What a print of the form as it stands would issue.</summary>
+    private PrintIssue Issuing()
     {
-        if (Example) return Array.Empty<RegisterEntry>();
-        if (Role1.IsOther) _titles.Remember(Role1.Value);
-        if (ShowRole2 && Role2.IsOther) _titles.Remember(Role2Value);
-        var issued = JobCards().Select(c => c.Entry).ToList();
+        var typed = new List<string>();
+        if (Role1.IsOther) typed.Add(Role1.Value);
+        if (ShowRole2 && Role2.IsOther) typed.Add(Role2Value);
+        return new PrintIssue(Example, JobCards(), typed);
+    }
+
+    /// <summary>
+    /// Record the cards of a print that has been saved: those cards, whatever
+    /// the form holds by now. A queued card that was in the print leaves the
+    /// queue; one that was not (there is none today: nothing can be added
+    /// while a print is being written) would stay, unissued.
+    /// </summary>
+    private IReadOnlyList<RegisterEntry> MarkIssued(PrintIssue issue)
+    {
+        if (issue.Example) return Array.Empty<RegisterEntry>();
+        foreach (var title in issue.TypedTitles) _titles.Remember(title);
+        var issued = issue.Cards.Select(c => c.Entry).ToList();
         foreach (var e in issued) { _register.Record(e); _register.NoteShared(e); }
         DupLocal = issued.LastOrDefault() ?? DupLocal;
-        Queue.Clear();
+        // by reference: JobCard is a record, and two cards that read the same are still two cards
+        Queue.RemoveAll(queued => issue.Cards.Any(card => ReferenceEquals(card, queued)));
         return issued;
     }
 
