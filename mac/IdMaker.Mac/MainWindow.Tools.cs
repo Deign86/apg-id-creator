@@ -83,18 +83,14 @@ public sealed partial class MainWindow
     private void RenderBatch()
     {
         _btnBatch.Enabled = !_batchRunning && _batchCsv is not null && _batchPhotos.Length > 0 && _art is not null;
-        Ui.SetText(_csvMsg, _batchCsv is null ? "Columns: last, first, title, seq, and optionally middle, suffix, title2, year, photo, signature, replacement." : Path.GetFileName(_batchCsv));
-        Ui.SetText(_photosMsg, _batchPhotos.Length > 0 ? $"{_batchPhotos.Length} photo{(_batchPhotos.Length == 1 ? "" : "s")} chosen." : "Choose every photo. They are matched to the list by file name.");
-        Ui.SetText(_sigsMsg, _batchSigs.Length > 0 ? $"{_batchSigs.Length} signature{(_batchSigs.Length == 1 ? "" : "s")} chosen." : "Photos or scans of signatures on white paper. Rows without one get a card with no signature.");
+        var chosen = Screen.BatchChosen(_batchCsv, _batchPhotos.Length, _batchSigs.Length);
+        Ui.SetText(_csvMsg, chosen.List);
+        Ui.SetText(_photosMsg, chosen.Photos);
+        Ui.SetText(_sigsMsg, chosen.Signatures);
 
         var layout = BatchLayoutChoice;
         Ui.Show(_batchPaperField, layout != Batch.LayoutCards);
-        if (layout == Batch.LayoutCards) Ui.SetText(_layoutMsg, "Two pages per person, each the size of the card.");
-        else
-        {
-            var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex);
-            Ui.SetText(_layoutMsg, plan is null ? "" : $"{plan.PerSheet} cards per sheet ({plan.Cols} × {plan.Rows}, {(plan.Landscape ? "landscape" : "portrait")}).");
-        }
+        Ui.SetText(_layoutMsg, Screen.BatchLayoutLine(layout, BatchPaperChoice));
         Ui.SetText(_batchStatusLabel, _batchStatus);
         Ui.Show(_batchStatusLabel, _batchStatus.Length > 0);
 
@@ -103,14 +99,11 @@ public sealed partial class MainWindow
         foreach (var old in _batchReport.ArrangedSubviews) { _batchReport.RemoveArrangedSubview(old); old.RemoveFromSuperview(); }
         foreach (var r in _batchResults)
         {
-            var (color, note) = !r.Ok ? (NSColor.SystemRed, r.Problem)
-                : r.Warnings.Count > 0 || r.NoSignature
-                    ? (NSColor.SystemOrange, string.Join(" ", new[] { r.NoSignature ? "No signature on this card." : "" }.Concat(r.Warnings).Where(t => t.Length > 0)))
-                    : (NSColor.SecondaryLabel, "Ready.");
+            var (tone, head, text) = Screen.BatchRow(r);
             // the words say which it is; the colour only agrees with them
-            var line = Ui.Label((r.Ok ? "" : "Skipped: ") + note, 12, maxWidth: DrawerText);
-            line.TextColor = color;
-            _batchReport.AddArrangedSubview(Ui.Column(1, DrawerHead(r.Ok ? $"{r.Id} · {r.Label}" : $"Line {r.Line} · {r.Label}"), line));
+            var line = Ui.Label(text, 12, maxWidth: DrawerText);
+            line.TextColor = ToneColor(tone);
+            _batchReport.AddArrangedSubview(Ui.Column(1, DrawerHead(head), line));
         }
     }
 
@@ -342,13 +335,7 @@ public sealed partial class MainWindow
     private void ShowContrastWarnings()
     {
         var warnings = _art is null ? Array.Empty<ContrastWarning>() : _templates.Warnings(MacPictures.ToRgba(_art.Front));
-        _designWarnHead = "";
-        _designWarnLines = Array.Empty<string>();
-        if (warnings.Count == 0) return;
-        var names = warnings.Select(w => w.Label).ToList();
-        var list = names.Count > 1 ? $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]}" : names[0];
-        _designWarnHead = $"The {list} would be hard to read on this artwork. Put a darker shape behind {(warnings.Count > 1 ? "those boxes" : "that box")}.";
-        _designWarnLines = warnings.Select(w => $"{w.Label}: prints in {w.Ink}, contrast {w.Ratio:0.0}:1 against the artwork (needs {w.Need:0}:1).").ToList();
+        (_designWarnHead, _designWarnLines) = Screen.ContrastReport(warnings);
     }
 
     internal void StartAdjusting()
@@ -418,7 +405,7 @@ public sealed partial class MainWindow
     private readonly PhotoDragView _photoDrag = new() { TranslatesAutoresizingMaskIntoConstraints = false };
     private (double Dx, double Dy) _dragFrom;
 
-    private bool CanDragPhoto => _session.Photo is not null && _front && !EditingMap && _session.StepIndex != Session.LastStep;
+    private bool CanDragPhoto => Screen.CanDragPhoto(_session, _front, EditingMap);
 
     private void WireCard()
     {
@@ -489,16 +476,14 @@ public sealed partial class MainWindow
         }
     }
 
-    private void RenderDriver()
+    private void RenderDriver(string tabletNote)
     {
         var installed = PenDriver.Installed;
         Ui.Show(_btnDriver, !installed);
         _btnDriver.Enabled = !_driverBusy;
         Ui.SetText(_driverMsg, _driverStatus);
         Ui.Show(_driverMsg, _driverStatus.Length > 0);
-        Ui.SetText(_tabletNote, installed
-            ? "A pen tablet draws thicker where you press harder."
-            : "No pen tablet driver was found on this Mac, so sign with the mouse or trackpad, or use a scan. The app can install the XP-Pen driver.");
+        Ui.SetText(_tabletNote, tabletNote);
     }
 
     /* ---- for the window test --------------------------------------- */
