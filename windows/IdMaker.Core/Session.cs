@@ -81,6 +81,9 @@ public sealed partial class Session
     /// <summary>Would this whole name print? Shared with the batch reader.</summary>
     public static bool NamePrints(string name) => NameChars().IsMatch(name);
 
+    /// <summary>Is this a card number as it is written: one to four digits? Shared with the batch reader.</summary>
+    public static bool IsSeqText(string text) => SeqDigits().IsMatch(text);
+
     // The three print settings kept between runs: the key each is stored under and the values it takes.
     private const string RotateBackKey = "rotate-back", On = "1", Off = "0";
     private const string FlipKey = "duplex-flip", FlipShort = "short", FlipLong = "long";
@@ -168,7 +171,7 @@ public sealed partial class Session
     /* ---- derived -------------------------------------------------- */
 
     public int? SeqNumber =>
-        SeqDigits().IsMatch(Seq) && int.Parse(Seq, CultureInfo.InvariantCulture) > 0 ? int.Parse(Seq, CultureInfo.InvariantCulture) : null;
+        IsSeqText(Seq) && int.Parse(Seq, CultureInfo.InvariantCulture) > 0 ? int.Parse(Seq, CultureInfo.InvariantCulture) : null;
 
     public NameParts NameParts => new(Last, First, Middle, Suffix);
     public string Role2Value => ShowRole2 ? Role2.Value : "";
