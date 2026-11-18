@@ -72,9 +72,6 @@ public static class PersonKind
         Intern => Intern,
         _ => "",
     };
-
-    /// <summary>"Employee" or "Intern", for a sentence or a list.</summary>
-    public static string Label(string kind) => kind == Intern ? "Intern" : kind == Employee ? "Employee" : "";
 }
 
 /// <summary>A failure the operator can act on: its message is shown as it is.</summary>
