@@ -215,9 +215,46 @@ Left in the windows, with the reason:
 
 ### 4. One home, and a test that reads the files (root fix 4, remainder)
 
-- (this commit) `HomeTests` (9 tests) reads `MainWindow.xaml`, both `.csproj` files, `app.manifest`, `Info.plist`, `IdMaker.iss`, `selftest.ps1`, `portable.ps1`, `package.ps1`, `package.sh`, the two palettes, and three `.cs` files that spell a value as bytes or per cent, and holds each value to its Core home: the version (H44: five places, the manifest and `ApplicationDisplayVersion` included, which the release workflow does not check); the app's name, publisher and program name (H52, H53, N18); the data folder and `last-error.txt` (H54); the built-in pictures (H55); field lengths (H45, so S2's three constants now have a reader) and the number box (H46); the artwork size (H47); the zoom slider on both platforms (H48); the card surface (H49); the tool, layout, kind and step tags (H56, H57, H58, H67's three Edit tags); gold and screen ink (H50, H51).
+- `553337a` `HomeTests` (9 tests) reads `MainWindow.xaml`, both `.csproj` files, `app.manifest`, `Info.plist`, `IdMaker.iss`, `selftest.ps1`, `portable.ps1`, `package.ps1`, `package.sh`, the two palettes, and three `.cs` files that spell a value as bytes or per cent, and holds each value to its Core home: the version (H44: five places, the manifest and `ApplicationDisplayVersion` included, which the release workflow does not check); the app's name, publisher and program name (H52, H53, N18); the data folder and `last-error.txt` (H54); the built-in pictures (H55); field lengths (H45, so S2's three constants now have a reader) and the number box (H46); the artwork size (H47); the zoom slider on both platforms (H48); the card surface (H49); the tool, layout, kind and step tags (H56, H57, H58, H67's three Edit tags); gold and screen ink (H50, H51).
   - New Core homes for values that had none: `CardConfig.Publisher`, `ProgramName`, `LastErrorFile`, `BrandGold`, `ScreenInk`. No value changed.
   - Not covered: the Mac's colours written as rounded fractions (0.83, 0.69, 0.22 and 0.11, 0.11, 0.10: not the same numbers as the hex, so a test would have to allow a tolerance or the colour would have to change); the printer-flip tags `long` / `short` (their Core home is two private constants of `Session`); H59 (the Windows file-dialog filter); H66 (the pen driver pinned twice).
+
+### 5. One drawing plan for the front of the card (root fix 3, in part)
+
+A series of three, last on the branch, so it can be dropped: revert `3/3`, then `2/3`; `1/3` draws nothing and can stay or go.
+
+- `e51fe03` 1/3 Core: `CardDrawing.Front` (`Core/Drawing.cs`) returns the front as ordered operations: `ArtworkOp`, `PhotoOp` (clip, fade), `ArtworkOp` inside the front outline, a `WordOp` per word, `InkOp` or `ScanOp`, `QrOp`. `DrawingTests` (6) hold the order and the placement without a renderer.
+- `f574158` 2/3 The Windows renderer draws from the list. `80494d1` 3/3 The Mac renderer draws from the list.
+  - H31 (the front's order and the fade's numbers), H32 (line placement), H33 (the QR code's snapping, quiet zone and run merging), H34's second half (fitting a signature into its box), H38's `Words`: each now once, in Core.
+  - How the card is kept from moving: every expression that produces a coordinate was moved, not rewritten. Where a renderer multiplied millimetres by the resolution itself (clip polygons, the QR code's rectangles, which the two renderers even compute differently: corner to corner on Windows, corner and size on the Mac) the operation carries millimetres and the renderer still does its own multiplication. Where the position was already in pixels (text, ink, the photo rectangle) the operation carries the pixels. Word offsets come from `ITextMeasurer.Width`, which for a single word and for a single space returns exactly what each platform's private `WordWidth` did (0 spaces times the space width, plus the word).
+  - So the brief's "positions in card units" holds for clips and the QR code and not for text, ink or pictures; converting those to millimetres and back would have been a second rounding on the way to the printer.
+
+Left from root fix 3: H35 (a sheet: page rounding, the turned card, crop marks), H36 (`SheetPdfPages` / `CardPdfPages`), H37 (flattening onto white), H39 (which file is which font), H40 (`CardArt` declared twice), H41 (what picture is too big), H42 (the map editor), H43 (the signing pad), N1 (the fonts' folder), N13 (the guides overlay is still a parameter for one caller) and X15 (the photo box kept apart). The back of the card is one picture and was left as it is. `WpfTextMeasurer.Words` and `MacTextMeasurer.Words` are now unused and were left in place: deleting a public member of a file that cannot be compiled here was not worth a failed build.
+
+### 6. Special cases (X1 to X23)
+
+Made unnecessary by the fixes above and gone:
+
+- X7: four copies of "a file whose size cannot be read is given size 0" are one (`Session.SizeOf`), with the reason it stays.
+- X9: four of the six commented empty catches are two (`PrintFiles.Write` for the half-written file, `DesignDesk.BackToBuiltIn` for an orphaned picture).
+- X17 (second half): "signing opens by itself on arriving at the signature step" is once, in `Screen.AfterMove`. X18: the register drawer's special title is once, in `Screen`.
+- X20: `WritePdf(progress)` is gone with the windows' `WritePdf`; `PrintFiles.Write` keeps the parameter for the Windows batch's page counter.
+
+Still needed, now saying what outside fact needs them (`a9511ff`, `05f015f`):
+
+- X1, X2, X3 (`FileStore.Get`, `Set`, `StoreJson.Read`): another program holding the file, a full or read-only disk, a file from an older version. What each costs is written beside it. Making the store able to say "could not" is root fix 9, not done.
+- X11: the 120 ms wait before the sheet preview is drawn on Windows.
+- X22: SAFETY comments on the unchecked marks this round touched (two in `Session`, the paper and flip casts and three marks in the Windows `RunBatch`, the cast in the new `ScanOp` branch).
+
+Not touched: X4, X5, X6, X8 (each returns a default with a comment already there, or in a file this round did not change), X10, X12, X13 (tests and scripts waiting on a process or a network), X14 (one retry after a 401, commented), X15, X16, X19, X21, X23.
+
+### 7. Comments and tests
+
+- Comments: the files this round wrote (`Screen.cs`, `Jobs.cs`, `Rules.cs`, `Drawing.cs`, the new tests) say why, or what outside fact, not what the next line does. In the four window files the comments that described a rule were moved to Core with the rule; the ones left say which control or which platform fact. No pass was made over untouched files.
+- `b0e90a4` The copies ceiling is asserted as 80, not as `plan.PerSheet * 20`.
+- `3e4f831` `PingResult.Sheet` and the one assertion that read it are gone (S11).
+- `fbf2fd0` `MoveResult.Moved` and the seven assertions on it are gone (S10); the tests now assert the step the form is on.
+- Kept, though round 1 listed them: `A_box_cannot_be_dragged…` (`Assert.Equal(2, b.W)` pins a private constant from outside and does fail if it changes); `Tests_use_a_project_that_does_not_exist` (the guard for an AGENTS.md rule); `A_value_that_no_longer_parses…` (exercises `StoreJson.Read`); the `IndexLoaded` assertions (they test the register's state through a test-only window, and can fail); `The_example_card_is_never_written…` and the `PdfFileNameFromWholeName` cases (whether the example card and that function stay is S13 / S14, the owner's call); the weak `Assert.NotNull` lines in `AppTests.cs` (cannot be compiled here).
 
 ## Differences preserved, for the owner to unify
 
@@ -255,3 +292,7 @@ The form and the batch (H63). They now ask the same `CardRules`, but not all the
 7. Root fix 2: on signing in, the password box is emptied as soon as the password has been handed to Core, rather than after the first answer comes back. It is never held longer than before.
 8. Root fix 2: after a batch whose cards could not all reach the shared register, the number on the form is checked again inside `IssueBatch` (as both windows did); after an ordinary save it is not (as neither window did). Kept as found.
 9. Root fix 2: the batch's orchestration and the state of a save were left in the windows (see "Left in the windows" under fix 3) rather than moved without a compiler.
+10. Order of work: the drawing plan (step 5) was done after the special cases and the tests (steps 6 and 7), so that its three commits are the last on the branch and can be dropped without touching anything else.
+11. Drawing plan: operations carry pixels for text, ink and pictures and millimetres for clips and the QR code, rather than card units throughout, so that no coordinate is computed differently from before. Only the front was planned; sheets, the PDF pages and the back were left.
+12. Tests: of the tests round 1 listed, three were changed or removed (each its own commit) and the rest kept with the reason given under fix 7. None of them was strictly unable to fail.
+13. `HomeTests` needed five values to have a Core home that had none (`Publisher`, `ProgramName`, `LastErrorFile`, `BrandGold`, `ScreenInk`); they were added to `CardConfig` with the values the other files already had.
