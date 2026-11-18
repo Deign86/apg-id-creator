@@ -100,9 +100,8 @@ public static class StoreJson
     {
         var raw = store.Get(key);
         if (string.IsNullOrWhiteSpace(raw)) return fallback;
-        // Still needed: the file may have been written by an older version, or cut short by a power
-        // failure before FileStore learned to write beside and move. It reads as the fallback, and the
-        // next write replaces it (docs/untangle, X3).
+        // Still needed: the file may have been written by an older version of the app, or damaged on
+        // disk. It reads as the fallback, and the next write replaces it (docs/untangle, X3).
         try { return JsonSerializer.Deserialize<T>(raw, Options) ?? fallback; }
         catch (JsonException) { return fallback; }
     }

@@ -497,9 +497,9 @@ public class PrintJobTests
         Assert.Equal(2, print.Pages.Count);
 
         s.SetCopies(100000);
-        Assert.Equal(plan.PerSheet * 20, s.PrintCopies(plan));
+        Assert.Equal(80, s.PrintCopies(plan));               // twenty sheets of four
         s.NudgeCopies(1);
-        Assert.Equal(plan.PerSheet * 20, s.Copies);
+        Assert.Equal(80, s.Copies);
 
         s.SetLayout(SheetMode.Duplex);
         Assert.Null(s.Copies);                                // the two layouts hold different numbers
