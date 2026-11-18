@@ -33,10 +33,8 @@ internal static class SelfTest
         }
         else
         {
-            foreach (var problem in FontsAgainstTheWebApp(repo, out var worst))
-            {
-                Check(problem, false);
-            }
+            var problems = FontsAgainstTheWebApp(repo, out var worst);
+            foreach (var problem in problems) Check(problem, false);
             Check($"the card fonts measure as they did in the web app (worst width difference at 100 px: {worst:0.0000})", worst < 0.05);
         }
 

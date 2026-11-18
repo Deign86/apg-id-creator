@@ -98,7 +98,7 @@ public sealed class MacTextMeasurer : ITextMeasurer
         {
             var glyphs = run.GetGlyphs();
             var positions = run.GetPositions();
-            var face = run.GetAttributes().Font ?? Sized(font, px);
+            var face = run.GetAttributes()?.Font ?? Sized(font, px);
             for (var i = 0; i < glyphs.Length; i++)
             {
                 // Core Text's y grows upwards: flip each glyph about its baseline.
