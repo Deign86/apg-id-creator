@@ -188,7 +188,7 @@ public sealed partial class MainWindow
 
     /// <summary>Where this Mac's user keeps the app's list of issued IDs and settings.</summary>
     public static string DefaultDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Alpha Premier", "ID Maker");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), FileStore.CompanyFolder, FileStore.AppFolder);
 
     internal MainWindow(FileStore files, Register? register)
     {
