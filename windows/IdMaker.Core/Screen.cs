@@ -9,7 +9,7 @@
 //
 // Where the two windows really do differ (how many issued IDs the drawer
 // lists, the batch tool's name, the tablet note) the difference is kept and
-// is chosen by Platform, so it is visible here rather than hidden in one of
+// is chosen by HostPlatform, so it is visible here rather than hidden in one of
 // the windows. docs/untangle/decision-log.md lists each one.
 
 using System.Globalization;
@@ -17,7 +17,7 @@ using System.Globalization;
 namespace IdMaker.Core;
 
 /// <summary>Which of the two windows is asking.</summary>
-public enum Platform { Windows, Mac }
+public enum HostPlatform { Windows, Mac }
 
 /// <summary>What kind of line a message is. Each window has its own colour for each.</summary>
 public enum Tone { Note, Warning, Error }
@@ -45,7 +45,7 @@ public static class Words
 }
 
 /// <summary>What the window knows and the Session does not.</summary>
-public sealed record ScreenInput(Platform Platform)
+public sealed record ScreenInput(HostPlatform Platform)
 {
     /// <summary>The preview shows the front of the card, not the back.</summary>
     public bool Front { get; init; } = true;
@@ -140,7 +140,7 @@ public sealed record Screen(
     CheckView Check, IReadOnlyList<StepChip> Chips, FooterView Footer, JobView Job, ToolsView Tools, RegisterView? Register)
 {
     /// <summary>How many issued IDs the drawer lists. The two windows differ: see the decision log.</summary>
-    public static int IssuedListed(Platform platform) => platform == Platform.Windows ? 25 : 12;
+    public static int IssuedListed(HostPlatform platform) => platform == HostPlatform.Windows ? 25 : 12;
 
     /// <summary>
     /// The screen for the form as it stands. A refusal that has been put
@@ -272,7 +272,7 @@ public sealed record Screen(
             // a scan that could not be read is said before a signature that is merely missing
             Message: input.SignatureError.Length > 0 ? input.SignatureError : error,
             TabletNote: input.TabletDriver ? "A pen tablet draws thicker where you press harder."
-                : input.Platform == Platform.Windows
+                : input.Platform == HostPlatform.Windows
                     ? "No pen tablet driver is installed on this computer, so sign with the mouse or use a scan. The installer can add the XP-Pen driver."
                     : "No pen tablet driver was found on this Mac, so sign with the mouse or trackpad, or use a scan. The app can install the XP-Pen driver.");
     }
@@ -381,10 +381,10 @@ public sealed record Screen(
     }
 
     /// <summary>What a tool's drawer is headed, and its button named.</summary>
-    public static string ToolTitle(string tool, Platform platform) => tool switch
+    public static string ToolTitle(string tool, HostPlatform platform) => tool switch
     {
         ToolKey.Register => "Issued IDs",
-        ToolKey.Batch => platform == Platform.Windows ? "Batch from CSV" : "Batch from a list",
+        ToolKey.Batch => platform == HostPlatform.Windows ? "Batch from CSV" : "Batch from a list",
         ToolKey.Printer => "Printer setting",
         ToolKey.Design => "Card design",
         _ => "",
@@ -405,7 +405,7 @@ public sealed record Screen(
             RegisterButton: counted);
     }
 
-    private static RegisterView RegisterTool(Register register, Platform platform)
+    private static RegisterView RegisterTool(Register register, HostPlatform platform)
     {
         var all = register.All();
         var listed = IssuedListed(platform);

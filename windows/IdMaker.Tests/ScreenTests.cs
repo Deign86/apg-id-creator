@@ -9,8 +9,8 @@ namespace IdMaker.Tests;
 
 public class ScreenTests
 {
-    private static readonly ScreenInput Windows = new(Platform.Windows) { Loaded = true };
-    private static readonly ScreenInput Mac = new(Platform.Mac) { Loaded = true };
+    private static readonly ScreenInput Windows = new(HostPlatform.Windows) { Loaded = true };
+    private static readonly ScreenInput Mac = new(HostPlatform.Mac) { Loaded = true };
 
     /// <summary>The value, which the test needs to be there.</summary>
     private static T Must<T>(T? value) where T : class
