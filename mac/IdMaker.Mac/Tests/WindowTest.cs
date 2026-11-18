@@ -86,8 +86,7 @@ internal static class WindowTest
     // Press a control the way AppKit does when it is clicked.
     private static void Press(NSControl control)
     {
-        var action = control.Action;
-        if (action is null || !control.Enabled || control.Hidden || !control.SendAction(action, control.Target))
+        if (control.Action is not { } action || control.Target is not { } target || !control.Enabled || control.Hidden || !control.SendAction(action, target))
         {
             Check($"“{(control as NSButton)?.Title ?? control.AccessibilityLabel}” could be pressed", false);
         }
@@ -417,7 +416,7 @@ internal static class WindowTest
         using (var picture = MacPictures.ToImage(plain))
         using (var destination = CGImageDestination.Create(NSUrl.FromFilename(path), "public.jpeg", 1))
         {
-            destination?.AddImage(picture, NSDictionary.FromObjectAndKey(NSNumber.FromInt32(6), CGImageProperties.Orientation));
+            destination?.AddImage(picture, NSDictionary.FromObjectAndKey(NSNumber.FromInt32(6), ImageIO.CGImageProperties.Orientation));
             Check("the sideways picture was written", destination is not null && destination.Close());
         }
         var (image, error) = MacPictures.Decode(path);

@@ -1,8 +1,10 @@
 # For agents working in this repository
 
 Alpha Premier ID Maker makes employee ID cards. The app is the native
-Windows program in `windows/` (C#, .NET 8, WPF). Start with
-`windows/README.md`; the people who use the app read `README.md`.
+Windows program in `windows/` (C#, .NET 8, WPF) and the native Mac program
+in `mac/` (C#, .NET 10, AppKit), which share `windows/IdMaker.Core`. Start
+with `windows/README.md` and `mac/README.md`; the people who use the app
+read `README.md`.
 
 It replaced a web app (plain HTML and TypeScript in a Tauri window),
 removed on 17 Nov 2026 and still in git history. `test/golden-front.png`
@@ -13,7 +15,11 @@ produced; the native app is held to both.
 ## Rules
 
 - **Native only.** No web frontend, no browser shell, no WebView. A web
-  skill's advice is translated into WPF and XAML, not followed literally.
+  skill's advice is translated into WPF and XAML (or AppKit), not followed
+  literally.
+- **The two apps do the same things.** A step, a tool or a message added
+  to one window is added to the other in the same piece of work, or the
+  commit says what is left and why.
 - **Prefer what is already there**: the .NET standard library and
   Windows' own features, before a package. The one dependency is ONNX
   Runtime, for background removal. Adding another needs a reason written
@@ -30,7 +36,7 @@ produced; the native app is held to both.
   it is (its name and web API key) comes from the repository secrets
   `FIREBASE_PROJECT_ID` and `FIREBASE_API_KEY` when a release is built.
   What opens it is a person's sign-in, which the app keeps wrapped by
-  Windows (DPAPI). A password, a token, a key or a service-account file
+  Windows (DPAPI) or by the Mac (a key in the Keychain). A password, a token, a key or a service-account file
   is never in the source or in a plain file. `SecretTests` holds this.
 - **Tests never call the real project.** `Make.LocalRegister`,
   `FakeFirebase` and `FakeHttp` stand in, on a project that does not exist.
@@ -91,7 +97,9 @@ dotnet test windows/IdMaker.Tests
 
 `IdMaker.App.Tests` needs Windows and runs in CI
 (`.github/workflows/windows.yml`), which also packages the installer and
-proves it installs and starts. Done means these pass locally, the change
+proves it installs and starts. The Mac app needs a Mac and is built,
+tested (`--selftest`, `--windowtest`) and packaged in CI
+(`.github/workflows/mac.yml`). Done means these pass locally, the change
 is pushed, CI is watched, and anything it finds is fixed.
 
 `GATES.md` lists what the native rebuild had to prove and what is still
