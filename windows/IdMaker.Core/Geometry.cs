@@ -59,8 +59,6 @@ public sealed class TemplateStore
     private const double ShapeSlack = 0.02;           // how far off the card's proportions artwork may be
     private const double MinBoxMm = 2;                // a box smaller than this cannot be grabbed
 
-    public static readonly BoxKey[] BoxKeys = { BoxKey.Name, BoxKey.Title, BoxKey.EmployeeNo, BoxKey.Signature, BoxKey.Qr };
-
     private readonly IKeyValueStore _store;
 
     public TemplateStore(IKeyValueStore store) { _store = store; }
