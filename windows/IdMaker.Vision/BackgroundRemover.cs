@@ -26,8 +26,12 @@ public sealed class OnnxBackgroundRemover : IBackgroundRemover, IDisposable
         _input = session.InputMetadata.Keys.First();
     }
 
+    // The model's folder and file name, beside the program on Windows and inside the bundle on the Mac.
+    public const string ModelFolder = "Models";
+    public const string ModelFile = "modnet.onnx";
+
     /// <summary>Where the model sits beside the program.</summary>
-    public static string DefaultModelPath => Path.Combine(AppContext.BaseDirectory, "Models", "modnet.onnx");
+    public static string DefaultModelPath => Path.Combine(AppContext.BaseDirectory, ModelFolder, ModelFile);
 
     /// <summary>
     /// Load the model. Returns null, with the reason, when it is missing or

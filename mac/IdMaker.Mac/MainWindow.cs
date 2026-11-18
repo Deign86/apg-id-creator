@@ -548,7 +548,7 @@ public sealed partial class MainWindow
         var (remover, problem) = await Task.Run(() =>
         {
             // the model sits with the app's other resources, not beside the program as on Windows
-            var made = OnnxBackgroundRemover.TryCreate(out var why, InBundle("Models", "modnet.onnx"));
+            var made = OnnxBackgroundRemover.TryCreate(out var why, InBundle(OnnxBackgroundRemover.ModelFolder, OnnxBackgroundRemover.ModelFile));
             return (made, why);
         });
         _remover = remover;
