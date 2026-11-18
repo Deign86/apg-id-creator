@@ -700,7 +700,6 @@ public class RegisterTests
         var ping = await r.Ping();
         Assert.True(ping.Ok);
         Assert.Equal(652, ping.Rows);
-        Assert.Equal("demo-idmaker", ping.Sheet);
     }
 
     [Fact]

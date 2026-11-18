@@ -188,7 +188,7 @@ public sealed class RegisterException : Exception
     public RegisterException(string message) : base(message) { }
 }
 
-public sealed record PingResult(bool Ok, int Rows, string Sheet, string Error);
+public sealed record PingResult(bool Ok, int Rows, string Error);
 
 /// <summary>
 /// The Firebase project the shared register is kept in. These two values
@@ -706,11 +706,11 @@ public sealed partial class Register
     /// <summary>Check the register is answering this computer's sign-in, and count what is in it.</summary>
     public async Task<PingResult> Ping()
     {
-        if (Project is not { } project) return new PingResult(false, 0, "", "This copy of the app has no shared register.");
-        if (!SignedIn) return new PingResult(false, 0, project.ProjectId, SignInProblem.Length > 0 ? SignInProblem : SignInFirst);
+        if (Project is null) return new PingResult(false, 0, "This copy of the app has no shared register.");
+        if (!SignedIn) return new PingResult(false, 0, SignInProblem.Length > 0 ? SignInProblem : SignInFirst);
         if (!await LoadIndex(force: true).ConfigureAwait(false))
-            return new PingResult(false, 0, project.ProjectId, LastProblem.Length > 0 ? LastProblem : "The shared register did not answer. Try once more.");
-        lock (_gate) return new PingResult(true, _index?.Count ?? 0, project.ProjectId, "");
+            return new PingResult(false, 0, LastProblem.Length > 0 ? LastProblem : "The shared register did not answer. Try once more.");
+        lock (_gate) return new PingResult(true, _index?.Count ?? 0, "");
     }
 
     /// <summary>
