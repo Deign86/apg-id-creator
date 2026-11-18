@@ -167,36 +167,33 @@ public partial class MainWindow
     internal async Task SavePrint(string path)
     {
         if (_saving || _art is null || _renderer is null) return;
-        var print = _session.PrintPages();
-        if (print is not { } pr || pr.Entries.Count == 0) return;
-        var (_, title) = _session.PrintFile();
-        var pages = _renderer.SheetPdfPages(_art, _session.Geometry, pr.Plan, pr.Entries, pr.Pages, _session.BackUpsideDown(pr.Plan));
-        var count = _session.JobCards().Count;
+        if (_session.Print() is not { } job) return;
+        var pages = _renderer.SheetPdfPages(_art, _session.Geometry, job.Plan, job.Entries, job.Pages, job.BackUpsideDown);
 
         _saving = true;
         Show(ReviewError, false);
         Render();
-        var error = await WritePdf(path, pages, title, null);
+        // Core writes the PDF, and only once it is whole issues its cards (Session.SavePrint)
+        var saved = await _session.SavePrint(path, job, OnWindow(pages));
         _saving = false;
-        if (error.Length > 0)
+        if (saved.Error.Length > 0)
         {
-            ReviewError.Text = error;
+            ReviewError.Text = saved.Error;
             Show(ReviewError, true);
             Render();
             return;
         }
 
-        var issued = _session.MarkIssued();
         _saved = true;
-        _savedCount = count;
+        _savedCount = saved.Cards;
         _savedPath = path;
         SavedName.Text = Path.GetFileName(path);
         Show(SavedNote, false);
         Render();
         BtnNewId.Focus();
 
-        var report = await _session.RecordShared(issued);
-        if (report.Message() is { Length: > 0 } trouble)
+        // the shared register has been told meanwhile
+        if (await saved.Trouble is { Length: > 0 } trouble)
         {
             SavedNote.Text = trouble;
             Show(SavedNote, true);
@@ -205,36 +202,12 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Write a PDF to disk. Pages are drawn here, on the window's own thread,
-    /// one at a time as they are asked for; the compressing and writing
-    /// happen off it, so the window stays alive through a long batch.
-    /// Returns "" or what went wrong, in words for the operator.
+    /// Pages are drawn here, on the window's own thread, one at a time as
+    /// the writer asks for them; the compressing and writing happen off it
+    /// (PrintFiles.Write), so the window stays alive through a long batch.
     /// </summary>
-    private async Task<string> WritePdf(string path, List<Func<PdfPage>> pages, string title, Action<int, int>? progress)
-    {
-        var onWindow = pages.Select(p => (Func<PdfPage>)(() => Dispatcher.Invoke(p, DispatcherPriority.Background))).ToList();
-        var tmp = path + ".part";
-        try
-        {
-            await Task.Run(() =>
-            {
-                using (var stream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    PdfWriter.Write(stream, onWindow, title, DateTime.Now,
-                        progress is null ? null : (done, total) => Dispatcher.BeginInvoke(() => progress(done, total)));
-                }
-                File.Move(tmp, path, overwrite: true);
-            });
-            return "";
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or OutOfMemoryException)
-        {
-            try { File.Delete(tmp); } catch (Exception d) when (d is IOException or UnauthorizedAccessException) { /* nothing more to be done about a file that will not go */ }
-            return e is OutOfMemoryException
-                ? "This print is too large for this computer’s memory. Print fewer cards at a time."
-                : $"The file couldn’t be saved there ({e.Message.TrimEnd('.')}). If it is open in another program, close it, or choose a different folder.";
-        }
-    }
+    private List<Func<PdfPage>> OnWindow(List<Func<PdfPage>> pages) =>
+        pages.Select(p => (Func<PdfPage>)(() => Dispatcher.Invoke(p, DispatcherPriority.Background))).ToList();
 
     private void BtnPng_Click(object sender, RoutedEventArgs e)
     {
@@ -243,19 +216,18 @@ public partial class MainWindow
         var dialog = new SaveFileDialog { Title = "Save the front as a picture", FileName = stem + "-front.png", Filter = "PNG picture|*.png", DefaultExt = ".png", InitialDirectory = DocumentsFolder };
         if (dialog.ShowDialog(this) != true) return;
         var front = dialog.FileName;
-        var back = Path.Combine(Path.GetDirectoryName(front) ?? DocumentsFolder,
-            Path.GetFileNameWithoutExtension(front).Replace("-front", "", StringComparison.OrdinalIgnoreCase) + "-back.png");
+        var back = PrintFiles.BackPictureFor(front, DocumentsFolder);
         try
         {
             var ppm = CardConfig.PrintPxPerMm;
             ImageFiles.SavePng(_renderer.RenderFront(_art, _session.Geometry, _session.CardData(), ppm), front);
             ImageFiles.SavePng(_renderer.RenderBack(_art, ppm, _session.RotateBack), back);
             // pictures are a proof to look at, not a print: the card is issued when the PDF is saved
-            SetText(ReviewFile, $"Saved {Path.GetFileName(front)} and {Path.GetFileName(back)}. The card is not issued until you save the PDF.");
+            SetText(ReviewFile, PrintFiles.PicturesSaved(front, back));
         }
         catch (Exception x) when (x is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            ReviewError.Text = $"The pictures couldn’t be saved there ({x.Message.TrimEnd('.')}). Choose a different folder.";
+            ReviewError.Text = PrintFiles.PicturesNotSaved(x);
             Show(ReviewError, true);
         }
     }
@@ -403,7 +375,7 @@ public partial class MainWindow
         if (dialog.ShowDialog(this) != true) return;
         try
         {
-            File.WriteAllText(dialog.FileName, _register.ToCsv());
+            File.WriteAllText(dialog.FileName, _session.RegisterCsv());
             RegisterUrlMsg.Text = $"Saved {Path.GetFileName(dialog.FileName)}.";
             ShowInExplorer(dialog.FileName);
         }
@@ -419,9 +391,7 @@ public partial class MainWindow
         if (dialog.ShowDialog(this) != true) return;
         try
         {
-            var added = _register.ImportCsv(File.ReadAllText(dialog.FileName));
-            RegisterUrlMsg.Text = added > 0 ? $"Added {added} card{(added == 1 ? "" : "s")} from that list." : "Nothing new in that list.";
-            _session.RefreshDuplicate();
+            RegisterUrlMsg.Text = _session.ImportRegister(File.ReadAllText(dialog.FileName));
             Render();
         }
         catch (Exception x) when (x is IOException or UnauthorizedAccessException)
@@ -432,7 +402,7 @@ public partial class MainWindow
 
     private void BtnRefusedDone_Click(object sender, RoutedEventArgs e)
     {
-        _register.ClearRefused();
+        _session.ClearRefused();
         Render();
     }
 
@@ -450,22 +420,17 @@ public partial class MainWindow
         RegisterUrlMsg.Text = "Signing in…";
         try
         {
-            var result = await _register.SignIn(TxtSignInEmail.Text, TxtSignInPassword.Password);
-            // the password is not kept anywhere, this box included
+            // Core signs in, reads the register and sends the cards saved before anyone signed in (Session.SignIn)
+            var signingIn = _session.SignIn(TxtSignInEmail.Text, TxtSignInPassword.Password);
+            // the password is not kept anywhere, this box included: it has been handed over
             TxtSignInPassword.Clear();
+            var result = await signingIn;
+            RegisterUrlMsg.Text = result.Message;
             if (!result.Ok)
             {
-                RegisterUrlMsg.Text = result.Error;
                 TxtSignInPassword.Focus();
                 return;
             }
-            var read = await _register.LoadIndex();
-            // cards saved before anyone signed in are sent now
-            var left = read ? await _register.SendWaiting() : _register.WaitingForShared;
-            _session.RefreshDuplicate();
-            RegisterUrlMsg.Text = !read ? $"Signed in, but the register could not be read just now. {_register.LastProblem}"
-                : left > 0 ? $"Signed in. {left} card{(left == 1 ? "" : "s")} could not be written yet and will be tried again."
-                : "Signed in. This computer now checks every number against the shared register.";
             Render();
         }
         finally { BtnSignIn.IsEnabled = true; }
@@ -473,9 +438,7 @@ public partial class MainWindow
 
     private void BtnSignOut_Click(object sender, RoutedEventArgs e)
     {
-        _register.SignOut();
-        _session.RefreshDuplicate();
-        RegisterUrlMsg.Text = "Signed out. Numbers are checked against this computer only until somebody signs in.";
+        RegisterUrlMsg.Text = _session.SignOut();
         Render();
     }
 
@@ -485,12 +448,7 @@ public partial class MainWindow
         RegisterUrlMsg.Text = "Asking the register…";
         try
         {
-            var ping = await _register.Ping();
-            if (ping.Ok) await _register.SendWaiting();
-            _session.RefreshDuplicate();
-            RegisterUrlMsg.Text = ping.Ok
-                ? $"The shared register is answering: {ping.Rows} card{(ping.Rows == 1 ? "" : "s")} in it."
-                : ping.Error;
+            RegisterUrlMsg.Text = await _session.CheckRegister();
             Render();
         }
         finally { BtnRegisterTest.IsEnabled = true; }
@@ -586,13 +544,12 @@ public partial class MainWindow
             catch (Exception x) when (x is IOException or UnauthorizedAccessException) { BatchStatus.Text = $"The list couldn’t be read ({x.Message.TrimEnd('.')})."; return; }
 
             // duplicates across computers are only caught if the shared register has been read
-            if (_register.Shared && !await _register.LoadIndex())
+            if (!await _session.ReadSharedRegister())
                 BatchStatus.Text = "The shared register could not be reached, so numbers are checked against this computer only.";
 
             var geometry = _session.Geometry;
-            var remover = _remover;
             // its own measurer: the batch runs off the window's thread, and the window keeps drawing with the other one
-            var services = new Batch.Services(_register, WpfTextMeasurer.Load(BesideProgram("Fonts")), geometry, ImageFiles.Decode, remover, () => DateTime.Now);
+            var services = _session.BatchServices(WpfTextMeasurer.Load(BesideProgram("Fonts")), ImageFiles.Decode, _remover);
             var photos = _batchPhotos;
             var sigs = _batchSigs;
             var outcome = await Task.Run(() => Batch.Run(csv, photos, sigs, services,
@@ -609,28 +566,26 @@ public partial class MainWindow
             else
             {
                 var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex)!;
-                var backUp = plan.Mode == SheetMode.Duplex && _session.Flip == DuplexFlip.ShortEdge ? !_session.RotateBack : _session.RotateBack;
-                pages = _renderer.SheetPdfPages(_art, geometry, plan, entries, Sheets.Pages(entries.Count, plan, _session.Flip), backUp);
+                pages = _renderer.SheetPdfPages(_art, geometry, plan, entries, Sheets.Pages(entries.Count, plan, _session.Flip), _session.BackUpsideDown(plan));
             }
             var (_, title) = Batch.FileFor(good.Count, layout != Batch.LayoutCards, DateTime.Now);
-            var error = await WritePdf(savePath, pages, title, (done, total) => BatchStatus.Text = $"Building the PDF: page {done} of {total}…");
+            var error = await PrintFiles.Write(savePath, OnWindow(pages), title, DateTime.Now,
+                (done, total) => Dispatcher.BeginInvoke(() => BatchStatus.Text = $"Building the PDF: page {done} of {total}…"));
             if (error.Length > 0) { BatchStatus.Text = error; return; }
 
             // only the rows that made it into the PDF are issued
             var issued = good.Select(r => r.Entry!).ToList();
-            foreach (var entry in issued) { _register.Record(entry); _register.NoteShared(entry); }
-            _session.RefreshDuplicate();
+            // here at once; the shared register is told while the result is put on screen (Session.IssueBatch)
+            var telling = _session.IssueBatch(issued);
             Render();
             var skipped = outcome.Results.Count - good.Count;
             BatchStatus.Text = $"{good.Count} card{(good.Count == 1 ? "" : "s")} saved as {Path.GetFileName(savePath)}"
                 + (skipped > 0 ? $" · {skipped} row{(skipped == 1 ? "" : "s")} skipped, see below." : ". Print at 100%.");
             ShowInExplorer(savePath);
 
-            var report = await _session.RecordShared(issued);
-            if (report.Message() is { Length: > 0 } trouble)
+            if (await telling is { Length: > 0 } trouble)
             {
                 BatchStatus.Text += " " + trouble;
-                _session.RefreshDuplicate();
                 Render();
             }
         }
@@ -668,7 +623,6 @@ public partial class MainWindow
     // Asked of the overlay's own setting rather than of what is on screen:
     // "is it drawn right now" is also false while the window is hidden or minimised.
     private bool EditingMap => MapOverlay.Visibility == Visibility.Visible;
-    private (Dictionary<string, RectMm> Boxes, RectMm PhotoRect)? _editSnapshot;
 
     private void RenderDesign()
     {
@@ -719,19 +673,15 @@ public partial class MainWindow
             ImageFiles.SavePng(art.Front, StoredArtwork("front"));
             ImageFiles.SavePng(art.Back, StoredArtwork("back"));
 
-            var name = Path.GetFileNameWithoutExtension(frontPath).Replace('-', ' ').Replace('_', ' ').Trim();
-            _templates.AdoptArtwork(name, (front.PixelWidth, front.PixelHeight), (back.PixelWidth, back.PixelHeight));
-            _templates.Save();
+            DesignMsg.Text = _design.Adopt(frontPath, (front.PixelWidth, front.PixelHeight), (back.PixelWidth, back.PixelHeight));
             _art = art;
-            ApplyGeometry();
-            DesignMsg.Text = _templates.Note.Length > 0 ? _templates.Note : "In use. Check the map against the new artwork.";
             ShowContrastWarnings();
             // the map is wherever it was, which is unlikely to suit new artwork
             StartAdjusting();
         }
         catch (Exception x) when (x is IOException or NotSupportedException or FileFormatException or UnauthorizedAccessException or ArgumentException)
         {
-            DesignMsg.Text = $"That artwork couldn’t be used ({x.Message.TrimEnd('.')}). Save it as PNG and try again.";
+            DesignMsg.Text = DesignDesk.ArtworkNotUsable(x);
         }
     }
 
@@ -755,9 +705,8 @@ public partial class MainWindow
 
     internal void StartAdjusting()
     {
-        if (!_session.DesignAllowed) return;
-        // what Cancel puts back: the map as it was when the editor opened
-        _editSnapshot = _templates.Snapshot();
+        // not once a card is started; and Core keeps the map as it is now, for Discard to put back
+        if (!_design.Begin()) return;
         _front = true;
         _tool = ToolKey.Design;
         MapOverlay.Visibility = Visibility.Visible;
@@ -765,41 +714,37 @@ public partial class MainWindow
         Render();
     }
 
-    // Leaving the editor by any route keeps the changes: the preview has
-    // been showing the result the whole time, and throwing away work on a
-    // stray click is the worse of the two mistakes. Discard is right there
-    // for the other direction.
+    // Leaving the editor by any route keeps the changes (DesignDesk.End).
+    // Discard is right there for the other direction.
     private void StopAdjusting()
     {
         MapOverlay.Visibility = Visibility.Collapsed;
-        if (_templates.IsPristine) _templates.Clear();      // looked, moved nothing
-        else _templates.Save();
-        ApplyGeometry();
+        _design.End();
     }
 
     private void BtnTplDone_Click(object sender, RoutedEventArgs e)
     {
-        StopAdjusting();
+        MapOverlay.Visibility = Visibility.Collapsed;
+        var said = _design.Keep();
         ShowContrastWarnings();                             // the boxes may have been moved somewhere lighter
-        DesignMsg.Text = _templates.IsCustom ? "Saved on this computer." : "Nothing was moved.";
+        DesignMsg.Text = said;
         Render();
         BtnTplMap.Focus();
     }
 
     private void BtnTplCancel_Click(object sender, RoutedEventArgs e)
     {
-        _templates.RestoreSnapshot(_editSnapshot);
-        StopAdjusting();
+        MapOverlay.Visibility = Visibility.Collapsed;
+        var said = _design.Discard();
         ShowContrastWarnings();
-        DesignMsg.Text = "Left as it was.";
+        DesignMsg.Text = said;
         Render();
         BtnTplMap.Focus();
     }
 
     private void BtnTplDefaults_Click(object sender, RoutedEventArgs e)
     {
-        _templates.ResetBoxes();
-        ApplyGeometry();
+        _design.ResetBoxes();
         MapOverlay.Refresh();
         Render();
     }
@@ -808,17 +753,12 @@ public partial class MainWindow
     {
         if (!Confirm("Go back to the card the app was built with? The artwork and the map you set up here are removed from this computer.", "Go back")) return;
         MapOverlay.Visibility = Visibility.Collapsed;
-        _templates.Clear();
-        foreach (var side in new[] { "front", "back" })
-        {
-            try { File.Delete(StoredArtwork(side)); }
-            catch (Exception x) when (x is IOException or UnauthorizedAccessException) { /* an orphaned picture is harmless: nothing points at it any more */ }
-        }
+        // the map and the stored artwork are removed from this computer (DesignDesk.BackToBuiltIn)
+        var said = _design.BackToBuiltIn();
         _art = _builtInArt;
         _frontFile = _backFile = null;
-        ApplyGeometry();
         ShowContrastWarnings();
-        DesignMsg.Text = "Back to the built-in design.";
+        DesignMsg.Text = said;
         Render();
     }
 }

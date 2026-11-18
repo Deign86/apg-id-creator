@@ -24,9 +24,9 @@ public partial class MainWindow : Window
     private const string PictureFilter = "Pictures (PNG, JPG, WebP)|*.png;*.jpg;*.jpeg;*.webp";
 
     private readonly FileStore _files;
-    private readonly Register _register;
     private readonly Session _session;
     private readonly TemplateStore _templates;
+    private readonly DesignDesk _design;
 
     private CardRenderer? _renderer;
     private CardArt? _builtInArt;
@@ -37,7 +37,6 @@ public partial class MainWindow : Window
 
     private bool _front = true;                 // which side the preview shows
     private bool _guides;                       // maintainer overlay (Ctrl+Shift+G)
-    private bool _checkingPhoto;
     private bool _built;                        // false while the markup is still loading: controls announce their starting values before their neighbours exist
     private bool _syncing;                      // true while Render() writes to controls, so their handlers stand down
     private string? _tool;                      // which tool drawer is open, if any
@@ -68,10 +67,11 @@ public partial class MainWindow : Window
     internal MainWindow(FileStore files, Register? register)
     {
         _files = files;
-        _register = register ?? new Register(files, keeper: new WindowsKeeper());
         _templates = new TemplateStore(files);
-        _session = new Session(_register, new TitleList(files), files, post: action => Dispatcher.BeginInvoke(action));
+        // the window never talks to the register itself: every job that does is the Session's (Core/Jobs.cs)
+        _session = new Session(register ?? new Register(files, keeper: new WindowsKeeper()), new TitleList(files), files, post: action => Dispatcher.BeginInvoke(action));
         _session.Changed += Render;
+        _design = new DesignDesk(_session, _templates, files.Directory);
         AskForSignature = (name, existing) =>
         {
             var window = new SignWindow(name, existing) { Owner = this };
@@ -116,7 +116,7 @@ public partial class MainWindow : Window
 
     private static string BesideProgram(params string[] parts) => Path.Combine(new[] { AppContext.BaseDirectory }.Concat(parts).ToArray());
 
-    private string StoredArtwork(string side) => Path.Combine(_files.Directory, TemplateStore.ArtworkFileName(side));
+    private string StoredArtwork(string side) => _design.StoredArtwork(side);
 
     private void Boot()
     {
@@ -151,7 +151,7 @@ public partial class MainWindow : Window
         }
 
         // start reading the register now rather than on the first keystroke
-        if (_register.Shared) _ = WarmRegister();
+        if (_session.HasSharedRegister) _ = WarmRegister();
         // the model takes a moment to load; the form does not wait for it
         _ = LoadRemover();
         Render();
@@ -160,14 +160,9 @@ public partial class MainWindow : Window
 
     private async Task WarmRegister()
     {
-        if (await _register.LoadIndex())
-        {
-            // cards saved while the register was out of reach are sent now that it answers
-            await _register.SendWaiting();
-        }
-        // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
-        if (_register.Refused.Count > 0) _tool = ToolKey.Register;
-        _session.RefreshDuplicate();
+        // Cards saved while the register was out of reach are sent now that it answers. One of them may
+        // have been refused: somebody else took its number meanwhile. That cannot wait to be found.
+        if (await _session.WarmRegister()) _tool = ToolKey.Register;
         Render();
     }
 
@@ -183,7 +178,7 @@ public partial class MainWindow : Window
         Render();
     }
 
-    private void ApplyGeometry() => _session.Geometry = _templates.Geometry();
+    private void ApplyGeometry() => _design.Apply();
 
     // Everything named by DynamicResource has already changed colour. What is
     // left are the few pictures drawn from the window's colours — none at the
@@ -216,7 +211,7 @@ public partial class MainWindow : Window
         Saved = _saved,
         SavedCount = _savedCount,
         Saving = _saving,
-        CheckingPhoto = _checkingPhoto,
+        CheckingPhoto = _session.CheckingPhoto,
         RemoverReady = _remover is not null,
         RemoverProblem = _removerProblem,
         SignatureError = _sigError,
@@ -633,38 +628,9 @@ public partial class MainWindow : Window
     /// <summary>Open a picture file and put it through the photo pipeline.</summary>
     internal async Task AcceptPhotoFile(string path)
     {
-        if (_checkingPhoto) return;
-        var name = Path.GetFileName(path);
-        long size;
-        try { size = new FileInfo(path).Length; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
-        var problem = PhotoPipeline.FileProblem(name, size);
-        if (problem.Length > 0) { _session.PhotoFailed(problem); _front = true; Render(); return; }
-
-        _checkingPhoto = true;
-        Render();
-        var card = _session.CardSerial;
-        var spec = _session.Geometry.Photo;
-        var remover = _remover;
-        (PhotoResult? Result, string Error) outcome;
-        try
-        {
-            outcome = await Task.Run(() =>
-            {
-                var (image, error) = ImageFiles.Decode(path);
-                return image is null ? ((PhotoResult?)null, error) : (PhotoPipeline.Analyse(image, name, spec, remover), "");
-            });
-        }
-        finally { _checkingPhoto = false; }
-
-        // The card this photo was for has been put aside while it was being
-        // looked at (the operator went back to the print). It must not land
-        // on the blank card that replaced it.
-        if (card != _session.CardSerial) { Render(); return; }
-
-        if (outcome.Result is null) _session.PhotoFailed(outcome.Error);
-        else _session.AcceptPhoto(outcome.Result);
-        _front = true;
+        // Core looks at the photo (Session.TakePhoto), and redraws through Session.Changed while it does.
+        // It answers false when the card the photo was for was put aside meanwhile: nothing landed.
+        if (await _session.TakePhoto(path, ImageFiles.Decode, _remover)) _front = true;
         Render();
     }
 
@@ -806,33 +772,13 @@ public partial class MainWindow : Window
 
     internal async Task AcceptSignatureFile(string path)
     {
-        var name = Path.GetFileName(path);
-        long size;
-        try { size = new FileInfo(path).Length; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
-        var problem = PhotoPipeline.FileProblem(name, size, "picture of the signature");
-        (ScannedSignature? Signature, string Error) outcome = (null, problem);
-        var card = _session.CardSerial;
-        if (problem.Length == 0)
-        {
-            SigHelp.Text = "Reading the signature…";
-            outcome = await Task.Run(() =>
-            {
-                var (image, error) = ImageFiles.Decode(path);
-                return image is null ? (null, error) : SignatureInk.FromImage(image, name);
-            });
-        }
-        if (card != _session.CardSerial) { Render(); return; }      // as with a photo: the card it was for is gone
-        if (outcome.Signature is null)
+        SigHelp.Text = "Reading the signature…";
+        var scan = await _session.TakeSignatureScan(path, ImageFiles.Decode);
+        if (scan.Landed)
         {
             // a scan that cannot be read leaves whatever signature was there
-            _sigError = outcome.Error;
-        }
-        else
-        {
-            _sigError = "";
-            _session.SetSignature(outcome.Signature);
-            _front = true;
+            _sigError = scan.Error;
+            if (scan.Error.Length == 0) _front = true;
         }
         Render();
     }
