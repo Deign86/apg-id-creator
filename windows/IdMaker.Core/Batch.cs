@@ -148,16 +148,14 @@ public static partial class Batch
         if (split && parts.First.Length == 0) return Fail("No first name.");
         if (!split && whole.Length == 0) return Fail("No name.");
         var name = split ? Naming.ComposeName(parts) : whole;
-        if (!Session.NamePrints(name)) return Fail("The name has characters the card can’t print.");
+        if (!CardRules.NamePrints(name)) return Fail("The name has characters the card can’t print.");
         if (title.Length == 0) return Fail("No job title.");
         var kindText = Col(row, "kind");
         var kind = kindText.Length == 0 ? PersonKind.Employee : PersonKind.Parse(kindText);
         if (kind.Length == 0) return Fail($"“{kindText}” is neither “intern” nor “employee”.");
 
         var seqText = Col(row, "seq");
-        if (!Session.IsSeqText(seqText) || int.Parse(seqText, CultureInfo.InvariantCulture) <= 0)
-            return Fail($"“{seqText}” is not an employee number (1–4 digits).");
-        var seq = int.Parse(seqText, CultureInfo.InvariantCulture);
+        if (CardRules.SeqNumber(seqText) is not { } seq) return Fail($"“{seqText}” is not an employee number (1–{CardRules.MostSeqDigits} digits).");
         var year = YearDigits().IsMatch(Col(row, "year")) ? int.Parse(Col(row, "year"), CultureInfo.InvariantCulture) : s.Now().Year;
         var id = Naming.EmployeeId(year, seq);
 
@@ -201,16 +199,12 @@ public static partial class Batch
             Warnings = photo.Check.Warnings,
             NoSignature = signature is null,
             Data = new CardData(name, title, year, seq, photo.Image, photo.Check.Placement, signature),
-            Entry = new RegisterEntry
-            {
-                Id = id, Year = year, Seq = seq, Name = name, Title = title,
-                Role1 = Naming.CollapseSpaces(Col(row, "title")), Role2 = Naming.CollapseSpaces(Col(row, "title2")),
-                Last = split ? parts.Last : Naming.LastNameForFile(whole),
-                First = split ? parts.First : "", Middle = split ? parts.Middle : "", Suffix = split ? parts.Suffix : "",
-                IssuedAt = s.Now().ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
-                Replacement = already is not null,
-                Kind = kind,
-            },
+            Entry = RegisterEntry.Issue(
+                year, seq, name, title,
+                // an older list's whole name has no parts: only the surname is guessed, for the file name
+                split ? parts : new NameParts(Last: Naming.LastNameForFile(whole)),
+                Naming.CollapseSpaces(Col(row, "title")), Naming.CollapseSpaces(Col(row, "title2")),
+                kind, replacement: already is not null, s.Now()),
         };
     }
 

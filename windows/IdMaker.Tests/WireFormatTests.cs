@@ -123,4 +123,50 @@ public class WireFormatTests
         var stamp = new DateTime(2026, 11, 17, 9, 30, 0).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture);
         Assert.Equal(JuanFields.Replace("2026-11-17T01:30:00.000Z", stamp), firebase.Docs["APG-2026-124"].ToJsonString());
     }
+
+    [Fact]
+    public void The_saved_list_has_the_columns_it_always_had_and_every_field_is_one_of_them()
+    {
+        var register = Make.LocalRegister();
+        register.Record(Juan);
+        var lines = register.ToCsv().TrimStart('\uFEFF').Split("\r\n");
+        Assert.Equal("\"id\",\"year\",\"seq\",\"last\",\"first\",\"middle\",\"suffix\",\"name\",\"title\",\"role1\",\"role2\",\"issuedAt\",\"replacement\",\"kind\"", lines[0]);
+        Assert.Equal("\"APG-2026-124\",\"2026\",\"124\",\"dela Cruz\",\"Juan\",\"Santos\",\"Jr.\",\"Juan S. dela Cruz Jr.\",\"IT/Admin Associate\",\"IT Associate\",\"Admin Associate\",\"2026-11-17T01:30:00.000Z\",\"no\",\"intern\"", lines[1]);
+        Assert.Equal(RegisterFields.All.Select(f => f.Name).Order(StringComparer.Ordinal), RegisterFields.CsvColumns.Select(f => f.Name).Order(StringComparer.Ordinal));
+
+        // and the list reads back as the same card, on a computer that has not seen it
+        var other = Make.LocalRegister();
+        Assert.Equal(1, other.ImportCsv(register.ToCsv()));
+        Assert.Equal(Juan, Assert.Single(other.All()));
+    }
+
+    [Fact]
+    public void The_field_list_is_the_one_the_register_s_own_page_describes()
+    {
+        // register/README.md is what the rules in apg-keystone were written from: its table and Core's list name the same fields
+        var page = File.ReadAllText(Path.Combine(Repo.Root, "register", "README.md")).Replace("\r\n", "\n");     // however git checked it out
+        var table = page[page.IndexOf("| Field | What |", StringComparison.Ordinal)..];
+        table = table[..table.IndexOf("\n\n", StringComparison.Ordinal)];
+        var described = table.Split('\n').Skip(2)
+            .SelectMany(row => row.Split('|')[1].Split(','))
+            .Select(name => name.Trim().Trim('`'))
+            .Order(StringComparer.Ordinal).ToList();
+        var sent = RegisterFields.All.Select(f => f.Name).Append(RegisterFields.By).Append(RegisterFields.ByEmail).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(sent, described);
+        Assert.Equal(16, sent.Count);
+    }
+
+    [Fact]
+    public void The_form_and_a_batch_record_a_card_the_same_way()
+    {
+        var entry = RegisterEntry.Issue(2026, 7, "Ana Reyes", "HR Associate", new NameParts("Reyes", "Ana"), "HR Associate", "", PersonKind.Employee,
+            replacement: false, new DateTime(2026, 11, 17, 1, 30, 0, 250, DateTimeKind.Utc));
+        Assert.Equal("APG-2026-007", entry.Id);
+        Assert.Equal("2026-11-17T01:30:00.250Z", entry.IssuedAt);
+        Assert.Equal("Reyes", entry.Last);
+        Assert.Equal("Ana", entry.First);
+        Assert.Equal("", entry.Middle);
+        Assert.Equal(PersonKind.Employee, entry.Kind);
+        Assert.False(entry.Replacement);
+    }
 }

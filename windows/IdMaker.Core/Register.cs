@@ -53,6 +53,114 @@ public sealed record RegisterEntry
         DateTimeOffset.TryParse(IssuedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var d)
             ? d.ToLocalTime().ToString("d MMM yyyy", CultureInfo.GetCultureInfo("en-PH"))
             : "";
+
+    /// <summary>
+    /// A card as it is recorded at the moment it is issued. The form and the
+    /// batch both make their entries here, so the number's spelling and the
+    /// moment's format are decided once.
+    /// </summary>
+    public static RegisterEntry Issue(int year, int seq, string name, string title, NameParts parts,
+        string role1, string role2, string kind, bool replacement, DateTime now) => new()
+    {
+        Id = Naming.EmployeeId(year, seq), Year = year, Seq = seq, Name = name, Title = title,
+        Last = parts.Last, First = parts.First, Middle = parts.Middle, Suffix = parts.Suffix,
+        Role1 = role1, Role2 = role2, Kind = kind, Replacement = replacement, IssuedAt = Stamp(now),
+    };
+
+    /// <summary>The moment of issue as the register writes it: UTC, to the millisecond.</summary>
+    public static string Stamp(DateTime now) => now.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+}
+
+public enum RegisterFieldKind { Text, Whole, YesNo }
+
+/// <summary>
+/// One field of an issued ID: its name (in Firestore and as a CSV column),
+/// what kind of value it is, and how to read it from and put it into an entry.
+/// </summary>
+public sealed class RegisterField
+{
+    private readonly Func<RegisterEntry, string>? _text;
+    private readonly Func<RegisterEntry, string, RegisterEntry>? _withText;
+    private readonly Func<RegisterEntry, int>? _whole;
+    private readonly Func<RegisterEntry, int, RegisterEntry>? _withWhole;
+    private readonly Func<RegisterEntry, bool>? _yes;
+    private readonly Func<RegisterEntry, bool, RegisterEntry>? _withYes;
+
+    public string Name { get; }
+    public RegisterFieldKind Kind { get; }
+    /// <summary>Left out of the document sent to Firestore when it is empty, rather than sent as "".</summary>
+    public bool OnlyWhenKnown { get; }
+
+    private RegisterField(string name, RegisterFieldKind kind, bool onlyWhenKnown,
+        Func<RegisterEntry, string>? text = null, Func<RegisterEntry, string, RegisterEntry>? withText = null,
+        Func<RegisterEntry, int>? whole = null, Func<RegisterEntry, int, RegisterEntry>? withWhole = null,
+        Func<RegisterEntry, bool>? yes = null, Func<RegisterEntry, bool, RegisterEntry>? withYes = null)
+    {
+        Name = name; Kind = kind; OnlyWhenKnown = onlyWhenKnown;
+        _text = text; _withText = withText; _whole = whole; _withWhole = withWhole; _yes = yes; _withYes = withYes;
+    }
+
+    public static RegisterField Text(string name, Func<RegisterEntry, string> get, Func<RegisterEntry, string, RegisterEntry> with, bool onlyWhenKnown = false) =>
+        new(name, RegisterFieldKind.Text, onlyWhenKnown, text: get, withText: with);
+
+    public static RegisterField Whole(string name, Func<RegisterEntry, int> get, Func<RegisterEntry, int, RegisterEntry> with) =>
+        new(name, RegisterFieldKind.Whole, false, whole: get, withWhole: with);
+
+    public static RegisterField YesNo(string name, Func<RegisterEntry, bool> get, Func<RegisterEntry, bool, RegisterEntry> with) =>
+        new(name, RegisterFieldKind.YesNo, false, yes: get, withYes: with);
+
+    private InvalidOperationException NotA(string kind) => new($"The register field “{Name}” is not {kind}.");
+
+    public string TextOf(RegisterEntry e) => _text is null ? throw NotA("text") : _text(e);
+    public int WholeOf(RegisterEntry e) => _whole is null ? throw NotA("a whole number") : _whole(e);
+    public bool YesOf(RegisterEntry e) => _yes is null ? throw NotA("a yes or no") : _yes(e);
+    public RegisterEntry With(RegisterEntry e, string value) => _withText is null ? throw NotA("text") : _withText(e, value);
+    public RegisterEntry With(RegisterEntry e, int value) => _withWhole is null ? throw NotA("a whole number") : _withWhole(e, value);
+    public RegisterEntry With(RegisterEntry e, bool value) => _withYes is null ? throw NotA("a yes or no") : _withYes(e, value);
+}
+
+/// <summary>
+/// The fields of an issued ID, written once. The document sent to
+/// Firestore, the document read back, the CSV saved and the CSV brought in
+/// are all made from this list, so a field cannot be added to one and
+/// forgotten in another.
+///
+/// The same list is `issuedId` in firestore.rules (Deign86/apg-keystone),
+/// the table in register/README.md and the columns in register/migrate.mjs:
+/// a field added here is added there in the same piece of work.
+/// WireFormatTests holds what is sent to the letter.
+/// </summary>
+public static class RegisterFields
+{
+    /// <summary>In the order they are sent to Firestore.</summary>
+    public static readonly IReadOnlyList<RegisterField> All = new[]
+    {
+        RegisterField.Text("id", e => e.Id, (e, v) => e with { Id = v }),
+        RegisterField.Whole("year", e => e.Year, (e, v) => e with { Year = v }),
+        RegisterField.Whole("seq", e => e.Seq, (e, v) => e with { Seq = v }),
+        RegisterField.Text("name", e => e.Name, (e, v) => e with { Name = v }),
+        RegisterField.Text("title", e => e.Title, (e, v) => e with { Title = v }),
+        RegisterField.Text("issuedAt", e => e.IssuedAt, (e, v) => e with { IssuedAt = v }),
+        RegisterField.YesNo("replacement", e => e.Replacement, (e, v) => e with { Replacement = v }),
+        RegisterField.Text("last", e => e.Last, (e, v) => e with { Last = v }),
+        RegisterField.Text("first", e => e.First, (e, v) => e with { First = v }),
+        RegisterField.Text("middle", e => e.Middle, (e, v) => e with { Middle = v }),
+        RegisterField.Text("suffix", e => e.Suffix, (e, v) => e with { Suffix = v }),
+        RegisterField.Text("role1", e => e.Role1, (e, v) => e with { Role1 = v }),
+        RegisterField.Text("role2", e => e.Role2, (e, v) => e with { Role2 = v }),
+        // Read through PersonKind.Parse wherever it comes from. Sent only when it is known: a card
+        // waiting in the outbox since before the form asked has none, and the rules take that.
+        RegisterField.Text("kind", e => e.Kind, (e, v) => e with { Kind = PersonKind.Parse(v) }, onlyWhenKnown: true),
+    };
+
+    /// <summary>The two fields the register adds to every document it sends: who issued it. They are not part of an entry.</summary>
+    public const string By = "by", ByEmail = "byEmail";
+
+    public static RegisterField Named(string name) => All.First(f => f.Name == name);
+
+    /// <summary>The columns of the saved list, in the order it has always had: the person, then the card.</summary>
+    public static readonly IReadOnlyList<RegisterField> CsvColumns =
+        new[] { "id", "year", "seq", "last", "first", "middle", "suffix", "name", "title", "role1", "role2", "issuedAt", "replacement", "kind" }.Select(Named).ToList();
 }
 
 /// <summary>
@@ -218,15 +326,29 @@ public sealed partial class Register
             {
                 var id = Cell(r, "id");
                 if (id.Length == 0 || have.Contains(id)) continue;
-                if (!int.TryParse(Cell(r, "year"), NumberStyles.None, CultureInfo.InvariantCulture, out var year)) continue;
-                if (!int.TryParse(Cell(r, "seq"), NumberStyles.None, CultureInfo.InvariantCulture, out var seq)) continue;
-                list.Add(new RegisterEntry
+                var entry = new RegisterEntry();
+                var readable = true;
+                foreach (var field in RegisterFields.All)
                 {
-                    Id = id, Year = year, Seq = seq, Name = Cell(r, "name"), Title = Cell(r, "title"),
-                    IssuedAt = Cell(r, "issuedat"), Replacement = Cell(r, "replacement").Equals("yes", StringComparison.OrdinalIgnoreCase),
-                    Last = Cell(r, "last"), First = Cell(r, "first"), Middle = Cell(r, "middle"), Suffix = Cell(r, "suffix"),
-                    Role1 = Cell(r, "role1"), Role2 = Cell(r, "role2"), Kind = PersonKind.Parse(Cell(r, "kind")),
-                });
+                    // the header row was read in lower case
+                    var cell = Cell(r, field.Name.ToLowerInvariant());
+                    switch (field.Kind)
+                    {
+                        case RegisterFieldKind.Whole:
+                            // a row whose year or number is not a number is not a card
+                            if (int.TryParse(cell, NumberStyles.None, CultureInfo.InvariantCulture, out var whole)) entry = field.With(entry, whole);
+                            else readable = false;
+                            break;
+                        case RegisterFieldKind.YesNo:
+                            entry = field.With(entry, cell.Equals("yes", StringComparison.OrdinalIgnoreCase));
+                            break;
+                        default:
+                            entry = field.With(entry, cell);
+                            break;
+                    }
+                }
+                if (!readable) continue;
+                list.Add(entry);
                 have.Add(id);
                 added++;
             }
@@ -529,19 +651,34 @@ public sealed partial class Register
 
     private static JsonObject Document(RegisterEntry e, SavedSignIn by)
     {
-        var fields = new JsonObject
+        var fields = new JsonObject();
+        foreach (var field in RegisterFields.All.Where(f => !f.OnlyWhenKnown)) fields[field.Name] = Wrapped(field, e);
+        // who issued it: the rules check this is the account making the request
+        fields[RegisterFields.By] = Str(by.Uid);
+        fields[RegisterFields.ByEmail] = Str(by.Email);
+        foreach (var field in RegisterFields.All.Where(f => f.OnlyWhenKnown))
         {
-            ["id"] = Str(e.Id), ["year"] = Whole(e.Year), ["seq"] = Whole(e.Seq), ["name"] = Str(e.Name), ["title"] = Str(e.Title),
-            ["issuedAt"] = Str(e.IssuedAt), ["replacement"] = new JsonObject { ["booleanValue"] = e.Replacement },
-            ["last"] = Str(e.Last), ["first"] = Str(e.First), ["middle"] = Str(e.Middle), ["suffix"] = Str(e.Suffix),
-            ["role1"] = Str(e.Role1), ["role2"] = Str(e.Role2),
-            // who issued it: the rules check this is the account making the request
-            ["by"] = Str(by.Uid), ["byEmail"] = Str(by.Email),
-        };
-        // only when it is known: a card waiting in the outbox since before the form asked has none, and the rules take that
-        if (PersonKind.Parse(e.Kind) is { Length: > 0 } kind) fields["kind"] = Str(kind);
+            // through With, so what is sent is what would be read back (a kind is "intern", "employee" or not there)
+            if (field.TextOf(field.With(new RegisterEntry(), field.TextOf(e))) is { Length: > 0 } known) fields[field.Name] = Str(known);
+        }
         return new JsonObject { ["fields"] = fields };
     }
+
+    // one value in Firestore's wrapper, by the field's kind
+    private static JsonObject Wrapped(RegisterField field, RegisterEntry e) => field.Kind switch
+    {
+        RegisterFieldKind.Whole => Whole(field.WholeOf(e)),
+        RegisterFieldKind.YesNo => new JsonObject { ["booleanValue"] = field.YesOf(e) },
+        _ => Str(field.TextOf(e)),
+    };
+
+    // one value read back out of a document (already unwrapped to text by Value), into the entry
+    private static RegisterEntry Unwrapped(RegisterField field, RegisterEntry e, string value) => field.Kind switch
+    {
+        RegisterFieldKind.Whole => field.With(e, Int(JsonValue.Create(value))),
+        RegisterFieldKind.YesNo => field.With(e, value is "true" or "yes"),
+        _ => field.With(e, value),
+    };
 
     private static string Value(JsonNode? wrapped)
     {
@@ -558,19 +695,12 @@ public sealed partial class Register
     {
         if (node is not JsonObject doc) return null;
         var fields = doc["fields"] as JsonObject;
-        string F(string name) => Value(fields?[name]);
-        int N(string name) => Int(JsonValue.Create(F(name)));
+        var entry = new RegisterEntry();
+        foreach (var field in RegisterFields.All) entry = Unwrapped(field, entry, Value(fields?[field.Name]));
         // the document's own name is the number, whatever its fields say
         var path = Text(doc["name"]);
-        var id = path.Length > 0 ? path[(path.LastIndexOf('/') + 1)..] : F("id");
-        if (id.Length == 0) return null;
-        return new RegisterEntry
-        {
-            Id = id, Year = N("year"), Seq = N("seq"), Name = F("name"), Title = F("title"),
-            IssuedAt = F("issuedAt"), Replacement = F("replacement") is "true" or "yes",
-            Last = F("last"), First = F("first"), Middle = F("middle"), Suffix = F("suffix"),
-            Role1 = F("role1"), Role2 = F("role2"), Kind = PersonKind.Parse(F("kind")),
-        };
+        if (path.Length > 0) entry = entry with { Id = path[(path.LastIndexOf('/') + 1)..] };
+        return entry.Id.Length == 0 ? null : entry;
     }
 
     /// <summary>Check the register is answering this computer's sign-in, and count what is in it.</summary>
@@ -810,16 +940,15 @@ public sealed partial class Register
     public string ToCsv()
     {
         static string Esc(object? v) => "\"" + (Convert.ToString(v, CultureInfo.InvariantCulture) ?? "").Replace("\"", "\"\"") + "\"";
-        var rows = new List<string>
-        {
-            string.Join(',', new[] { "id", "year", "seq", "last", "first", "middle", "suffix", "name", "title", "role1", "role2", "issuedAt", "replacement", "kind" }.Select(Esc)),
-        };
+        var rows = new List<string> { string.Join(',', RegisterFields.CsvColumns.Select(f => Esc(f.Name))) };
         foreach (var e in All())
         {
-            rows.Add(string.Join(',', new object[]
+            rows.Add(string.Join(',', RegisterFields.CsvColumns.Select(f => Esc(f.Kind switch
             {
-                e.Id, e.Year, e.Seq, e.Last, e.First, e.Middle, e.Suffix, e.Name, e.Title, e.Role1, e.Role2, e.IssuedAt, e.Replacement ? "yes" : "no", e.Kind,
-            }.Select(Esc)));
+                RegisterFieldKind.Whole => f.WholeOf(e),
+                RegisterFieldKind.YesNo => f.YesOf(e) ? "yes" : "no",
+                _ => f.TextOf(e),
+            }))));
         }
         return "﻿" + string.Join("\r\n", rows);
     }

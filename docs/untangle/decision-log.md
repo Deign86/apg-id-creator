@@ -187,6 +187,15 @@ Each commit's `Verified:` line says which of these it had.
 
 Left from root fix 1: H30 (strings fixed in XAML and typed again in the Mac window's constructor: 77 pairs) and H67 (steps addressed by number in XAML tags and the Mac's `_steps[n]`). Both are markup-against-code and need the scanning test or a shared string table; neither is a rule. `Session.Touched` is still public (N7): tests read it. `PreviewPage`'s setter is still public: tests may set it.
 
+### 2. The register's fields and the card's rules (root fix 5)
+
+- `033b121` `WireFormatTests`: the document sent to Firestore, to the letter (names, types, order), written and passing before the code below changed.
+- (next commit) `RegisterFields.All` in `Core/Register.cs` is the one list of an issued ID's fields. The document sent (`Document`), the document read (`ParseEntry`), the CSV saved (`ToCsv`) and the CSV brought in (`ImportCsv`) are made from it (H61, five of its eleven places). `RegisterEntry.Issue` is the one constructor of an entry for the form and the batch, and `RegisterEntry.Stamp` the one spelling of the issue time (H61, H62). `CardRules` (`Core/Rules.cs`) holds which characters a name, a suffix and a title may have and what a number is (H46, H63); `Session.Problems` and `Batch.PrepareRow` both call it.
+  - What is sent did not change: `WireFormatTests` passes unchanged, and a test holds the list to the table in `register/README.md`.
+  - H61's other places are outside this app's code and unchanged: `FakeFirebase.cs` (kept as an independent stand-in on purpose: a fake that serialised with the app's own table could not catch the table being wrong), `register/migrate.mjs`, and `firestore.rules` in apg-keystone.
+  - H62's second half (the replacement document's name in `migrate.mjs`) and H64 (the print file's name and title, which differ by design between a print and a batch) are left.
+  - H65 (two limits called `MinHeadPx`) is left: a rename inside the photo pipeline, not a duplicated rule.
+
 ## Differences preserved, for the owner to unify
 
 Each is kept exactly as it was on `main`; where Core now makes the choice it is by `HostPlatform`.
@@ -205,7 +214,17 @@ Each is kept exactly as it was on `main`; where Core now makes the choice it is 
 12. The mouse cursor over the card (four arrows when the photo can be dragged) is Windows only, and its rule does not look at the step as `CanDragPhoto` does; the card is hidden on the last step, so the two never disagree on screen. Left as written.
 13. `Screen.LandingFor` keeps the branch "saved → Start a new ID button" although no move can reach it (a move to another step always forgets the save first). Both windows had it; kept, not pruned.
 
+The form and the batch (H63). They now ask the same `CardRules`, but not all the same questions; a list HR has used before must not start failing overnight, so what a batch accepts was not widened or narrowed:
+
+14. The batch checks the whole printed name against the name rule; the form checks each part, and the suffix against the looser suffix rule. So "3rd" as a suffix passes the form and fails a batch.
+15. The batch does not check a job title's characters; the form does for a title typed under "Other…".
+16. An empty `kind` is "employee" in a batch (a list from before the column existed); the form refuses to guess.
+17. Every message is worded differently in the two ("Enter the last name." / "No last name.").
+
 ## Calls made without the owner
 
 1. The two documents were copied in as they were written (line numbers as on `main` before round 1), not rewritten to the tree as it is now.
 2. Commit messages say what was really checked. The instruction's fixed line ("not built or run locally") was written on the understanding that nothing builds here; Core does, so commits that touch Core say so, and commits that touch only window code carry the fixed line.
+3. Root fix 1: every place the two windows differ was kept as it was and listed, none unified.
+4. Root fix 5: the batch keeps accepting exactly what it accepted (differences 14 to 17), rather than taking on the form's stricter rules. One input changed: an employee number written in digits other than 0 to 9 (for example Arabic-Indic) used to pass the "1 to 4 digits" pattern and then stop the whole batch with an unhandled error when it was turned into a number; it is now refused like any other bad number, row by row. The form never let such digits in.
+5. Root fix 5: `FakeFirebase` was not changed to use the app's field list. The audit suggested it; a fake built from the code under test cannot disagree with it.

@@ -85,17 +85,6 @@ public sealed partial class Session
         _ => "signature",
     };
 
-    [GeneratedRegex(@"^[\p{L}\p{M} .,'’-]+$")] private static partial Regex NameChars();
-    [GeneratedRegex(@"^[\p{L}\p{M}. \d]+$")] private static partial Regex SuffixChars();
-    [GeneratedRegex(@"^[\p{L}\p{M}\d .,'’&()/-]+$")] private static partial Regex TitleChars();
-    [GeneratedRegex(@"^\d{1,4}$")] private static partial Regex SeqDigits();
-
-    /// <summary>Would this whole name print? Shared with the batch reader.</summary>
-    public static bool NamePrints(string name) => NameChars().IsMatch(name);
-
-    /// <summary>Is this a card number as it is written: one to four digits? Shared with the batch reader.</summary>
-    public static bool IsSeqText(string text) => SeqDigits().IsMatch(text);
-
     // The three print settings kept between runs: the key each is stored under and the values it takes.
     private const string RotateBackKey = "rotate-back", On = "1", Off = "0";
     private const string FlipKey = "duplex-flip", FlipShort = "short", FlipLong = "long";
@@ -185,8 +174,7 @@ public sealed partial class Session
 
     /* ---- derived -------------------------------------------------- */
 
-    public int? SeqNumber =>
-        IsSeqText(Seq) && int.Parse(Seq, CultureInfo.InvariantCulture) > 0 ? int.Parse(Seq, CultureInfo.InvariantCulture) : null;
+    public int? SeqNumber => CardRules.SeqNumber(Seq);
 
     public NameParts NameParts => new(Last, First, Middle, Suffix);
     public string Role2Value => ShowRole2 ? Role2.Value : "";
@@ -211,28 +199,28 @@ public sealed partial class Session
         var dup = Duplicate();
         return new Dictionary<Field, string>
         {
-            [Field.Last] = last.Length == 0 ? "Enter the last name." : !NameChars().IsMatch(last) ? badChars : "",
-            [Field.First] = first.Length == 0 ? "Enter the first name." : !NameChars().IsMatch(first) ? badChars : "",
-            [Field.Middle] = middle.Length > 0 && !NameChars().IsMatch(middle) ? badChars : "",
-            [Field.Suffix] = suffix.Length > 0 && !SuffixChars().IsMatch(suffix) ? "Use something like Jr., Sr., II or III." : "",
+            [Field.Last] = last.Length == 0 ? "Enter the last name." : !CardRules.NamePrints(last) ? badChars : "",
+            [Field.First] = first.Length == 0 ? "Enter the first name." : !CardRules.NamePrints(first) ? badChars : "",
+            [Field.Middle] = middle.Length > 0 && !CardRules.NamePrints(middle) ? badChars : "",
+            [Field.Suffix] = suffix.Length > 0 && !CardRules.SuffixPrints(suffix) ? "Use something like Jr., Sr., II or III." : "",
             [Field.NameFit] = last.Length > 0 && first.Length > 0 && layout is { Name.Fits: false }
                 ? "This name is too long for the card, even at the smallest size. Try a shorter first name." : "",
             // never guessed: the attendance system takes interns, and only interns, from this
             [Field.Kind] = Kind.Length == 0 ? "Choose whether this ID is for an employee or an intern." : "",
             [Field.Title] = Role1.Pick.Length == 0 ? "Choose the job title."
                 : Role1.IsOther && Role1.Value.Length == 0 ? "Type the job title."
-                : Role1.IsOther && !TitleChars().IsMatch(Role1.Value) ? badTitle
+                : Role1.IsOther && !CardRules.TitlePrints(Role1.Value) ? badTitle
                 : "",
             [Field.Title2] = !ShowRole2 ? ""
                 : Role2.Value.Length > 0 && Naming.SameText(Role2.Value, Role1.Value) ? "This is the same as the job title above. Pick a different role, or remove it."
                 : Role2.IsOther && Role2.Value.Length == 0 ? "Type the second role, or remove it."
-                : Role2.IsOther && !TitleChars().IsMatch(Role2.Value) ? badTitle
+                : Role2.IsOther && !CardRules.TitlePrints(Role2.Value) ? badTitle
                 : Role2.Pick.Length == 0 ? "Choose the second role, or remove it."
                 : "",
             [Field.TitleFit] = JobTitle.Length > 0 && layout is { Title.Fits: false }
                 ? "This job title is too long for the card, even at the smallest size. Try a shorter wording." : "",
             [Field.Seq] = Seq.Length == 0 ? "Enter the employee number HR assigned, such as 124."
-                : SeqNumber is null ? "Use 1 to 4 digits, such as 124."
+                : SeqNumber is null ? $"Use 1 to {CardRules.MostSeqDigits} digits, such as 124."
                 : dup is not null && !Reissue ? DuplicateMessage(dup.Value)
                 : DupShared == SharedAnswer.Pending ? "Checking the shared register for this number…"
                 : "",
@@ -523,7 +511,7 @@ public sealed partial class Session
     {
         Example = false;
         Touched.Add(Field.Seq);
-        var digits = new string(typed.Where(char.IsAsciiDigit).Take(4).ToArray());
+        var digits = CardRules.SeqTyped(typed);
         Seq = digits;
         Reissue = false;
         RefreshDuplicate();
@@ -615,17 +603,12 @@ public sealed partial class Session
     private RegisterEntry MakeEntry()
     {
         var data = CardData();
-        return new RegisterEntry
-        {
-            Id = Naming.EmployeeId(Year, data.Seq!.Value), Year = Year, Seq = data.Seq.Value,
-            Name = Naming.CollapseSpaces(data.Name),
-            Last = Naming.CollapseSpaces(Last), First = Naming.CollapseSpaces(First),
-            Middle = Naming.CollapseSpaces(Middle), Suffix = Naming.CollapseSpaces(Suffix),
-            Title = Naming.CollapseSpaces(data.Title), Role1 = Role1.Value, Role2 = Role2Value,
-            IssuedAt = _now().ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
-            Replacement = Duplicate() is not null,
-            Kind = Kind,
-        };
+        // SAFETY: an entry is only made for a card that is Ready, and a card with no number is not.
+        var seq = data.Seq!.Value;
+        return RegisterEntry.Issue(
+            Year, seq, Naming.CollapseSpaces(data.Name), Naming.CollapseSpaces(data.Title),
+            new NameParts(Naming.CollapseSpaces(Last), Naming.CollapseSpaces(First), Naming.CollapseSpaces(Middle), Naming.CollapseSpaces(Suffix)),
+            Role1.Value, Role2Value, Kind, replacement: Duplicate() is not null, _now());
     }
 
     /// <summary>Called on arriving at the last step: fixes what this card will be recorded as.</summary>
