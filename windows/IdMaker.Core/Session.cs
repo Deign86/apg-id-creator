@@ -122,6 +122,9 @@ public sealed partial class Session
         Layout = settings.Get(LayoutKey) == LayoutDuplex ? SheetMode.Duplex : SheetMode.Pairs;
     }
 
+    /// <summary>The register this form issues into. For Core's own use (Screen); the windows go through the Session.</summary>
+    internal Register Register => _register;
+
     /// <summary>Raised whenever anything the window shows may have changed without the window asking.</summary>
     public event Action? Changed;
 
@@ -501,6 +504,13 @@ public sealed partial class Session
 
     public IReadOnlyList<string> TitleOptions() => _titles.All();
 
+    /// <summary>
+    /// The second role can never repeat the first, so whatever the job title
+    /// is disappears from the second list. "Other…" always stays.
+    /// </summary>
+    public static bool SecondRoleHides(string title, string firstRole) =>
+        firstRole.Length > 0 && title != RoleChoice.Other && Naming.SameText(title, firstRole);
+
     public void ForgetTitle(string title)
     {
         _titles.Forget(title);
@@ -736,8 +746,14 @@ public sealed partial class Session
     public int PrintCopies(SheetPlan? plan)
     {
         if (plan is null || Copies is null) return 1;
-        return Math.Clamp(Copies.Value, 1, plan.PerSheet * 20);
+        return Math.Clamp(Copies.Value, 1, MostCopies(plan));
     }
+
+    /// <summary>However many copies are asked for, one card never fills more sheets than this.</summary>
+    public const int MostSheetsOfOneCard = 20;
+
+    /// <summary>The most copies of each card this paper and layout allow.</summary>
+    public static int MostCopies(SheetPlan plan) => plan.PerSheet * MostSheetsOfOneCard;
 
     public void SetPaper(string paper) { Paper = CardConfig.PaperOrDefault(paper).Key; Copies = null; PreviewPage = 0; }
     public void SetCopies(int? copies) => Copies = copies;
@@ -745,7 +761,7 @@ public sealed partial class Session
     public void NudgeCopies(int by)
     {
         var plan = CurrentPlan();
-        var max = plan is null ? 200 : plan.PerSheet * 20;
+        var max = plan is null ? 200 : MostCopies(plan);
         Copies = Math.Clamp(PrintCopies(plan) + by, 1, max);
     }
 
@@ -779,6 +795,29 @@ public sealed partial class Session
         var entries = new List<CardData>();
         foreach (var c in cards) for (var n = 0; n < copies; n++) entries.Add(c.Data);
         return (plan, entries, Sheets.Pages(entries.Count, plan, Flip));
+    }
+
+    /// <summary>Look at the sheet before or after the one on screen. Which pages exist is settled by SheetPreview.</summary>
+    public void TurnPreviewPage(int by) => PreviewPage += by;
+
+    /// <summary>
+    /// The page of the print the stage shows on the last step, and what is
+    /// said about it. Null when there is nothing to print. PreviewPage is
+    /// brought back inside the pages there are.
+    /// </summary>
+    public SheetPreview? SheetPreview()
+    {
+        if (PrintPages() is not { } print || print.Pages.Count == 0) return null;
+        PreviewPage = Math.Clamp(PreviewPage, 0, print.Pages.Count - 1);
+        var page = print.Pages[PreviewPage];
+        var side = print.Plan.Mode != SheetMode.Duplex ? "" : page.Backs ? "Backs, reversed to match. " : "Fronts. ";
+        return new SheetPreview(
+            print.Plan, print.Entries, page, BackUpsideDown(print.Plan),
+            Says: $"Preview of page {PreviewPage + 1} of the {Paper} sheet. {side}".Trim(),
+            Caption: $"{side}Page {PreviewPage + 1} of {print.Pages.Count} · {Paper}",
+            NavShown: print.Pages.Count > 1,
+            PreviousEnabled: PreviewPage > 0,
+            NextEnabled: PreviewPage < print.Pages.Count - 1);
     }
 
     /// <summary>The file this print is saved as, and the title inside it.</summary>
@@ -845,6 +884,11 @@ public sealed partial class Session
         return new SharedReport(waiting, refused);
     }
 }
+
+/// <summary>One page of the print as the stage shows it: what to draw, and the words and buttons around it.</summary>
+public sealed record SheetPreview(
+    SheetPlan Plan, IReadOnlyList<CardData> Entries, SheetPage Page, bool BackUpsideDown,
+    string Says, string Caption, bool NavShown, bool PreviousEnabled, bool NextEnabled);
 
 /// <summary>What became of the cards just sent to the shared register.</summary>
 public sealed record SharedReport(IReadOnlyList<RegisterEntry> Waiting, IReadOnlyList<RefusedCard> Refused)
