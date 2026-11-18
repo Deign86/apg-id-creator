@@ -602,10 +602,10 @@ public sealed partial class MainWindow
             FieldMessage(_msgFirst, _txtFirst, Shown(Field.First));
             FieldMessage(_msgMiddle, _txtMiddle, Shown(Field.Middle));
             FieldMessage(_msgSuffix, _txtSuffix, Shown(Field.Suffix));
-            Ui.SyncText(_txtLast, s.Last);
-            Ui.SyncText(_txtFirst, s.First);
-            Ui.SyncText(_txtMiddle, s.Middle);
-            Ui.SyncText(_txtSuffix, s.Suffix);
+            Ui.SetText(_txtLast, s.Last);
+            Ui.SetText(_txtFirst, s.First);
+            Ui.SetText(_txtMiddle, s.Middle);
+            Ui.SetText(_txtSuffix, s.Suffix);
             var fitError = s.Touched.Contains(Field.Last) && s.Touched.Contains(Field.First) ? p[Field.NameFit] : "";
             _namePreview.TextColor = fitError.Length > 0 ? NSColor.SystemRed : NSColor.Label;
             Ui.SetText(_namePreview, fitError.Length > 0 ? fitError : $"On the card: {(s.PrintedName.Length > 0 ? s.PrintedName : "—")}");
@@ -618,7 +618,7 @@ public sealed partial class MainWindow
             BuildTitles();
             _cmbTitle.SelectItem(Math.Max(0, _titleValues.IndexOf(s.Role1.Pick)));
             Ui.Show(_txtTitleCustom, s.Role1.IsOther);
-            Ui.SyncText(_txtTitleCustom, s.Role1.Custom);
+            Ui.SetText(_txtTitleCustom, s.Role1.Custom);
             FieldMessage(_msgTitle, _txtTitleCustom, Shown(Field.Title));
             // a title this computer remembered can be dropped again
             Ui.Show(_btnForgetTitle, s.Role1.Pick.Length > 0 && !s.Role1.IsOther && !TitleList.IsStandard(s.Role1.Pick));
@@ -626,7 +626,7 @@ public sealed partial class MainWindow
             Ui.Show(_btnRoleAdd, !s.ShowRole2);
             _cmbTitle2.SelectItem(Math.Max(0, _title2Values.IndexOf(s.Role2.Pick)));
             Ui.Show(_txtTitle2Custom, s.ShowRole2 && s.Role2.IsOther);
-            Ui.SyncText(_txtTitle2Custom, s.Role2.Custom);
+            Ui.SetText(_txtTitle2Custom, s.Role2.Custom);
             FieldMessage(_msgTitle2, _txtTitle2Custom, Shown(Field.Title2));
             var titleFit = s.Touched.Contains(Field.Title) ? p[Field.TitleFit] : "";
             Ui.Show(_titlePreview, titleFit.Length > 0);
@@ -646,7 +646,7 @@ public sealed partial class MainWindow
             _msgSeq.TextColor = seqError.Length > 0 ? NSColor.SystemRed : NSColor.SecondaryLabel;
             Ui.SetText(_msgSeq, seqError.Length > 0 ? seqError : seqHelp);
             _txtSeq.AccessibilityHelp = seqError;
-            Ui.SyncText(_txtSeq, s.Seq);
+            Ui.SetText(_txtSeq, s.Seq);
             _cmbYear.SelectItem(Math.Max(0, _years.IndexOf(s.Year)));
             Ui.Show(_reissueWrap, dup is not null && dup.Value.Source != Session.DuplicateSource.Queue);
             _chkReissue.State = s.Reissue ? NSCellStateValue.On : NSCellStateValue.Off;
@@ -1053,7 +1053,7 @@ public sealed partial class MainWindow
             var copies = s.PrintCopies(plan);
             var total = cards.Count * copies;
             var sheets = (int)Math.Ceiling(total / (double)per);
-            if (!ReferenceEquals(Window.FirstResponder, _txtCopies.CurrentEditor)) Ui.SyncText(_txtCopies, copies.ToString(CultureInfo.InvariantCulture));
+            if (!ReferenceEquals(Window.FirstResponder, _txtCopies.CurrentEditor)) Ui.SetText(_txtCopies, copies.ToString(CultureInfo.InvariantCulture));
             _copiesDown.Enabled = copies > 1;
             _copiesUp.Enabled = copies < per * 20;
             Ui.SetText(_copiesLabel, cards.Count > 1 ? "Copies of each card" : "Copies of this card");

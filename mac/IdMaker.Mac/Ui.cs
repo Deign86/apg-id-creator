@@ -131,15 +131,10 @@ internal static class Ui
         if (view.Hidden == visible) view.Hidden = !visible;
     }
 
+    /// <summary>Write a text only when it differs, so a box the operator is typing in keeps its cursor when nothing changed.</summary>
     public static void SetText(NSTextField label, string text)
     {
         if (label.StringValue != text) label.StringValue = text;
-    }
-
-    /// <summary>Write a value into a box the operator may be typing in, without moving their cursor when nothing changed.</summary>
-    public static void SyncText(NSTextField box, string value)
-    {
-        if (box.StringValue != value) box.StringValue = value;
     }
 
     public static NSImage ToNsImage(IdMaker.Core.RgbaImage image, double pointsWide)
