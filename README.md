@@ -43,6 +43,40 @@ version and keeps your issued-ID list and settings.
 
 Nothing else needs installing first.
 
+### On a Mac
+
+The same app, made for the Mac. Everything below works the same way;
+where this guide says a job title "chip", the Mac has the same titles in a
+menu.
+
+1. Get **`AlphaPremierIdMaker-Mac-AppleSilicon`** (any Mac from late 2020
+   on: M1, M2 and later) or **`AlphaPremierIdMaker-Mac-Intel`** (older
+   Macs) from IT, or from the Releases page. Not sure which? Apple menu →
+   About This Mac: "Chip: Apple…" means Apple Silicon.
+2. Double-click it, then drag **Alpha Premier ID Maker** onto
+   **Applications**.
+3. Open it from Applications. The first time, macOS says it **cannot
+   check the app**, because the company has no Apple developer account.
+   Click **Done**, open **System Settings → Privacy & Security**, scroll
+   down and click **Open Anyway**. That is asked once.
+4. Sign in under **Issued IDs**, as on Windows.
+
+**The pen tablet.** The first time it opens on a Mac with no tablet
+driver, the app offers to install the **XP-Pen** driver. Say **Install the
+driver**: it downloads XP-Pen's own installer and opens it. The installer
+asks for the Mac's password. Afterwards macOS asks you to allow the
+driver under **Privacy & Security → Input Monitoring** and
+**Accessibility**; switch it on in both, then open the app again. If you
+skip it, there is a button for it on the signature step, and you can sign
+with the mouse or trackpad meanwhile.
+
+**Updating.** Drag the newer app onto Applications and choose **Replace**.
+Your issued-ID list and settings are kept.
+
+**Removing it.** Drag it from Applications to the Bin. Your issued-ID list
+stays in your Library folder (Application Support → Alpha Premier → ID
+Maker).
+
 ---
 
 ## Making an ID
