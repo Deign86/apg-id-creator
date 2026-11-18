@@ -419,7 +419,6 @@ public sealed partial class Session
 
     public void Back() => GoStep(StepIndex - 1);
 
-    /// <summary>A step chip was pressed.</summary>
     public MoveResult ChipPressed(int i)
     {
         var p = Problems();

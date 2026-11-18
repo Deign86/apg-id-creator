@@ -249,7 +249,6 @@ public sealed partial class Register
     /// <summary>Is there a shared register at all in this build?</summary>
     public bool Shared => Project is not null;
 
-    /// <summary>Is somebody signed in on this computer?</summary>
     public bool SignedIn => SignInState() is not null;
 
     /// <summary>The email signed in on this computer, or "".</summary>
