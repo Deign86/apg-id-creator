@@ -68,6 +68,108 @@ public class DrawingTests
         Assert.Equal(Measurer.Width(CardFont.Number, 10, "AB  "), offsets[1].X, 9);
     }
 
+    // What the golden card cannot see: it is one card, on the built-in map, with a
+    // short name and a drawn signature. These hold the placements it never draws.
+
+    private static CardGeometry Aligned(HAlign align)
+    {
+        var b = CardGeometry.BuiltIn;
+        return b with { Name = b.Name with { Align = align }, Title = b.Title with { Align = align }, EmployeeNo = b.EmployeeNo with { Align = align } };
+    }
+
+    /// <summary>Where a line of words starts and where its last word ends, in pixels.</summary>
+    private static (double Start, double End) Extent(IReadOnlyList<WordOp> line) =>
+        (line[0].X, line[^1].X + Measurer.Width(line[^1].Font, line[^1].Px, line[^1].Word));
+
+    [Theory]
+    [InlineData(HAlign.Left)]
+    [InlineData(HAlign.Center)]
+    [InlineData(HAlign.Right)]
+    public void A_line_is_set_against_the_side_of_its_box_the_map_names(HAlign align)
+    {
+        var geo = Aligned(align);
+        var words = CardDrawing.Front(Measurer, geo, Card(), Ppm).OfType<WordOp>().ToList();
+        foreach (var spec in new[] { geo.Name, geo.Title, geo.EmployeeNo })
+        {
+            // each of the three is one line here, and each has a font of its own
+            var line = words.Where(w => w.Font == spec.Font).ToList();
+            Assert.NotEmpty(line);
+            Assert.Single(line.Select(w => w.Baseline).Distinct());
+            var (start, end) = Extent(line);
+            if (align == HAlign.Left) Assert.Equal(spec.Box.X * Ppm, start, 6);
+            else if (align == HAlign.Right) Assert.Equal(spec.Box.Right * Ppm, end, 6);
+            else Assert.Equal((spec.Box.X + spec.Box.W / 2) * Ppm, (start + end) / 2, 6);
+            // whichever side it hangs from, it stays inside the box
+            Assert.InRange(start, spec.Box.X * Ppm - 1e-6, spec.Box.Right * Ppm);
+            Assert.InRange(end, spec.Box.X * Ppm, spec.Box.Right * Ppm + 1e-6);
+        }
+    }
+
+    [Fact]
+    public void A_name_on_two_lines_has_each_line_centred_and_the_lower_one_on_the_bottom_of_its_box()
+    {
+        var geo = CardGeometry.BuiltIn;
+        var spec = geo.Name;
+        var data = Card() with { Name = "Christopher Joseph V. Aureo" };
+        var fit = TextFit.Layout(Measurer, geo, data.Name, data.Title, data.Year, data.Seq).Name;
+        Assert.True(fit.Fits);
+        Assert.Equal(2, fit.Lines.Count);
+
+        var words = CardDrawing.Front(Measurer, geo, data, Ppm).OfType<WordOp>().Where(w => w.Font == CardFont.Name).ToList();
+        var lines = words.GroupBy(w => w.Baseline).OrderBy(g => g.Key).Select(g => g.ToList()).ToList();
+        Assert.Equal(2, lines.Count);
+        // the words of each line, in order, are the line the fit chose
+        Assert.Equal(fit.Lines, lines.Select(line => string.Join(" ", line.Select(w => w.Word))));
+
+        var px = fit.SizePt * CardConfig.PtToMm * Ppm;
+        Assert.All(words, w => Assert.Equal(px, w.Px, 9));
+        var centre = (spec.Box.X + spec.Box.W / 2) * Ppm;
+        foreach (var line in lines)
+        {
+            // centred by itself: a short second line does not start where the long first one does
+            var (start, end) = Extent(line);
+            Assert.Equal(centre, (start + end) / 2, 6);
+        }
+        Assert.NotEqual(lines[0][0].X, lines[1][0].X);
+
+        // bottom-aligned: the lower line's descenders sit on the bottom of the box, and the upper line is one line advance above it
+        Assert.Equal(spec.Box.Bottom * Ppm - Measurer.Descent(CardFont.Name, px, uppercase: false), lines[1][0].Baseline, 6);
+        Assert.Equal(lines[1][0].Baseline - px * spec.LineHeight, lines[0][0].Baseline, 6);
+        // and the capitals of the upper line are still inside the box
+        Assert.True(lines[0][0].Baseline - Measurer.CapHeight(CardFont.Name, px) >= spec.Box.Y * Ppm - 1e-6);
+    }
+
+    [Theory]
+    [InlineData(200, 50)]       // wider than the box is: its width decides
+    [InlineData(60, 90)]        // taller: its height decides
+    public void A_scan_in_a_signature_box_that_was_moved_is_centred_in_that_box(int scanW, int scanH)
+    {
+        var b = CardGeometry.BuiltIn;
+        var box = new RectMm(5.5, 60.25, 21.3, 7.7);
+        var geo = b with { Signature = b.Signature with { Box = box } };
+        var scan = new ScannedSignature(scanW, scanH, new byte[scanW * scanH], "sign.png");
+
+        var op = Assert.Single(CardDrawing.Front(Measurer, geo, Card(scan), Ppm).OfType<ScanOp>());
+
+        Assert.Same(scan, op.Scan);
+        Assert.Equal(geo.Signature.Color, op.Color);
+        // its own shape, not stretched
+        Assert.Equal((double)scanW / scanH, op.W / op.H, 9);
+        // centred in the moved box
+        Assert.Equal((box.X + box.W / 2) * Ppm, op.X + op.W / 2, 6);
+        Assert.Equal((box.Y + box.H / 2) * Ppm, op.Y + op.H / 2, 6);
+        // as large as the box allows once half a stroke is kept clear all round: one pair of sides touches that margin
+        var clear = geo.Signature.StrokeMm / 2;
+        double roomW = (box.W - 2 * clear) * Ppm, roomH = (box.H - 2 * clear) * Ppm;
+        Assert.True(op.W <= roomW + 1e-6 && op.H <= roomH + 1e-6);
+        if ((double)scanW / scanH > roomW / roomH) Assert.Equal(roomW, op.W, 6);
+        else Assert.Equal(roomH, op.H, 6);
+        // nowhere near where the built-in map has it
+        var builtIn = Assert.Single(CardDrawing.Front(Measurer, b, Card(scan), Ppm).OfType<ScanOp>());
+        Assert.NotEqual(builtIn.X, op.X);
+        Assert.NotEqual(builtIn.Y, op.Y);
+    }
+
     [Fact]
     public void A_photo_that_stops_short_of_its_window_fades_over_its_last_millimetres()
     {

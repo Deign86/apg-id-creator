@@ -184,4 +184,33 @@ public class WireFormatTests
         Assert.Equal(PersonKind.Employee, entry.Kind);
         Assert.False(entry.Replacement);
     }
+
+    [Fact]
+    public void The_migration_script_sends_the_fields_of_the_list_under_the_same_names()
+    {
+        // register/migrate.mjs writes the same documents from the old sheet, in JavaScript, so it cannot
+        // read Core's list: it is held to it here. It sends every field that is always sent, then who
+        // issued it; not kind, which the old sheet never had and the rules let a document go without.
+        var script = File.ReadAllText(Path.Combine(Repo.Root, "register", "migrate.mjs")).Replace("\r\n", "\n");
+        var from = script.IndexOf("function documentOf(", StringComparison.Ordinal);
+        Assert.True(from >= 0, "register/migrate.mjs no longer has a documentOf function.");
+        var document = script[from..];
+        document = document[..document.IndexOf("\n}\n", StringComparison.Ordinal)];
+
+        var written = System.Text.RegularExpressions.Regex.Matches(document, @"\b([A-Za-z0-9]+): (text\(|whole\(|\{ booleanValue)")
+            .Select(m => (Name: m.Groups[1].Value, Kind: m.Groups[2].Value switch { "text(" => RegisterFieldKind.Text, "whole(" => RegisterFieldKind.Whole, _ => RegisterFieldKind.YesNo }))
+            .ToList();
+        var always = RegisterFields.All.Where(f => !f.OnlyWhenKnown).Select(f => (f.Name, f.Kind))
+            .Append((RegisterFields.By, RegisterFieldKind.Text)).Append((RegisterFields.ByEmail, RegisterFieldKind.Text)).ToList();
+        Assert.Equal(always, written);
+        Assert.Equal(15, written.Count);
+        Assert.DoesNotContain(written, w => RegisterFields.All.Any(f => f.OnlyWhenKnown && f.Name == w.Name));
+
+        // and every column it reads from the sheet is a field of the list (the sheet's headers are matched in lower case)
+        var read = System.Text.RegularExpressions.Regex.Matches(script, @"cell\(r, '([a-z0-9]+)'\)").Select(m => m.Groups[1].Value).Distinct().ToList();
+        Assert.NotEmpty(read);
+        var names = RegisterFields.All.Select(f => f.Name.ToLowerInvariant()).ToList();
+        Assert.All(read, column => Assert.Contains(column, names));
+        Assert.Equal(written.Count - 2, read.Count);
+    }
 }
