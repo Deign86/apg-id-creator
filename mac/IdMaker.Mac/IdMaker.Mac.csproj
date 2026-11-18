@@ -19,6 +19,33 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\windows\IdMaker.Core\IdMaker.Core.csproj" />
+    <!-- Background removal: ONNX Runtime (the one package, as on Windows) and the model it fetches and checks. -->
+    <ProjectReference Include="..\..\windows\IdMaker.Vision\IdMaker.Vision.csproj" />
+  </ItemGroup>
+
+  <!-- What the app carries: the card's artwork, the card's fonts and the
+       model, the same files the Windows app is built with. -->
+  <ItemGroup>
+    <BundleResource Include="..\..\assets\front-template.png" LogicalName="Assets/front-template.png" />
+    <BundleResource Include="..\..\assets\back.png" LogicalName="Assets/back.png" />
+    <BundleResource Include="..\..\assets\logo.png" LogicalName="Assets/logo.png" />
+    <BundleResource Include="..\..\windows\IdMaker.App\Fonts\Arimo-Regular.ttf" LogicalName="Fonts/Arimo-Regular.ttf" />
+    <BundleResource Include="..\..\windows\IdMaker.App\Fonts\Montserrat-ExtraBold.ttf" LogicalName="Fonts/Montserrat-ExtraBold.ttf" />
+    <BundleResource Include="..\..\windows\IdMaker.App\Fonts\Poppins-Bold.ttf" LogicalName="Fonts/Poppins-Bold.ttf" />
+    <BundleResource Include="..\..\windows\IdMaker.Vision\Models\modnet.onnx" LogicalName="Models/modnet.onnx" />
+  </ItemGroup>
+
+  <!-- The window tests drive the real window against a pretend register.
+       They and the pretend register are compiled in only when asked for
+       (-p:WindowTest=true, as CI does); a release carries neither. -->
+  <ItemGroup Condition="'$(WindowTest)' != 'true'">
+    <Compile Remove="Tests\**" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(WindowTest)' == 'true'">
+    <DefineConstants>$(DefineConstants);WINDOWTEST</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(WindowTest)' == 'true'">
+    <Compile Include="..\..\windows\IdMaker.Tests\FakeFirebase.cs" Link="Tests\FakeFirebase.cs" />
   </ItemGroup>
 
 </Project>

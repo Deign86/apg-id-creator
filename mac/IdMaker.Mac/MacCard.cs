@@ -363,4 +363,74 @@ public sealed class MacCardRenderer
         context.FillPath();
         context.SetShouldAntialias(true);
     }
+
+    /* ---- sheets ---------------------------------------------------- */
+
+    /// <summary>
+    /// One sheet of paper. `front` and `back` draw a card side for an entry;
+    /// each is asked for once per slot and let go straight after, so a sheet
+    /// of twenty-one cards never holds twenty-one 300 DPI pictures.
+    /// </summary>
+    public RgbaImage RenderSheet(SheetPlan plan, SheetPage page, double ppm, Func<int, RgbaImage> front, Func<int, RgbaImage> back)
+    {
+        var w = (int)Math.Round(plan.PageWidthMm * ppm, MidpointRounding.AwayFromZero);
+        var h = (int)Math.Round(plan.PageHeightMm * ppm, MidpointRounding.AwayFromZero);
+        return Render(w, h, context =>
+        {
+            context.SetFillColor(new CGColor(1, 1, 1, 1));
+            context.FillRect(new CGRect(0, 0, w, h));
+            foreach (var slot in page.Slots)
+            {
+                using var card = MacPictures.ToImage(slot.Back ? back(slot.Entry) : front(slot.Entry));
+                context.SaveState();
+                context.TranslateCTM(F(slot.X * ppm), F(slot.Y * ppm));
+                if (plan.Turned)
+                {
+                    // the card is drawn upright, then turned into a landscape slot
+                    context.TranslateCTM(F(plan.CardW * ppm), 0);
+                    context.RotateCTM(F(Math.PI / 2));
+                }
+                MacPictures.Draw(context, card, new CGRect(0, 0, CardConfig.CardWidthMm * ppm, CardConfig.CardHeightMm * ppm));
+                context.RestoreState();
+                context.SetStrokeColor(new CGColor(0, 0, 0, 1));
+                context.SetLineWidth(F(Math.Max(1, 0.1 * ppm)));
+                foreach (var (x1, y1, x2, y2) in Sheets.CropMarks(slot.X, slot.Y, plan.CardW, plan.CardH))
+                {
+                    context.MoveTo(F(x1 * ppm), F(y1 * ppm));
+                    context.AddLineToPoint(F(x2 * ppm), F(y2 * ppm));
+                    context.StrokePath();
+                }
+            }
+        });
+    }
+
+    /// <summary>A finished page as the opaque RGB the PDF stores, on white.</summary>
+    public static PdfPage ToPdfPage(RgbaImage page, double widthMm, double heightMm)
+    {
+        var rgb = new byte[page.Width * page.Height * 3];
+        for (int i = 0, j = 0; i < page.Data.Length; i += 4, j += 3)
+        {
+            // straight colour over white: colour * alpha + (1 - alpha) * 255
+            int a = page.Data[i + 3];
+            rgb[j] = (byte)((page.Data[i] * a + 255 * (255 - a)) / 255);
+            rgb[j + 1] = (byte)((page.Data[i + 1] * a + 255 * (255 - a)) / 255);
+            rgb[j + 2] = (byte)((page.Data[i + 2] * a + 255 * (255 - a)) / 255);
+        }
+        return new PdfPage(page.Width, page.Height, rgb, widthMm, heightMm);
+    }
+
+    /// <summary>The pages of a print as PDF page thunks: each is drawn at 300 DPI when the PDF writer asks for it.</summary>
+    public List<Func<PdfPage>> SheetPdfPages(CardArt art, CardGeometry geo, SheetPlan plan, IReadOnlyList<CardData> entries,
+        IReadOnlyList<SheetPage> pages, bool backUpsideDown)
+    {
+        var ppm = CardConfig.PrintPxPerMm;
+        var result = new List<Func<PdfPage>>();
+        foreach (var page in pages)
+        {
+            result.Add(() => ToPdfPage(
+                RenderSheet(plan, page, ppm, i => RenderFront(art, geo, entries[i], ppm), _ => RenderBack(art, ppm, backUpsideDown)),
+                plan.PageWidthMm, plan.PageHeightMm));
+        }
+        return result;
+    }
 }
