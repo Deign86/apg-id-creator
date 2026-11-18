@@ -141,8 +141,6 @@ public sealed class MacCardRenderer
     private readonly MacTextMeasurer _measurer;
     // a photo is converted once and kept for as long as its pixels are
     private readonly ConditionalWeakTable<RgbaImage, CGImage> _photos = new();
-    private QrCode? _qr;
-    private string _qrKey = "";
 
     public MacCardRenderer(MacTextMeasurer measurer) { _measurer = measurer; }
 
@@ -199,84 +197,80 @@ public sealed class MacCardRenderer
         });
     }
 
+    // Core says what is on the front and in what order (CardDrawing.Front).
+    // This draws each of those things with Core Graphics, and decides nothing else.
     private void DrawFront(CGContext context, CardArt art, CardGeometry geo, CardData? data, double ppm, int w, int h)
     {
         var full = new CGRect(0, 0, w, h);
-        MacPictures.Draw(context, art.Front, full);
-
-        if (data is { Photo: not null, Placement: not null })
+        foreach (var op in CardDrawing.Front(_measurer, geo, data, ppm))
         {
-            var p = data.Placement;
-            context.SaveState();
-            context.AddPath(Polygons(new[] { geo.PhotoClip }, ppm));
-            context.Clip();
-            var photo = _photos.GetValue(data.Photo, MacPictures.ToImage);
-            var where = new CGRect(p.X * ppm, p.Y * ppm, p.W * ppm, p.H * ppm);
-            if (p.ShortBy > 0)
+            switch (op)
             {
-                // A photo too closely cropped to reach the bottom of its
-                // window fades out over its last few millimetres, as on
-                // Windows: drawn on its own layer, then kept only where a
-                // white-to-clear gradient is.
-                var fade = Math.Min(CardConfig.Photo.FadeMm, p.H / 3);
-                var bottom = (p.Y + p.H) * ppm;
-                context.BeginTransparencyLayer();
-                MacPictures.Draw(context, photo, where);
-                context.SetBlendMode(CGBlendMode.DestinationIn);
-                using var gradient = new CGGradient(MacPictures.Srgb, new[] { new CGColor(1, 1, 1, 1), new CGColor(1, 1, 1, 0) }, new nfloat[] { 0, 1 });
-                context.DrawLinearGradient(gradient, new CGPoint(0, bottom - fade * ppm), new CGPoint(0, bottom),
-                    CGGradientDrawingOptions.DrawsBeforeStartLocation | CGGradientDrawingOptions.DrawsAfterEndLocation);
-                context.EndTransparencyLayer();
-            }
-            else
-            {
-                MacPictures.Draw(context, photo, where);
-            }
-            context.RestoreState();
-        }
-
-        // the band and the gold line, back on top of the photo
-        if (geo.FrontClip.Count > 0)
-        {
-            context.SaveState();
-            context.AddPath(Polygons(geo.FrontClip, ppm));
-            context.Clip();
-            MacPictures.Draw(context, art.Front, full);
-            context.RestoreState();
-        }
-
-        if (data is null) return;
-
-        var layout = TextFit.Layout(_measurer, geo, data.Name, data.Title, data.Year, data.Seq);
-        DrawText(context, geo.Name, layout.Name, ppm);
-        DrawText(context, geo.Title, layout.Title, ppm);
-        DrawText(context, geo.EmployeeNo, layout.EmployeeNo, ppm);
-
-        if (data.Signature is { HasInk: true }) DrawSignature(context, data.Signature, geo.Signature, ppm);
-        DrawQr(context, geo.Qr, ppm);
-    }
-
-    private void DrawText(CGContext context, TextSpec spec, FittedText fit, double ppm)
-    {
-        if (fit.Lines.Count == 0) return;
-        var place = TextFit.Place(_measurer, spec, fit, ppm);
-        context.SetFillColor(Solid(spec.Color));
-        for (var i = 0; i < fit.Lines.Count; i++)
-        {
-            var width = _measurer.Width(spec.Font, place.Px, fit.Lines[i]);
-            var x = spec.Align switch
-            {
-                HAlign.Center => place.AnchorX - width / 2,
-                HAlign.Right => place.AnchorX - width,
-                _ => place.AnchorX,
-            };
-            foreach (var (word, offset) in _measurer.Words(spec.Font, place.Px, fit.Lines[i]))
-            {
-                // Filled as outlines, not drawn as text: outlines land exactly
-                // where they are put, the same on every computer.
-                using var outline = _measurer.Outline(spec.Font, place.Px, word, x + offset, place.Baselines[i]);
-                context.AddPath(outline);
-                context.FillPath();
+                case ArtworkOp { Clip: null }:
+                {
+                    MacPictures.Draw(context, art.Front, full);
+                    break;
+                }
+                case ArtworkOp { Clip: { } clip }:
+                {
+                    context.SaveState();
+                    context.AddPath(Polygons(clip, ppm));
+                    context.Clip();
+                    MacPictures.Draw(context, art.Front, full);
+                    context.RestoreState();
+                    break;
+                }
+                case PhotoOp photo:
+                {
+                    context.SaveState();
+                    context.AddPath(Polygons(new[] { photo.Clip }, ppm));
+                    context.Clip();
+                    var picture = _photos.GetValue(photo.Image, MacPictures.ToImage);
+                    var where = new CGRect(photo.X, photo.Y, photo.W, photo.H);
+                    if (photo.Fades)
+                    {
+                        // Drawn on its own layer, then kept only where a white-to-clear gradient is.
+                        context.BeginTransparencyLayer();
+                        MacPictures.Draw(context, picture, where);
+                        context.SetBlendMode(CGBlendMode.DestinationIn);
+                        using var gradient = new CGGradient(MacPictures.Srgb, new[] { new CGColor(1, 1, 1, 1), new CGColor(1, 1, 1, 0) }, new nfloat[] { 0, 1 });
+                        context.DrawLinearGradient(gradient, new CGPoint(0, photo.FadeFrom), new CGPoint(0, photo.FadeTo),
+                            CGGradientDrawingOptions.DrawsBeforeStartLocation | CGGradientDrawingOptions.DrawsAfterEndLocation);
+                        context.EndTransparencyLayer();
+                    }
+                    else
+                    {
+                        MacPictures.Draw(context, picture, where);
+                    }
+                    context.RestoreState();
+                    break;
+                }
+                case WordOp word:
+                {
+                    // Filled as outlines, not drawn as text: outlines land exactly
+                    // where they are put, the same on every computer.
+                    context.SetFillColor(Solid(word.Color));
+                    using var outline = _measurer.Outline(word.Font, word.Px, word.Word, word.X, word.Baseline);
+                    context.AddPath(outline);
+                    context.FillPath();
+                    break;
+                }
+                case InkOp ink:
+                {
+                    DrawInk(context, ink.Segments, Solid(ink.Color), ink.Ox, ink.Oy, ink.Scale, ink.WidthScale);
+                    break;
+                }
+                case ScanOp scan:
+                {
+                    using var white = TintedScan(scan.Scan, scan.Color);
+                    MacPictures.Draw(context, white, new CGRect(scan.X, scan.Y, scan.W, scan.H));
+                    break;
+                }
+                case QrOp qr:
+                {
+                    DrawQr(context, qr, ppm);
+                    break;
+                }
             }
         }
     }
@@ -323,60 +317,22 @@ public sealed class MacCardRenderer
         return MacPictures.ToImage(new RgbaImage(scan.Width, scan.Height, data));
     }
 
-    private static void DrawSignature(CGContext context, Signature signature, SignatureSpec spec, double ppm)
-    {
-        if (signature is ScannedSignature scan)
-        {
-            var fit = SignatureInk.FitInto(spec, 0, 0, scan.Width, scan.Height);
-            using var white = TintedScan(scan, spec.Color);
-            MacPictures.Draw(context, white, new CGRect(fit.Left * ppm, fit.Top * ppm, scan.Width * fit.Scale * ppm, scan.Height * fit.Scale * ppm));
-            return;
-        }
-        if (signature is not DrawnSignature drawn) return;
-        var (minX, minY, inkW, inkH) = SignatureInk.Bounds(drawn);
-        var f = SignatureInk.FitInto(spec, minX, minY, inkW, inkH);
-        // Widths are asked for in pad units that come out as StrokeMm on the card.
-        var segments = SignatureInk.Segments(drawn, spec.MinStrokeMm / f.Scale, spec.StrokeMm / f.Scale);
-        var scale = f.Scale * ppm;
-        DrawInk(context, segments, Solid(spec.Color), (f.Left - minX * f.Scale) * ppm, (f.Top - minY * f.Scale) * ppm, scale, scale);
-    }
-
     /* ---- QR -------------------------------------------------------- */
 
-    private void DrawQr(CGContext context, QrSpec spec, double ppm)
+    // Core has snapped the code to whole print pixels and found the runs of dark modules (CardDrawing).
+    private static void DrawQr(CGContext context, QrOp qr, double ppm)
     {
-        var key = spec.Content + "|" + spec.ErrorCorrection;
-        if (_qr is null || _qrKey != key) { _qr = QrCode.Encode(spec.Content, spec.ErrorCorrection); _qrKey = key; }
-        var n = _qr.Size;
-
-        // Everything is snapped to whole PRINT pixels, so the code stays
-        // crisp at 300 DPI whatever resolution this is being drawn at.
-        var printPpm = CardConfig.PrintPxPerMm;
-        double Snap(double mm) => Math.Floor(mm * printPpm + 0.5) / printPpm;
-        double x0 = Snap(spec.X), y0 = Snap(spec.Y), side = Snap(spec.Size);
         context.SetShouldAntialias(false);
-        context.SetFillColor(Solid(spec.Background));
-        context.FillRect(new CGRect(x0 * ppm, y0 * ppm, side * ppm, side * ppm));
-
-        // module size: whole print pixels, leaving a two-module quiet zone each side
-        var moduleMm = Math.Max(1, Math.Floor(side * printPpm / (n + 4))) / printPpm;
-        var codeMm = n * moduleMm;
-        double left = Snap(x0 + (side - codeMm) / 2), top = Snap(y0 + (side - codeMm) / 2);
+        context.SetFillColor(Solid(qr.Background));
+        context.FillRect(new CGRect(qr.X * ppm, qr.Y * ppm, qr.Side * ppm, qr.Side * ppm));
 
         // one path for the whole code: neighbouring modules share an edge exactly, so no hairlines between them
         var code = new CGPath();
-        for (var r = 0; r < n; r++)
+        foreach (var run in qr.Runs)
         {
-            for (var c = 0; c < n; c++)
-            {
-                if (!_qr.IsDark(r, c)) continue;
-                var end = c;
-                while (end + 1 < n && _qr.IsDark(r, end + 1)) end++;
-                code.AddRect(new CGRect((left + c * moduleMm) * ppm, (top + r * moduleMm) * ppm, (end + 1 - c) * moduleMm * ppm, moduleMm * ppm));
-                c = end;
-            }
+            code.AddRect(new CGRect((qr.Left + run.Start * qr.ModuleMm) * ppm, (qr.Top + run.Row * qr.ModuleMm) * ppm, (run.End + 1 - run.Start) * qr.ModuleMm * ppm, qr.ModuleMm * ppm));
         }
-        context.SetFillColor(Solid(spec.Color));
+        context.SetFillColor(Solid(qr.Color));
         context.AddPath(code);
         context.FillPath();
         context.SetShouldAntialias(true);
