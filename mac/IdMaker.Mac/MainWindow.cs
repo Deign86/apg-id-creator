@@ -20,6 +20,7 @@ public sealed partial class MainWindow
     private readonly Register _register;
     private readonly Session _session;
     private readonly TemplateStore _templates;
+    private readonly DesignDesk _design;
 
     private MacCardRenderer? _renderer;
     private CardArt? _art;
@@ -28,7 +29,6 @@ public sealed partial class MainWindow
     private string _removerProblem = "";
 
     private bool _front = true;                 // which side the preview shows
-    private bool _checkingPhoto;
     private bool _syncing;                      // true while Render() writes to controls, so their handlers stand down
     private string? _tool;                      // which tool drawer is open, if any
     private bool _saved;                        // the print on screen has been saved
@@ -197,6 +197,7 @@ public sealed partial class MainWindow
         _templates = new TemplateStore(files);
         _session = new Session(_register, new TitleList(files), files, post: action => NSApplication.SharedApplication.BeginInvokeOnMainThread(action));
         _session.Changed += Render;
+        _design = new DesignDesk(_session, _templates, files.Directory);
         Confirm = AskYesNo;
 
         /* ---- rail ---- */
@@ -217,7 +218,7 @@ public sealed partial class MainWindow
         rail.WidthAnchor.ConstraintEqualTo(160).Active = true;
 
         /* ---- the tool drawer ---- */
-        _btnRefusedDone = Ui.Button("These cards are dealt with", () => { _register.ClearRefused(); Render(); });
+        _btnRefusedDone = Ui.Button("These cards are dealt with", () => { _session.ClearRefused(); Render(); });
         _refusedPanel = Ui.Column(8, _refusedNote, _btnRefusedDone);
         _btnRegisterCsv = Ui.Button("Save the list as CSV", SaveRegisterCsv);
         _txtSignInPassword.WidthAnchor.ConstraintEqualTo(280).Active = true;
@@ -521,7 +522,7 @@ public sealed partial class MainWindow
         }
 
         // start reading the register now rather than on the first keystroke
-        if (_register.Shared) _ = WarmRegister();
+        if (_session.HasSharedRegister) _ = WarmRegister();
         // the model takes a moment to load; the form does not wait for it
         _ = LoadRemover();
         Render();
@@ -532,14 +533,9 @@ public sealed partial class MainWindow
 
     private async Task WarmRegister()
     {
-        if (await _register.LoadIndex())
-        {
-            // cards saved while the register was out of reach are sent now that it answers
-            await _register.SendWaiting();
-        }
-        // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
-        if (_register.Refused.Count > 0) _tool = ToolKey.Register;
-        _session.RefreshDuplicate();
+        // Cards saved while the register was out of reach are sent now that it answers. One of them may
+        // have been refused: somebody else took its number meanwhile. That cannot wait to be found.
+        if (await _session.WarmRegister()) _tool = ToolKey.Register;
         Render();
     }
 
@@ -581,7 +577,7 @@ public sealed partial class MainWindow
         Saved = _saved,
         SavedCount = _savedCount,
         Saving = _saving,
-        CheckingPhoto = _checkingPhoto,
+        CheckingPhoto = _session.CheckingPhoto,
         RemoverReady = _remover is not null,
         RemoverProblem = _removerProblem,
         SignatureError = _sigError,
@@ -839,33 +835,9 @@ public sealed partial class MainWindow
     /// <summary>Open a picture file and put it through the photo pipeline.</summary>
     internal async Task AcceptPhotoFile(string path)
     {
-        if (_checkingPhoto) return;
-        var name = Path.GetFileName(path);
-        long size;
-        try { size = new FileInfo(path).Length; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
-        var problem = PhotoPipeline.FileProblem(name, size);
-        if (problem.Length > 0) { _session.PhotoFailed(problem); _front = true; Render(); return; }
-        _checkingPhoto = true;
-        Render();
-        var card = _session.CardSerial;
-        var spec = _session.Geometry.Photo;
-        var remover = _remover;
-        (PhotoResult? Result, string Error) outcome;
-        try
-        {
-            outcome = await Task.Run(() =>
-            {
-                var (image, error) = MacPictures.Decode(path);
-                return image is null ? ((PhotoResult?)null, error) : (PhotoPipeline.Analyse(image, name, spec, remover), "");
-            });
-        }
-        finally { _checkingPhoto = false; }
-        // The card this photo was for has been put aside while it was being looked at: it must not land on the blank card that replaced it.
-        if (card != _session.CardSerial) { Render(); return; }
-        if (outcome.Result is null) _session.PhotoFailed(outcome.Error);
-        else _session.AcceptPhoto(outcome.Result);
-        _front = true;
+        // Core looks at the photo (Session.TakePhoto), and redraws through Session.Changed while it does.
+        // It answers false when the card the photo was for was put aside meanwhile: nothing landed.
+        if (await _session.TakePhoto(path, MacPictures.Decode, _remover)) _front = true;
         Render();
     }
 
@@ -943,32 +915,12 @@ public sealed partial class MainWindow
 
     internal async Task AcceptSignatureFile(string path)
     {
-        var name = Path.GetFileName(path);
-        long size;
-        try { size = new FileInfo(path).Length; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
-        var problem = PhotoPipeline.FileProblem(name, size, "picture of the signature");
-        (ScannedSignature? Signature, string Error) outcome = (null, problem);
-        var card = _session.CardSerial;
-        if (problem.Length == 0)
-        {
-            outcome = await Task.Run(() =>
-            {
-                var (image, error) = MacPictures.Decode(path);
-                return image is null ? (null, error) : SignatureInk.FromImage(image, name);
-            });
-        }
-        if (card != _session.CardSerial) { Render(); return; }      // as with a photo: the card it was for is gone
-        if (outcome.Signature is null)
+        var scan = await _session.TakeSignatureScan(path, MacPictures.Decode);
+        if (scan.Landed)
         {
             // a scan that cannot be read leaves whatever signature was there
-            _sigError = outcome.Error;
-        }
-        else
-        {
-            _sigError = "";
-            _session.SetSignature(outcome.Signature);
-            _front = true;
+            _sigError = scan.Error;
+            if (scan.Error.Length == 0) _front = true;
         }
         Render();
     }
@@ -1075,31 +1027,28 @@ public sealed partial class MainWindow
     internal async Task SavePrint(string path)
     {
         if (_saving || _art is null || _renderer is null) return;
-        var print = _session.PrintPages();
-        if (print is not { } pr || pr.Entries.Count == 0) return;
-        var (_, title) = _session.PrintFile();
-        var pages = _renderer.SheetPdfPages(_art, _session.Geometry, pr.Plan, pr.Entries, pr.Pages, _session.BackUpsideDown(pr.Plan));
-        var count = _session.JobCards().Count;
+        if (_session.Print() is not { } job) return;
+        var pages = _renderer.SheetPdfPages(_art, _session.Geometry, job.Plan, job.Entries, job.Pages, job.BackUpsideDown);
         _saving = true;
         _reviewError = "";
         Render();
-        var error = await WritePdf(path, pages, title);
+        // Core writes the PDF, and only once it is whole issues its cards (Session.SavePrint)
+        var saved = await _session.SavePrint(path, job, OnWindow(pages));
         _saving = false;
-        if (error.Length > 0)
+        if (saved.Error.Length > 0)
         {
-            _reviewError = error;
+            _reviewError = saved.Error;
             Render();
             return;
         }
-        var issued = _session.MarkIssued();
         _saved = true;
-        _savedCount = count;
+        _savedCount = saved.Cards;
         _savedPath = path;
         _savedTrouble = "";
         Render();
         Window.MakeFirstResponder(_btnNewId);
-        var report = await _session.RecordShared(issued);
-        if (report.Message() is { Length: > 0 } trouble)
+        // the shared register has been told meanwhile
+        if (await saved.Trouble is { Length: > 0 } trouble)
         {
             _savedTrouble = trouble;
             Render();
@@ -1107,41 +1056,16 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Write a PDF to disk. Pages are drawn on the window's own thread, one
-    /// at a time as they are asked for (the measurer is not shared between
-    /// threads); the compressing and writing happen off it. Returns "" or
-    /// what went wrong, in words for the operator.
+    /// Pages are drawn on the window's own thread, one at a time as the
+    /// writer asks for them (the measurer is not shared between threads);
+    /// the compressing and writing happen off it (PrintFiles.Write).
     /// </summary>
-    private static async Task<string> WritePdf(string path, List<Func<PdfPage>> pages, string title)
+    private static List<Func<PdfPage>> OnWindow(List<Func<PdfPage>> pages) => pages.Select(page => (Func<PdfPage>)(() =>
     {
-        var onWindow = pages.Select(page => (Func<PdfPage>)(() =>
-        {
-            PdfPage? drawn = null;
-            NSApplication.SharedApplication.InvokeOnMainThread(() => drawn = page());
-            return drawn ?? throw new InvalidOperationException("A page of the print could not be drawn.");
-        })).ToList();
-        var partial = path + ".part";
-        try
-        {
-            await Task.Run(() =>
-            {
-                using (var stream = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    PdfWriter.Write(stream, onWindow, title, DateTime.Now);
-                }
-                File.Move(partial, path, overwrite: true);
-            });
-            return "";
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or OutOfMemoryException or InvalidOperationException)
-        {
-            try { File.Delete(partial); }
-            catch (Exception d) when (d is IOException or UnauthorizedAccessException) { /* nothing more to be done about a file that will not go */ }
-            return e is OutOfMemoryException
-                ? "This print is too large for this computer’s memory. Print fewer cards at a time."
-                : $"The file couldn’t be saved there ({e.Message.TrimEnd('.')}). If it is open in another program, close it, or choose a different folder.";
-        }
-    }
+        PdfPage? drawn = null;
+        NSApplication.SharedApplication.InvokeOnMainThread(() => drawn = page());
+        return drawn ?? throw new InvalidOperationException("A page of the print could not be drawn.");
+    })).ToList();
 
     private void SavePictures()
     {
@@ -1149,19 +1073,18 @@ public sealed partial class MainWindow
         var stem = Path.GetFileNameWithoutExtension(_session.PrintFile().FileName);
         var front = AskWhereToSave("Save the front as a picture", stem + "-front.png");
         if (front is null) return;
-        var back = Path.Combine(Path.GetDirectoryName(front) ?? DocumentsFolder,
-            Path.GetFileNameWithoutExtension(front).Replace("-front", "", StringComparison.OrdinalIgnoreCase) + "-back.png");
+        var back = PrintFiles.BackPictureFor(front, DocumentsFolder);
         try
         {
             var ppm = CardConfig.PrintPxPerMm;
             MacPictures.SavePng(_renderer.RenderFront(_art, _session.Geometry, _session.CardData(), ppm), front);
             MacPictures.SavePng(_renderer.RenderBack(_art, ppm, _session.RotateBack), back);
             // pictures are a proof to look at, not a print: the card is issued when the PDF is saved
-            _reviewFileNote = $"Saved {Path.GetFileName(front)} and {Path.GetFileName(back)}. The card is not issued until you save the PDF.";
+            _reviewFileNote = PrintFiles.PicturesSaved(front, back);
         }
         catch (Exception x) when (x is IOException or UnauthorizedAccessException)
         {
-            _reviewError = $"The pictures couldn’t be saved there ({x.Message.TrimEnd('.')}). Choose a different folder.";
+            _reviewError = PrintFiles.PicturesNotSaved(x);
         }
         Render();
     }
@@ -1307,7 +1230,7 @@ public sealed partial class MainWindow
         if (path is null) return;
         try
         {
-            File.WriteAllText(path, _register.ToCsv());
+            File.WriteAllText(path, _session.RegisterCsv());
             _registerMessage = $"Saved {Path.GetFileName(path)}.";
             ShowInFinder(path);
         }
@@ -1324,9 +1247,7 @@ public sealed partial class MainWindow
         if (path is null) return;
         try
         {
-            var added = _register.ImportCsv(File.ReadAllText(path));
-            _registerMessage = added > 0 ? $"Added {added} card{(added == 1 ? "" : "s")} from that list." : "Nothing new in that list.";
-            _session.RefreshDuplicate();
+            _registerMessage = _session.ImportRegister(File.ReadAllText(path));
         }
         catch (Exception x) when (x is IOException or UnauthorizedAccessException)
         {
@@ -1343,33 +1264,21 @@ public sealed partial class MainWindow
         Render();
         try
         {
-            var result = await _register.SignIn(_txtSignInEmail.StringValue, _txtSignInPassword.StringValue);
-            // the password is not kept anywhere, this box included
+            // Core signs in, reads the register and sends the cards saved before anyone signed in (Session.SignIn)
+            var signingIn = _session.SignIn(_txtSignInEmail.StringValue, _txtSignInPassword.StringValue);
+            // the password is not kept anywhere, this box included: it has been handed over
             _txtSignInPassword.StringValue = "";
-            if (!result.Ok)
-            {
-                _registerMessage = result.Error;
-                Render();
-                Window.MakeFirstResponder(_txtSignInPassword);
-                return;
-            }
-            var read = await _register.LoadIndex();
-            // cards saved before anyone signed in are sent now
-            var left = read ? await _register.SendWaiting() : _register.WaitingForShared;
-            _session.RefreshDuplicate();
-            _registerMessage = !read ? $"Signed in, but the register could not be read just now. {_register.LastProblem}"
-                : left > 0 ? $"Signed in. {left} card{(left == 1 ? "" : "s")} could not be written yet and will be tried again."
-                : "Signed in. This computer now checks every number against the shared register.";
+            var result = await signingIn;
+            _registerMessage = result.Message;
             Render();
+            if (!result.Ok) Window.MakeFirstResponder(_txtSignInPassword);
         }
         finally { _btnSignIn.Enabled = true; }
     }
 
     private void SignOut()
     {
-        _register.SignOut();
-        _session.RefreshDuplicate();
-        _registerMessage = "Signed out. Numbers are checked against this computer only until somebody signs in.";
+        _registerMessage = _session.SignOut();
         Render();
     }
 
@@ -1380,12 +1289,7 @@ public sealed partial class MainWindow
         Render();
         try
         {
-            var ping = await _register.Ping();
-            if (ping.Ok) await _register.SendWaiting();
-            _session.RefreshDuplicate();
-            _registerMessage = ping.Ok
-                ? $"The shared register is answering: {ping.Rows} card{(ping.Rows == 1 ? "" : "s")} in it."
-                : ping.Error;
+            _registerMessage = await _session.CheckRegister();
             Render();
         }
         finally { _btnRegisterTest.Enabled = true; }
