@@ -445,6 +445,7 @@ public sealed partial class MainWindow
         form.AddArrangedSubview(Ui.Row(8, _btnBack, _btnNext));
         form.AddArrangedSubview(_blocked);
         form.AddArrangedSubview(_status);
+        form.AddArrangedSubview(Ui.Spacer());
         form.WidthAnchor.ConstraintEqualTo(440).Active = true;
 
         /* ---- the window ---- */
@@ -1276,13 +1277,27 @@ public sealed partial class MainWindow
         var sheet = renderer.RenderSheet(pr.Plan, page, SheetPreviewPpm,
             i => renderer.RenderFront(art, s.Geometry, pr.Entries[i], SheetPreviewPpm),
             _ => back ??= renderer.RenderBack(art, SheetPreviewPpm, backUp));
-        _cardImage.Image = Ui.ToNsImage(sheet, 400);
+        PaperEdge(sheet);
+        _cardImage.Image = Ui.ToNsImage(sheet, CardPointsWide);
         var which = pr.Plan.Mode != SheetMode.Duplex ? "" : page.Backs ? "Backs, reversed to match. " : "Fronts. ";
         Ui.Says(_cardImage, $"Preview of page {s.PreviewPage + 1} of the {s.Paper} sheet. {which}".Trim());
         Ui.SetText(_previewCaption, $"{which}Page {s.PreviewPage + 1} of {pr.Pages.Count} · {s.Paper}");
         Ui.Show(_sheetNav, pr.Pages.Count > 1);
         _prevPage.Enabled = s.PreviewPage > 0;
         _nextPage.Enabled = s.PreviewPage < pr.Pages.Count - 1;
+    }
+
+    // White paper on a pale window: a grey hairline round the preview (never the print) shows where the paper ends.
+    private static void PaperEdge(RgbaImage sheet)
+    {
+        void Grey(int x, int y)
+        {
+            var i = (y * sheet.Width + x) * 4;
+            sheet.Data[i] = sheet.Data[i + 1] = sheet.Data[i + 2] = 170;
+            sheet.Data[i + 3] = 255;
+        }
+        for (var x = 0; x < sheet.Width; x++) { Grey(x, 0); Grey(x, sheet.Height - 1); }
+        for (var y = 0; y < sheet.Height; y++) { Grey(0, y); Grey(sheet.Width - 1, y); }
     }
 
     /* ---- the tool rail -------------------------------------------- */

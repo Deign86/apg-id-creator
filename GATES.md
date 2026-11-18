@@ -101,17 +101,26 @@ Scope: the ID Maker as a native Mac program (C# on AppKit, no web view) that sha
   CHECK: `AlphaPremierIdMaker --selftest --repo <repository>`
   EVIDENCE: passed on macos-26 (Mac app workflow, commit after 037fd52). Fonts: cap heights and descents equal, worst width difference 0.0017 px at 100 px. Card 638 x 1011. Whole card mean difference 1.14 (limit 4.0); photo 1.28; name 5.99; job title 1.57; signature 0.50; QR 0.00 (identical). Ink boxes of the name, title and number within one pixel of the web app's. The employee number is the closest to its limit: 11.45% of pixels visibly different against 12% (11.71 mean against 14), as on Windows a matter of how a one-pixel stroke is smoothed. The drawn card is kept as the `mac-report` artifact. Not yet drawn on Mac: sheets of cards and the PDF pages (with M4).
 
-- [ ] M4: The real window takes a card from an empty form to a saved PDF, refuses to move on with the reason, issues nothing when the save fails, signs in to the register and shows a refused card. The Intern / Employee choice is there.
-  EVIDENCE: pending
+- [x] M4: The real window takes a card from an empty form to a saved PDF, refuses to move on with the reason, issues nothing when the save fails, signs in to the register and shows a refused card. The Intern / Employee choice is there.
+  CHECK: `AlphaPremierIdMaker --windowtest --repo <repository>` (a build made with `-p:WindowTest=true`)
+  EVIDENCE: passed on macos-26 (Mac app workflow run 44231358076, job test, commit 1da9662): 29 checks in "A card can be made from start to a saved PDF" (848,576-byte PDF; APG-2026-007 issued to an intern only after the save; the same number then refused for somebody else by name), 6 in the sign-in test against the pretend project (wrong password refused, password in no file), 7 in the refused-card test. Screenshots of the window are in the job log and the `mac-report` artifact.
 
 - [ ] M5: Signing with the pen draws a line that thickens with pressure, full screen.
-  EVIDENCE: pending (needs a person with the tablet)
+  CHECK: on a Mac with the XP-Pen tablet and its driver, press Sign now and sign lightly, then hard
+  EVIDENCE: pending (needs a person with the tablet). The window tests sign through the same code with a made-up signature; no test can press a pen.
 
-- [ ] M6: Photo background removal works on the Mac (ONNX Runtime's macOS build), on the computer.
-  EVIDENCE: pending
+- [x] M6: Photo background removal works on the Mac (ONNX Runtime's macOS build), on the computer.
+  CHECK: the window test "The background remover runs on this Mac"; `mac/package.sh osx-x64 Intel` for the Intel build
+  EVIDENCE: on macos-26 (run 44231358076) the model loaded from inside the app and answered with one value per pixel for a 480 x 640 picture. It is the same model file as on Windows, checked against the same SHA-256 when built. Not shown: a real photograph cut out on a Mac (photographs are not kept in the repository).
 
-- [ ] M7: The app offers to install XP-Pen's Mac driver: downloaded from XP-Pen's own server, checked against a pinned SHA-256, opened in Apple's installer. macOS asks for the administrator password and for Input Monitoring and Accessibility; those cannot be skipped by any app.
-  EVIDENCE: pending
+- [x] M7: The app offers to install XP-Pen's Mac driver: downloaded from XP-Pen's own server, checked against a pinned SHA-256, opened in Apple's installer. macOS asks for the administrator password and for Input Monitoring and Accessibility; those cannot be skipped by any app.
+  CHECK: the window test "The pen tablet driver is offered once, and the one XP-Pen serves is the one pinned"
+  EVIDENCE: on macos-26 (run 44231358076): offered once on a Mac with no tablet driver, not a second time, the button stays on the signature step; XP-Pen's server served XPPenMac_4.0.21_261026.zip with the pinned SHA-256 and it unpacked to XPPenMac_4.0.21_261026.pkg. Not shown: Apple's installer actually run to the end (it needs a person and an administrator password).
 
-- [ ] M8: A release attaches a `.dmg` for Apple Silicon and Intel beside the Windows setup program, built with the register's project from the same secrets, and the app in it starts.
-  EVIDENCE: pending
+- [x] M8: A release attaches a `.dmg` for Apple Silicon and Intel beside the Windows setup program, built with the register's project from the same secrets, and the app in it starts.
+  CHECK: `mac/package.sh osx-arm64 AppleSilicon` and `mac/package.sh osx-x64 Intel` (the Mac app workflow's job `package`; the Release workflow's job `mac` adds `--needs-register`)
+  EVIDENCE: on macos-26 (run 44229876311, job package) both images were built, opened, and the app inside each passed its self-test and started ("The window opened and the card loaded."), the Intel one under Rosetta. Pending until this is merged: the release itself with both images attached and the register's project built in.
+
+- [x] M9: The Mac window does what the Windows window does: batch from a list, the card design (map, artwork, reset), dragging the photo, dropping a picture, a sideways phone photo stood upright.
+  CHECK: `AlphaPremierIdMaker --windowtest --repo <repository>`
+  EVIDENCE: on macos-26 (run 44231358076): batch 7 checks (2 cards saved, the row with no photo skipped with its reason, only those two issued); card design 11 checks (box moved 34.40 to 35.40 mm by the keys, discarded, kept and still there on reopening, wrong-shaped artwork refused, card-shaped taken, reset); photo dragged 40 points = 5.40 mm; a JPEG marked "rotate 90" opened 20 x 40. Not driven by a test: the mouse itself on the boxes and the photo (the tests call what the mouse handlers call), and dropping a file.

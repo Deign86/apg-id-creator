@@ -9,6 +9,9 @@ internal static class Ui
     /// <summary>The widest a line of words may run before it wraps: the form's column. A tool drawer sets its own.</summary>
     public const double TextWidth = 408;
 
+    /// <summary>The company's gold: the one button that moves the work forward, and the design's boxes.</summary>
+    public static readonly NSColor Gold = NSColor.FromRgb(0.83f, 0.69f, 0.22f);
+
     public static NSTextField Label(string text, double size = 13, bool bold = false, bool muted = false, double maxWidth = TextWidth)
     {
         var label = NSTextField.CreateWrappingLabel(text);
@@ -49,8 +52,12 @@ internal static class Ui
     {
         var button = new NSButton { Title = title, BezelStyle = NSBezelStyle.Rounded, TranslatesAutoresizingMaskIntoConstraints = false };
         button.SetButtonType(NSButtonType.MomentaryPushIn);
-        // Return presses the button that moves the work forward.
-        if (primary) button.KeyEquivalent = "\r";
+        // Return presses the button that moves the work forward, and it is the one gold thing on the screen, as on Windows.
+        if (primary)
+        {
+            button.KeyEquivalent = "\r";
+            button.BezelColor = Gold;
+        }
         button.Activated += (_, _) => pressed();
         return button;
     }
@@ -82,7 +89,17 @@ internal static class Ui
             TranslatesAutoresizingMaskIntoConstraints = false,
         };
         foreach (var view in views) stack.AddArrangedSubview(view);
+        // as tall as what is in it and no taller: spare height belongs to a Spacer, not to a gap between two controls
+        stack.SetHuggingPriority(750, NSLayoutConstraintOrientation.Vertical);
         return stack;
+    }
+
+    /// <summary>Takes whatever height a column has to spare, so the controls above it stay together.</summary>
+    public static NSView Spacer()
+    {
+        var spacer = new NSView { TranslatesAutoresizingMaskIntoConstraints = false };
+        spacer.SetContentHuggingPriorityForOrientation(1, NSLayoutConstraintOrientation.Vertical);
+        return spacer;
     }
 
     public static NSStackView Row(double spacing, params NSView[] views)

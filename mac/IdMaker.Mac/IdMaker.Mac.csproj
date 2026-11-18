@@ -18,6 +18,8 @@
     <!-- Nothing is trimmed out of the app: Core reads and writes its files and the register's answers by
          reflection (System.Text.Json), and what was tested is what should ship. The cost is a larger download. -->
     <LinkMode>None</LinkMode>
+    <!-- .NET's own messages in words ("Could not find a part of the path…"), not their internal names: some reach the operator. -->
+    <UseSystemResourceKeys>false</UseSystemResourceKeys>
   </PropertyGroup>
 
   <ItemGroup>
