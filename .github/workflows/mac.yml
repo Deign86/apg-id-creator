@@ -42,6 +42,9 @@ jobs:
     name: Mac tests
     runs-on: macos-26
     timeout-minutes: 30
+    env:
+      # where the self-test and the window tests leave the card and the screenshots they made
+      IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
     # Every dotnet command runs in mac/, where global.json keeps the SDK on
     # the 10.0.4xx band the pinned workload belongs to, whatever newer SDK
     # the runner also has.
@@ -66,15 +69,11 @@ jobs:
       - name: Build, with the window tests in it
         run: dotnet build IdMaker.Mac -c Release -r osx-arm64 -p:WindowTest=true
       - name: Self-test
-        env:
-          IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
         run: |
           app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -path '*osx-arm64*' -name '*.app' | head -1)
           echo "$app"; ls "$app/Contents/MacOS" "$app/Contents/Resources"
           "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest --repo "$GITHUB_WORKSPACE"
       - name: Window tests
-        env:
-          IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
         run: |
           app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -path '*osx-arm64*' -name '*.app' | head -1)
           "$app/Contents/MacOS/AlphaPremierIdMaker" --windowtest --repo "$GITHUB_WORKSPACE"
