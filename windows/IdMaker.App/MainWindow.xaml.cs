@@ -793,7 +793,7 @@ public partial class MainWindow : Window
         if (scan is not null && !ReferenceEquals(_scanShown, scan))
         {
             _scanShown = scan;
-            SigImage.Source = CardRenderer.TintedScan(scan, Color.FromRgb(0x1D, 0x1C, 0x1A));
+            SigImage.Source = CardRenderer.TintedScan(scan, SignaturePad.InkColor);
         }
         if (scan is null) { _scanShown = null; SigImage.Source = null; }
         if (!ReferenceEquals(_padShows, sig)) { _padShows = sig; SigPreview.Value = sig as DrawnSignature; }
