@@ -22,13 +22,13 @@ public static class MacPictures
 {
     internal static nfloat F(double value) => (nfloat)value;
 
-    private static readonly CGColorSpace Srgb = CGColorSpace.CreateSrgb();
+    internal static readonly CGColorSpace Srgb = CGColorSpace.CreateSrgb() ?? throw new InvalidOperationException("This Mac has no sRGB colour space.");
 
     /// <summary>Open a picture file as the Mac decodes it. Null when it is not a picture the Mac can read.</summary>
     public static CGImage? Load(string path)
     {
         using var source = CGImageSource.FromUrl(NSUrl.FromFilename(path));
-        return source is null || source.ImageCount < 1 ? null : source.CreateImage(0, null);
+        return source is null || source.ImageCount < 1 ? null : source.CreateImage(0, new CGImageOptions());
     }
 
     /// <summary>Straight RGBA as a picture the Mac can draw.</summary>
@@ -205,8 +205,7 @@ public sealed class MacCardRenderer
                 context.BeginTransparencyLayer();
                 MacPictures.Draw(context, photo, where);
                 context.SetBlendMode(CGBlendMode.DestinationIn);
-                using var space = CGColorSpace.CreateSrgb();
-                using var gradient = new CGGradient(space, new[] { new CGColor(1, 1, 1, 1), new CGColor(1, 1, 1, 0) }, new nfloat[] { 0, 1 });
+                using var gradient = new CGGradient(MacPictures.Srgb, new[] { new CGColor(1, 1, 1, 1), new CGColor(1, 1, 1, 0) }, new nfloat[] { 0, 1 });
                 context.DrawLinearGradient(gradient, new CGPoint(0, bottom - fade * ppm), new CGPoint(0, bottom),
                     CGGradientDrawingOptions.DrawsBeforeStartLocation | CGGradientDrawingOptions.DrawsAfterEndLocation);
                 context.EndTransparencyLayer();
