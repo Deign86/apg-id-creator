@@ -791,9 +791,6 @@ public sealed partial class MainWindow
         AfterMove(from, new MoveResult(true, null));
     }
 
-    /// <summary>Press Next, as the button does.</summary>
-    internal void PressNext() => AfterMove(_session.StepIndex, _session.NextStep());
-
     /* ---- what the operator types ----------------------------------- */
 
     internal void OnNameChanged(Field part)
@@ -1521,7 +1518,6 @@ public sealed partial class MainWindow
     internal NSTextField LastBox => _txtLast;
     internal NSTextField FirstBox => _txtFirst;
     internal NSTextField SeqBox => _txtSeq;
-    internal NSTextField TitleCustomBox => _txtTitleCustom;
     internal NSPopUpButton KindBox => _cmbKind;
     internal NSPopUpButton TitleBox => _cmbTitle;
     internal string BlockedLine => _blocked.Hidden ? "" : _blocked.StringValue;
