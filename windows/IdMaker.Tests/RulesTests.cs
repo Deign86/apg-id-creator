@@ -87,4 +87,35 @@ public class RulesTests
         Assert.Equal("“١٢٣” is not an employee number (1–4 digits).", outcome.Results[1].Problem);
         Assert.Equal("“0” is not an employee number (1–4 digits).", outcome.Results[2].Problem);
     }
+
+    [Theory]
+    [InlineData("2026", 2026)]
+    [InlineData("1999", 1999)]
+    [InlineData("0000", 0)]
+    [InlineData("", null)]
+    [InlineData("26", null)]
+    [InlineData("20260", null)]
+    [InlineData("abcd", null)]
+    [InlineData("-026", null)]
+    [InlineData("٢٠٢٦", null)]                // digits, but not the ones the card prints
+    [InlineData("２０２６", null)]
+    public void A_year_is_four_of_the_digits_the_card_prints(string text, int? year)
+    {
+        Assert.Equal(year, CardRules.YearNumber(text));
+    }
+
+    [Fact]
+    public void A_year_in_other_digits_falls_back_to_this_year_and_the_batch_goes_on()
+    {
+        var services = new Batch.Services(Make.LocalRegister(), new FakeMeasurer(), CardGeometry.BuiltIn,
+            _ => (Make.Silhouette(600, 1000, 60, 200, 260, 90, 40, 520), ""), null, () => new DateTime(2026, 11, 17, 9, 30, 0));
+        var outcome = Batch.Run(
+            "last,first,title,seq,year,photo\r\nCruz,Ben,IT Associate,12,٢٠٢٦,a.png\r\nSy,Cy,IT Associate,13,abcd,a.png\r\nUy,Di,IT Associate,14,2025,a.png\r\n",
+            new[] { "a.png" }, null, services);
+        Assert.Equal("", outcome.Error);
+        // it used to stop the whole batch with a FormatException; a year in words always fell back
+        Assert.Equal(new[] { "APG-2026-012", "APG-2026-013", "APG-2025-014" }, outcome.Results.Select(r => r.Id));
+        Assert.All(outcome.Results, r => Assert.True(r.Ok, r.Problem));
+        Assert.Equal(new[] { 2026, 2026, 2025 }, outcome.Results.Select(r => r.Entry!.Year));
+    }
 }

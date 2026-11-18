@@ -60,7 +60,6 @@ public static partial class Batch
         + "Reyes,Ana,Santos,,\"HR Associate\",\"Admin Associate\",123,2026,reyes.png,,,employee\r\n"
         + "\"dela Cruz\",Juan,Santos,Jr.,\"Marketing Associate\",,124,2026,cruz.png,,,intern\r\n";
 
-    [GeneratedRegex(@"^\d{4}$")] private static partial Regex YearDigits();
     [GeneratedRegex(@"^(yes|y|true|1)$", RegexOptions.IgnoreCase)] private static partial Regex Yes();
 
     /// <summary>The CSV as one dictionary per person, keyed by lower-case column name. "_line" is the line in the file.</summary>
@@ -156,7 +155,7 @@ public static partial class Batch
 
         var seqText = Col(row, "seq");
         if (CardRules.SeqNumber(seqText) is not { } seq) return Fail($"“{seqText}” is not an employee number (1–{CardRules.MostSeqDigits} digits).");
-        var year = YearDigits().IsMatch(Col(row, "year")) ? int.Parse(Col(row, "year"), CultureInfo.InvariantCulture) : s.Now().Year;
+        var year = CardRules.YearNumber(Col(row, "year")) ?? s.Now().Year;
         var id = Naming.EmployeeId(year, seq);
 
         if (seen.Contains(id)) return Fail($"{id} appears twice in this CSV.");
