@@ -22,36 +22,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  probe:
+  test:
     runs-on: macos-26
     timeout-minutes: 30
     env:
       DOTNET_NOLOGO: 'true'
       DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+      # The Mac workload is tied to one Xcode. This set builds with the
+      # Xcode the runner has; move both together (mac/README.md).
+      MAC_WORKLOAD_SET: '10.0.401'
+      MAC_XCODE: '/Applications/Xcode_26.6.app'
     steps:
       - uses: actions/checkout@v4
-      - name: What this Mac has
-        run: |
-          sw_vers; uname -m
-          ls /Applications | grep -i xcode
-          xcode-select -p
-          dotnet --list-sdks || true
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
-      - name: Workload
+          dotnet-version: 10.0.4xx
+      - name: Workload and Xcode
         run: |
+          sudo xcode-select -s "$MAC_XCODE"
           dotnet --version
-          dotnet workload install macos
+          dotnet workload install macos --version "$MAC_WORKLOAD_SET" || { dotnet workload search version | head -20; exit 1; }
           dotnet workload list
-      - name: What a new Mac app looks like
+      - name: Core tests, on a Mac
+        run: dotnet test windows/IdMaker.Tests -c Release
+      - name: Build
+        run: dotnet build mac/IdMaker.Mac -c Release
+      - name: Self-test
         run: |
-          mkdir -p /tmp/tmpl && cd /tmp/tmpl
-          dotnet new macos -n Probe -o .
-          find . -type f -not -path './obj/*' -not -path './bin/*' | sort
-          for f in $(find . -type f \( -name '*.cs' -o -name '*.csproj' -o -name '*.plist' -o -name '*.json' \) -not -path './obj/*' -not -path './bin/*' | sort); do echo "=== $f"; cat "$f"; echo; done
-      - name: Does it build
-        run: |
-          cd /tmp/tmpl
-          dotnet build -c Release 2>&1 | tail -25
-          find bin -maxdepth 6 -name '*.app' | head
+          app=$(find mac/IdMaker.Mac/bin/Release -maxdepth 4 -name '*.app' | head -1)
+          echo "$app"; ls "$app/Contents/MacOS"
+          "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest

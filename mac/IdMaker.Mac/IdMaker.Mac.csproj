@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The native Mac app: C# on Apple's own AppKit, no web view. It shares
+       every rule with the Windows app through IdMaker.Core, so a card, a
+       number and the register behave the same on both. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-macos</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>IdMaker.Mac</RootNamespace>
+    <AssemblyName>AlphaPremierIdMaker</AssemblyName>
+    <SupportedOSPlatformVersion>12.0</SupportedOSPlatformVersion>
+    <ApplicationTitle>Alpha Premier ID Maker</ApplicationTitle>
+    <ApplicationId>com.alphapremiergroup.idmaker</ApplicationId>
+    <!-- Kept equal to the Windows app's version and CardConfig.AppVersion. -->
+    <Version>2.0.4</Version>
+    <ApplicationDisplayVersion>2.0.4</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\windows\IdMaker.Core\IdMaker.Core.csproj" />
+  </ItemGroup>
+
+</Project>
