@@ -1,0 +1,57 @@
+name: Mac app
+
+# Builds the native Mac app and runs its checks on a real Mac (the renderer
+# and the window need one).
+on:
+  push:
+    paths:
+      - 'mac/**'
+      - 'windows/IdMaker.Core/**'
+      - 'windows/IdMaker.Vision/**'
+      - 'assets/**'
+      - 'test/golden-front.png'
+      - '.github/workflows/mac.yml'
+      - '!**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: What this Mac has
+        run: |
+          sw_vers; uname -m
+          ls /Applications | grep -i xcode
+          xcode-select -p
+          dotnet --list-sdks || true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Workload
+        run: |
+          dotnet --version
+          dotnet workload install macos
+          dotnet workload list
+      - name: What a new Mac app looks like
+        run: |
+          mkdir -p /tmp/tmpl && cd /tmp/tmpl
+          dotnet new macos -n Probe -o .
+          find . -type f -not -path './obj/*' -not -path './bin/*' | sort
+          for f in $(find . -type f \( -name '*.cs' -o -name '*.csproj' -o -name '*.plist' -o -name '*.json' \) -not -path './obj/*' -not -path './bin/*' | sort); do echo "=== $f"; cat "$f"; echo; done
+      - name: Does it build
+        run: |
+          cd /tmp/tmpl
+          dotnet build -c Release 2>&1 | tail -25
+          find bin -maxdepth 6 -name '*.app' | head
