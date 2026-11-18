@@ -54,6 +54,10 @@ public sealed class FileStore : IKeyValueStore
     {
         lock (_gate)
         {
+            // Still needed: the file is the user's own and another program (a backup, a virus scanner)
+            // can be holding it at this moment. It is then read as "nothing kept": the caller cannot tell
+            // that from a first run, which for register.json means the local duplicate check sees no
+            // cards until the next read. The store has no way to say "could not" (docs/untangle, X1).
             try { return File.Exists(PathOf(key)) ? File.ReadAllText(PathOf(key), Encoding.UTF8) : null; }
             catch (IOException) { return null; }
             catch (UnauthorizedAccessException) { return null; }
@@ -73,8 +77,11 @@ public sealed class FileStore : IKeyValueStore
                 File.WriteAllText(tmp, value, new UTF8Encoding(false));
                 File.Move(tmp, path, overwrite: true);
             }
-            catch (IOException) { /* the value lasts for this run only */ }
-            catch (UnauthorizedAccessException) { /* likewise */ }
+            // Still needed: a full disk or a folder that has been made read-only must not stop a card
+            // being printed. What could not be written lasts for this run only, and nothing tells the
+            // operator; that includes an issued card (docs/untangle, X2).
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
     }
 }
@@ -93,6 +100,9 @@ public static class StoreJson
     {
         var raw = store.Get(key);
         if (string.IsNullOrWhiteSpace(raw)) return fallback;
+        // Still needed: the file may have been written by an older version, or cut short by a power
+        // failure before FileStore learned to write beside and move. It reads as the fallback, and the
+        // next write replaces it (docs/untangle, X3).
         try { return JsonSerializer.Deserialize<T>(raw, Options) ?? fallback; }
         catch (JsonException) { return fallback; }
     }

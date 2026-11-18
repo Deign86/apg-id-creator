@@ -621,6 +621,7 @@ public sealed partial class Session
         if (Measurer is not null && Ready())
         {
             var data = CardData();
+            // SAFETY: Ready() is true, and a card with no number is not ready.
             list.Add(new JobCard(Naming.EmployeeId(Year, data.Seq!.Value), Naming.CollapseSpaces(data.Name), data.Title, data, ReviewEntry ?? MakeEntry(), true));
         }
         return list;
@@ -631,6 +632,7 @@ public sealed partial class Session
     {
         if (!Ready()) { GoStep(0); return false; }
         var data = CardData();
+        // SAFETY: Ready() was true just above, and a card with no number is not ready.
         Queue.Add(new JobCard(Naming.EmployeeId(Year, data.Seq!.Value), Naming.CollapseSpaces(data.Name), data.Title, data, ReviewEntry ?? MakeEntry(), false));
         ClearCard(keepQueue: true);
         GoStep(0);
