@@ -47,8 +47,12 @@ public sealed record CardData(
 /// <summary>A finished card waiting to print with the others.</summary>
 public sealed record JobCard(string Id, string Label, string Title, CardData Data, RegisterEntry Entry, bool Current);
 
-/// <summary>What pressing Next, or a step chip, led to.</summary>
-public sealed record MoveResult(bool Moved, Field? FocusField);
+/// <summary>
+/// What pressing Next, or a step chip, led to: the field to send the cursor
+/// to when the move was refused, or null. Where the form now stands is
+/// Session.StepIndex.
+/// </summary>
+public sealed record MoveResult(Field? FocusField);
 
 /// <summary>
 /// The four tools beside the form, by the name each window keeps the open
@@ -395,17 +399,17 @@ public sealed partial class Session
         {
             SayBlocked(stop, p);
             GoStep(stop);
-            return new MoveResult(false, FirstProblem(stop, p));
+            return new MoveResult(FirstProblem(stop, p));
         }
 
         if (StepProblems(StepIndex, p).Count > 0)
         {
             foreach (var f in Steps[StepIndex].Fields) Touched.Add(f);
             SayBlocked(StepIndex, p);
-            return new MoveResult(false, FirstProblem(StepIndex, p));
+            return new MoveResult(FirstProblem(StepIndex, p));
         }
         if (StepIndex < LastStep) GoStep(StepIndex + 1);
-        return new MoveResult(true, null);
+        return new MoveResult(null);
     }
 
     public void Back() => GoStep(StepIndex - 1);
@@ -414,11 +418,11 @@ public sealed partial class Session
     {
         var p = Problems();
         var stop = FurthestStep(p);
-        if (i <= stop) { GoStep(i); return new MoveResult(true, null); }
+        if (i <= stop) { GoStep(i); return new MoveResult(null); }
         // locked: go to what is blocking it and say which step that is
         SayBlocked(stop, p);
         GoStep(stop);
-        return new MoveResult(false, FirstProblem(stop, p));
+        return new MoveResult(FirstProblem(stop, p));
     }
 
     /* ---- typing --------------------------------------------------- */
