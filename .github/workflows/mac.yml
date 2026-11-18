@@ -27,14 +27,17 @@ concurrency:
   group: mac-${{ github.ref }}
   cancel-in-progress: true
 
+# Set for every job in this file.
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
 jobs:
   test:
     name: Mac tests
     runs-on: macos-26
     timeout-minutes: 30
     env:
-      DOTNET_NOLOGO: 'true'
-      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
       # The Mac workload is tied to one Xcode. mac/workloads.json pins the
       # one that builds with the Xcode the runner has; move both together.
       MAC_XCODE: '/Applications/Xcode_26.6.app'
@@ -103,8 +106,6 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     env:
-      DOTNET_NOLOGO: 'true'
-      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
       MAC_XCODE: '/Applications/Xcode_26.6.app'
     defaults:
       run:
