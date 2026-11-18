@@ -53,7 +53,16 @@ jobs:
       - name: Build
         run: dotnet build IdMaker.Mac -c Release
       - name: Self-test
+        env:
+          IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
         run: |
           app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -name '*.app' | head -1)
           echo "$app"; ls "$app/Contents/MacOS"
           "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest --repo "$GITHUB_WORKSPACE"
+      - name: Keep the card it drew
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-report
+          path: report
+          if-no-files-found: ignore
