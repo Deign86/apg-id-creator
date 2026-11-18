@@ -28,9 +28,8 @@ jobs:
     env:
       DOTNET_NOLOGO: 'true'
       DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
-      # The Mac workload is tied to one Xcode. This set builds with the
-      # Xcode the runner has; move both together (mac/README.md).
-      MAC_WORKLOAD_SET: '10.0.401'
+      # The Mac workload is tied to one Xcode. mac/workloads.json pins the
+      # one that builds with the Xcode the runner has; move both together.
       MAC_XCODE: '/Applications/Xcode_26.6.app'
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +40,7 @@ jobs:
         run: |
           sudo xcode-select -s "$MAC_XCODE"
           dotnet --version
-          dotnet workload install macos --version "$MAC_WORKLOAD_SET" || { dotnet workload search version | head -20; exit 1; }
+          dotnet workload install macos --from-rollback-file mac/workloads.json
           dotnet workload list
       - name: Core tests, on a Mac
         run: dotnet test windows/IdMaker.Tests -c Release
