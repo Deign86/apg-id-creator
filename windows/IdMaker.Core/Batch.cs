@@ -46,6 +46,12 @@ public sealed record BatchOutcome(IReadOnlyList<BatchRowResult> Results, string 
 
 public static partial class Batch
 {
+    // The three ways a batch can be laid out, by the word each window keeps the choice under.
+    // The Windows markup carries the same words as the tags of its list.
+    public const string LayoutDuplex = "duplex";
+    public const string LayoutPairs = "pairs";
+    public const string LayoutCards = "cards";
+
     public const int MaxRows = 200;
 
     public const string CsvTemplate =

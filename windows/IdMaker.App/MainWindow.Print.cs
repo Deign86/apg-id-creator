@@ -591,7 +591,7 @@ public partial class MainWindow
         catch (Exception x) when (x is IOException or UnauthorizedAccessException) { BatchStatus.Text = $"The example couldn’t be saved there ({x.Message.TrimEnd('.')})."; }
     }
 
-    private string BatchLayoutChoice => CmbBatchLayout.SelectedItem is ComboBoxItem { Tag: string tag } ? tag : "duplex";
+    private string BatchLayoutChoice => CmbBatchLayout.SelectedItem is ComboBoxItem { Tag: string tag } ? tag : Batch.LayoutDuplex;
     private string BatchPaperChoice => CmbBatchPaper.SelectedItem is ComboBoxItem { Tag: string tag } ? tag : CardConfig.DefaultPaper;
 
     private void BatchLayout_Changed(object sender, SelectionChangedEventArgs e) => RenderBatchLayout();
@@ -600,15 +600,15 @@ public partial class MainWindow
     {
         if (LayoutMsg is null || BatchPaperField is null || CmbBatchPaper is null) return;      // the markup is still loading
         var layout = BatchLayoutChoice;
-        Show(BatchPaperField, layout != "cards");
-        if (layout == "cards") { LayoutMsg.Text = "Two pages per person, each the size of the card."; return; }
-        var plan = Sheets.Plan(BatchPaperChoice, layout == "pairs" ? SheetMode.Pairs : SheetMode.Duplex);
+        Show(BatchPaperField, layout != Batch.LayoutCards);
+        if (layout == Batch.LayoutCards) { LayoutMsg.Text = "Two pages per person, each the size of the card."; return; }
+        var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex);
         LayoutMsg.Text = plan is null ? "" : $"{plan.PerSheet} cards per sheet ({plan.Cols} × {plan.Rows}, {(plan.Landscape ? "landscape" : "portrait")}).";
     }
 
     private void BtnBatch_Click(object sender, RoutedEventArgs e)
     {
-        var sheets = BatchLayoutChoice != "cards";
+        var sheets = BatchLayoutChoice != Batch.LayoutCards;
         var dialog = new SaveFileDialog
         {
             Title = "Save the batch", FileName = Batch.FileFor(1, sheets, DateTime.Now).FileName, Filter = "PDF|*.pdf", DefaultExt = ".pdf", InitialDirectory = DocumentsFolder,
@@ -649,14 +649,14 @@ public partial class MainWindow
             var entries = good.Select(r => r.Data!).ToList();
             var layout = BatchLayoutChoice;
             List<Func<PdfPage>> pages;
-            if (layout == "cards") pages = _renderer.CardPdfPages(_art, geometry, entries, _session.RotateBack);
+            if (layout == Batch.LayoutCards) pages = _renderer.CardPdfPages(_art, geometry, entries, _session.RotateBack);
             else
             {
-                var plan = Sheets.Plan(BatchPaperChoice, layout == "pairs" ? SheetMode.Pairs : SheetMode.Duplex)!;
+                var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex)!;
                 var backUp = plan.Mode == SheetMode.Duplex && _session.Flip == DuplexFlip.ShortEdge ? !_session.RotateBack : _session.RotateBack;
                 pages = _renderer.SheetPdfPages(_art, geometry, plan, entries, Sheets.Pages(entries.Count, plan, _session.Flip), backUp);
             }
-            var (_, title) = Batch.FileFor(good.Count, layout != "cards", DateTime.Now);
+            var (_, title) = Batch.FileFor(good.Count, layout != Batch.LayoutCards, DateTime.Now);
             var error = await WritePdf(savePath, pages, title, (done, total) => BatchStatus.Text = $"Building the PDF: page {done} of {total}…");
             if (error.Length > 0) { BatchStatus.Text = error; return; }
 
