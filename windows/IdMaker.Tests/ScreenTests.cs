@@ -222,14 +222,15 @@ public class ScreenTests
         Assert.Equal(Session.LastStep, s.StepIndex);
         var screen = Screen.From(s, Windows);
         Assert.False(screen.Footer.StatusShown);
-        Assert.Equal("Ready to print", screen.Check.Heading);
-        Assert.True(screen.Check.SubShown);
-        Assert.Equal("Printing the 1 card already in this print.", screen.Check.Sub);
-        Assert.False(screen.Check.SummaryShown);
-        Assert.Equal("", screen.Check.SummaryNumber);
-        Assert.True(screen.Check.SaveEnabled);
-        Assert.False(screen.Check.PicturesEnabled);
-        Assert.False(screen.Check.AddAnotherEnabled);
+        var check = Must(screen.Check);
+        Assert.Equal("Ready to print", check.Heading);
+        Assert.True(check.SubShown);
+        Assert.Equal("Printing the 1 card already in this print.", check.Sub);
+        Assert.False(check.SummaryShown);
+        Assert.Equal("", check.SummaryNumber);
+        Assert.True(check.SaveEnabled);
+        Assert.False(check.PicturesEnabled);
+        Assert.False(check.AddAnotherEnabled);
     }
 
     [Fact]
@@ -421,7 +422,7 @@ public class ScreenTests
     {
         var s = Make.Session();
         GoToCheck(s);
-        var check = Screen.From(s, Windows).Check;
+        var check = Must(Screen.From(s, Windows).Check);
         Assert.Equal("Is everything correct?", check.Heading);
         Assert.False(check.SubShown);
         Assert.True(check.SummaryShown);
@@ -444,25 +445,64 @@ public class ScreenTests
 
         // more than one sheet is worth saying; and the + button stops where the clamp does
         s.SetCopies(plan.PerSheet + 1);
-        var more = Screen.From(s, Windows).Check;
+        var more = Must(Screen.From(s, Windows).Check);
         Assert.Equal($"{plan.PerSheet} cards per A4 sheet · {plan.PerSheet + 1} cards, 2 sheets.", more.PrintNote);
         Assert.True(more.CopiesDownEnabled);
         s.SetCopies(100000);
-        var most = Screen.From(s, Windows).Check;
+        var most = Must(Screen.From(s, Windows).Check);
         Assert.Equal(Session.MostCopies(plan).ToString(), most.CopiesText);
         Assert.False(most.CopiesUpEnabled);
         s.NudgeCopies(1);
         Assert.Equal(Session.MostCopies(plan), s.PrintCopies(plan));
 
-        var saving = Screen.From(s, Windows with { Saving = true }).Check;
+        var saving = Must(Screen.From(s, Windows with { Saving = true }).Check);
         Assert.False(saving.SaveEnabled);
         Assert.Equal("Saving the PDF…", saving.SaveTitle);
         Assert.False(saving.PicturesEnabled);
         Assert.False(saving.AddAnotherEnabled);
 
-        Assert.Equal("ID ready to print", Screen.From(s, Windows with { Saved = true, SavedCount = 1 }).Check.Heading);
-        Assert.Equal("3 IDs ready to print", Screen.From(s, Windows with { Saved = true, SavedCount = 3 }).Check.Heading);
-        Assert.True(Screen.From(s, Windows with { Saved = true }).Check.Saved);
+        Assert.Equal("ID ready to print", Must(Screen.From(s, Windows with { Saved = true, SavedCount = 1 }).Check).Heading);
+        Assert.Equal("3 IDs ready to print", Must(Screen.From(s, Windows with { Saved = true, SavedCount = 3 }).Check).Heading);
+        Assert.True(Must(Screen.From(s, Windows with { Saved = true }).Check).Saved);
+    }
+
+    [Fact]
+    public void The_check_step_is_made_only_where_it_is_shown()
+    {
+        var s = Make.Session();
+        Make.FillForm(s);
+        for (var step = 0; step < Session.LastStep; step++)
+        {
+            s.GoStep(step);
+            Assert.Equal(step, s.StepIndex);
+            Assert.Null(Screen.From(s, Windows).Check);
+            Assert.Null(Screen.From(s, Mac).Check);
+        }
+        s.GoStep(Session.LastStep);
+        Assert.NotNull(Screen.From(s, Windows).Check);
+        Assert.NotNull(Screen.From(s, Mac).Check);
+    }
+
+    [Fact]
+    public void A_redraw_counts_the_cards_in_the_print_once()
+    {
+        // Off the last step a finished card has no review entry yet, so every count of
+        // the print's cards makes one, and making one reads the clock: the clock counts the counts.
+        var store = new MemoryStore();
+        var reads = 0;
+        var s = new Session(Make.LocalRegister(store), new TitleList(store), store, () => { reads++; return new DateTime(2026, 11, 17, 9, 30, 0); })
+        {
+            Measurer = new FakeMeasurer(),
+        };
+        Make.FillForm(s);
+        s.GoStep((int)Step.Sign);
+        Assert.True(s.Ready());
+
+        reads = 0;
+        var screen = Screen.From(s, Windows);
+
+        Assert.Equal(1, reads);
+        Assert.Equal("1 card", screen.Job.Count);
     }
 
     [Fact]
@@ -497,7 +537,7 @@ public class ScreenTests
         Assert.Equal("2 cards", two.Count);
         Assert.Equal("All of these print together, and are issued when you save.", two.Note);
         Assert.False(two.CancelAddShown);
-        Assert.Equal("Copies of each card", Screen.From(s, Windows).Check.CopiesLabel);
+        Assert.Equal("Copies of each card", Must(Screen.From(s, Windows).Check).CopiesLabel);
         Assert.False(Screen.From(s, Windows with { Saved = true }).Job.Shown);
     }
 

@@ -829,11 +829,13 @@ public sealed partial class Session
     }
 
     /// <summary>Just how much paper this will be.</summary>
-    public string PrintFileLine()
+    public string PrintFileLine() => PrintFileLine(JobCards().Count);
+
+    /// <summary>The same, for a caller that has already counted the cards in this print.</summary>
+    public string PrintFileLine(int cards)
     {
         var plan = CurrentPlan();
         if (plan is null) return "2 pages";
-        var cards = JobCards().Count;
         var sheets = (int)Math.Ceiling(cards * PrintCopies(plan) / (double)plan.PerSheet);
         var pages = plan.Mode == SheetMode.Pairs ? sheets : sheets * 2;
         return $"{pages} page{(pages == 1 ? "" : "s")} of {Paper}";

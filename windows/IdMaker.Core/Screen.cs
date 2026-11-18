@@ -137,7 +137,7 @@ public sealed record MoveEffects(bool StepChanged, bool ShowFront, bool Saved, F
 /// <summary>Everything the window shows that is decided by a rule.</summary>
 public sealed record Screen(
     int StepIndex, StageView Stage, NameView Name, TitleView Title, NumberView Number, PhotoView Photo, SignView Sign,
-    CheckView Check, IReadOnlyList<StepChip> Chips, FooterView Footer, JobView Job, ToolsView Tools, RegisterView? Register)
+    CheckView? Check, IReadOnlyList<StepChip> Chips, FooterView Footer, JobView Job, ToolsView Tools, RegisterView? Register)
 {
     /// <summary>How many issued IDs the drawer lists. The two windows differ: see the decision log.</summary>
     public static int IssuedListed(HostPlatform platform) => platform == HostPlatform.Windows ? 25 : 12;
@@ -154,6 +154,7 @@ public sealed record Screen(
         // An error shows only once its field was touched.
         string Shown(Field f) => s.Touched.Contains(f) ? p[f] : "";
         var onCheck = s.StepIndex == Session.LastStep;
+        // once a redraw: making the list asks what the card on screen would be recorded as
         var cards = s.JobCards();
         var tools = ToolRail(s, input);
 
@@ -177,7 +178,8 @@ public sealed record Screen(
             Number: NumberStep(s, Shown(Field.Seq)),
             Photo: PhotoStep(s, p, input),
             Sign: SignStep(s, Shown(Field.Signature), input),
-            Check: CheckStep(s, p, cards, input),
+            // only where it is shown: neither window reads it on another step
+            Check: onCheck ? CheckStep(s, p, cards, input) : null,
             Chips: StepChips(s, p),
             Footer: FooterLine(s, p, onCheck, input),
             Job: JobStrip(s, cards, onCheck, input),
@@ -306,7 +308,7 @@ public sealed record Screen(
             CopiesLabel: cards.Count > 1 ? "Copies of each card" : "Copies of this card",
             // how many fit, and the sheet count only when it is more than one
             PrintNote: plan is null ? "" : $"{plan.PerSheet} cards per {s.Paper} sheet" + (sheets > 1 ? $" · {total} cards, {sheets} sheets" : "") + ".",
-            FileLine: s.PrintFileLine(),
+            FileLine: s.PrintFileLine(cards.Count),
             SaveEnabled: cards.Count > 0 && !input.Saving,
             SaveTitle: input.Saving ? "Saving the PDF…" : "Save the PDF",
             PicturesEnabled: hasCurrent && !input.Saving,
