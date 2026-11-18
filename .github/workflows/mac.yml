@@ -34,6 +34,8 @@ env:
   # The Mac workload is tied to one Xcode. mac/workloads.json pins the
   # one that builds with the Xcode the runner has; move both together.
   MAC_XCODE: '/Applications/Xcode_26.6.app'
+  # The SDK band that workload belongs to; mac/global.json holds the same band.
+  MAC_DOTNET_SDK: '10.0.4xx'
 
 jobs:
   test:
@@ -50,7 +52,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.4xx
+          dotnet-version: ${{ env.MAC_DOTNET_SDK }}
       - name: Workload and Xcode
         run: |
           sudo xcode-select -s "$MAC_XCODE"
@@ -111,7 +113,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.4xx
+          dotnet-version: ${{ env.MAC_DOTNET_SDK }}
       - name: Workload and Xcode
         run: |
           sudo xcode-select -s "$MAC_XCODE"
