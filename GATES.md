@@ -82,3 +82,36 @@ Scope: The register of issued IDs is a list in the company's Firebase project (a
   EVIDENCE: pending
 
 ABANDON: none yet. R5 and R6 wait on the rules being deployed, the two repository secrets being set, and a Windows computer signed in with a Keystone account.
+
+# Gates: a native Mac app (owner request, 2026-11-18)
+
+OWNS: mac/**, .github/workflows/mac.yml
+
+Scope: the ID Maker as a native Mac program (C# on AppKit, no web view) that shares `IdMaker.Core` with the Windows app, prints the same card, uses the same register, and installs the pen tablet driver. Not signed with an Apple Developer ID (the owner's choice): the first open is allowed by hand.
+
+- [x] M1: The Mac app builds on a real Mac against the same Core, and Core's own tests pass there.
+  CHECK: the "Mac app" workflow, steps "Core tests, on a Mac" and "Build"
+  EVIDENCE: 132 passed on macos-26 (job 134508656319); `Alpha Premier ID Maker.app` built. The workload is pinned in `mac/workloads.json` to the one that builds with the runner's Xcode 26.6.
+
+- [x] M2: The register sign-in is kept wrapped by the Mac: the key is in the user's Keychain, a damaged or foreign value does not open, and with the key gone nothing opens.
+  CHECK: `AlphaPremierIdMaker --selftest`
+  EVIDENCE: 6 checks passed on macos-26 (job 134508656319).
+
+- [ ] M3: The card drawn by the Mac app matches `test/golden-front.png`, zone by zone, as the Windows app's does.
+  CHECK: `AlphaPremierIdMaker --selftest` (renderer checks)
+  EVIDENCE: pending
+
+- [ ] M4: The real window takes a card from an empty form to a saved PDF, refuses to move on with the reason, issues nothing when the save fails, signs in to the register and shows a refused card. The Intern / Employee choice is there.
+  EVIDENCE: pending
+
+- [ ] M5: Signing with the pen draws a line that thickens with pressure, full screen.
+  EVIDENCE: pending (needs a person with the tablet)
+
+- [ ] M6: Photo background removal works on the Mac (ONNX Runtime's macOS build), on the computer.
+  EVIDENCE: pending
+
+- [ ] M7: The app offers to install XP-Pen's Mac driver: downloaded from XP-Pen's own server, checked against a pinned SHA-256, opened in Apple's installer. macOS asks for the administrator password and for Input Monitoring and Accessibility; those cannot be skipped by any app.
+  EVIDENCE: pending
+
+- [ ] M8: A release attaches a `.dmg` for Apple Silicon and Intel beside the Windows setup program, built with the register's project from the same secrets, and the app in it starts.
+  EVIDENCE: pending
