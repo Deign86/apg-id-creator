@@ -187,7 +187,8 @@ public static class CardConfig
     public static readonly SignatureSpec Signature = new(new RectMm(34.9, 69.084, 17, 5.64), "#FFFFFF", 0.38, 0.16);
 
     // The prompt HR pastes into Gemini / ChatGPT to turn any phone photo
-    // into a green-screen portrait the app can cut out itself.
+    // into a green-screen portrait the app can cut out itself. Keep
+    // photo-prompt.txt at the top of the repository in step with it.
     public const string PhotoPrompt =
         "Edit this photo for a company ID card.\n\n" +
         "1. Keep the person exactly as they are: same face, features, skin tone, hair, glasses and expression. Do not beautify, slim, age or change their identity.\n" +
