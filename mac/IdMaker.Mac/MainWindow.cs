@@ -20,6 +20,7 @@ public sealed partial class MainWindow
     private readonly Register _register;
     private readonly Session _session;
     private readonly TemplateStore _templates;
+    private readonly DesignDesk _design;
 
     private MacCardRenderer? _renderer;
     private CardArt? _art;
@@ -28,7 +29,6 @@ public sealed partial class MainWindow
     private string _removerProblem = "";
 
     private bool _front = true;                 // which side the preview shows
-    private bool _checkingPhoto;
     private bool _syncing;                      // true while Render() writes to controls, so their handlers stand down
     private string? _tool;                      // which tool drawer is open, if any
     private bool _saved;                        // the print on screen has been saved
@@ -197,6 +197,7 @@ public sealed partial class MainWindow
         _templates = new TemplateStore(files);
         _session = new Session(_register, new TitleList(files), files, post: action => NSApplication.SharedApplication.BeginInvokeOnMainThread(action));
         _session.Changed += Render;
+        _design = new DesignDesk(_session, _templates, files.Directory);
         Confirm = AskYesNo;
 
         /* ---- rail ---- */
@@ -217,7 +218,7 @@ public sealed partial class MainWindow
         rail.WidthAnchor.ConstraintEqualTo(160).Active = true;
 
         /* ---- the tool drawer ---- */
-        _btnRefusedDone = Ui.Button("These cards are dealt with", () => { _register.ClearRefused(); Render(); });
+        _btnRefusedDone = Ui.Button("These cards are dealt with", () => { _session.ClearRefused(); Render(); });
         _refusedPanel = Ui.Column(8, _refusedNote, _btnRefusedDone);
         _btnRegisterCsv = Ui.Button("Save the list as CSV", SaveRegisterCsv);
         _txtSignInPassword.WidthAnchor.ConstraintEqualTo(280).Active = true;
@@ -251,8 +252,8 @@ public sealed partial class MainWindow
         _sideTabs.SetLabel("Front", 0);
         _sideTabs.SetLabel("Back", 1);
         _sideTabs.Activated += (_, _) => { if (_syncing) return; _front = _sideTabs.SelectedSegment == 0; Render(); };
-        _prevPage = Ui.Button("Previous page", () => { _session.PreviewPage--; Render(); });
-        _nextPage = Ui.Button("Next page", () => { _session.PreviewPage++; Render(); });
+        _prevPage = Ui.Button("Previous page", () => { _session.TurnPreviewPage(-1); Render(); });
+        _nextPage = Ui.Button("Next page", () => { _session.TurnPreviewPage(1); Render(); });
         _sheetNav = Ui.Row(12, _prevPage, _previewCaption, _nextPage);
         _btnCancelAdd = Ui.Button("Stop adding and go back to the print", CancelAdding);
         _queueStrip = Ui.Column(6, Ui.Row(12, Ui.Label("In this print", 14, bold: true, maxWidth: 200), _jobCount), _jobList, _jobNote, _btnCancelAdd);
@@ -424,7 +425,7 @@ public sealed partial class MainWindow
         Ui.Says(_copiesDown, "One fewer copy");
         _copiesUp = Ui.Button("+", () => { _session.NudgeCopies(1); Render(); });
         Ui.Says(_copiesUp, "One more copy");
-        _btnAddAnother = Ui.Button("Add another ID to this print", () => { var from = _session.StepIndex; _session.AddAnother(); AfterMove(from, new MoveResult(true, null)); });
+        _btnAddAnother = Ui.Button("Add another ID to this print", () => { var from = _session.StepIndex; _session.AddAnother(); AfterMove(from); });
         _btnDownload = Ui.Button("Save the PDF", ChooseWhereToSave, primary: true);
         _btnPng = Ui.Button("Save as pictures instead", SavePictures);
         _reviewStage = Ui.Column(8,
@@ -438,7 +439,7 @@ public sealed partial class MainWindow
         _savedStage = Ui.Column(8, _savedLine, _savedNote, Ui.Row(10, _btnNewId, Ui.Button("Show the file", () => ShowInFinder(_savedPath))));
         _steps[5] = Ui.Column(8, _checkHeading, _reviewSub, _reviewStage, _savedStage);
 
-        _btnBack = Ui.Button("Back", () => { var from = _session.StepIndex; _session.Back(); AfterMove(from, new MoveResult(true, null)); });
+        _btnBack = Ui.Button("Back", () => { var from = _session.StepIndex; _session.Back(); AfterMove(from); });
         _btnNext = Ui.Button("Next", () => AfterMove(_session.StepIndex, _session.NextStep()), primary: true);
         var form = Ui.Column(12, chips);
         foreach (var step in _steps) form.AddArrangedSubview(step);
@@ -521,7 +522,7 @@ public sealed partial class MainWindow
         }
 
         // start reading the register now rather than on the first keystroke
-        if (_register.Shared) _ = WarmRegister();
+        if (_session.HasSharedRegister) _ = WarmRegister();
         // the model takes a moment to load; the form does not wait for it
         _ = LoadRemover();
         Render();
@@ -532,14 +533,9 @@ public sealed partial class MainWindow
 
     private async Task WarmRegister()
     {
-        if (await _register.LoadIndex())
-        {
-            // cards saved while the register was out of reach are sent now that it answers
-            await _register.SendWaiting();
-        }
-        // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
-        if (_register.Refused.Count > 0) _tool = ToolKey.Register;
-        _session.RefreshDuplicate();
+        // Cards saved while the register was out of reach are sent now that it answers. One of them may
+        // have been refused: somebody else took its number meanwhile. That cannot wait to be found.
+        if (await _session.WarmRegister()) _tool = ToolKey.Register;
         Render();
     }
 
@@ -572,139 +568,124 @@ public sealed partial class MainWindow
         input.AccessibilityHelp = error;
     }
 
+    /// <summary>What only the window knows. Core decides the rest of the screen from it (Screen.From).</summary>
+    private ScreenInput ScreenState() => new(HostPlatform.Mac)
+    {
+        Front = _front,
+        Loaded = _art is not null && _renderer is not null,
+        LoadError = _loadError,
+        Saved = _saved,
+        SavedCount = _savedCount,
+        Saving = _saving,
+        CheckingPhoto = _session.CheckingPhoto,
+        RemoverReady = _remover is not null,
+        RemoverProblem = _removerProblem,
+        SignatureError = _sigError,
+        TabletDriver = PenDriver.Installed,
+        EditingMap = EditingMap,
+        Tool = _tool,
+    };
+
+    private static NSColor ToneColor(Tone tone) => tone switch { Tone.Error => NSColor.SystemRed, Tone.Warning => NSColor.SystemOrange, _ => NSColor.SecondaryLabel };
+
+    // Core says what the screen shows (Screen.From); this copies it onto the controls.
     internal void Render()
     {
         _syncing = true;
         try
         {
             var s = _session;
-            var p = s.Problems();
-            s.ClearBlockedIfFixed(p);
-            string Shown(Field f) => s.Touched.Contains(f) ? p[f] : "";
-            var onCheck = s.StepIndex == Session.LastStep;
-            var loaded = _art is not null && _renderer is not null;
+            var m = Screen.From(s, ScreenState());
 
-            // the stage shows the card while it is being made, the sheet at the end
-            Ui.Show(_sideTabs, !onCheck);
+            // the stage shows the card while it is being made, the sheet at the end: here, in the one picture
+            Ui.Show(_sideTabs, m.Stage.SideTabsShown);
             _sideTabs.SelectedSegment = _front ? 0 : 1;
-            Ui.Show(_cardLoading, !loaded);
-            Ui.SetText(_cardLoading, _loadError.Length > 0 ? _loadError : "Loading the card…");
-            Ui.Show(_cardBox, loaded);
-            if (!onCheck) Ui.Show(_sheetNav, false);
-            var caption = onCheck
-                ? (s.Layout == SheetMode.Duplex ? "Print both sides, then cut along the marks." : "Cut along the marks and stick each pair back to back.")
-                : _front ? "" : "The back is the same on every card.";
-            Ui.SetText(_caption, caption);
-            Ui.Show(_caption, caption.Length > 0);
+            Ui.Show(_cardLoading, m.Stage.LoadingShown);
+            Ui.SetText(_cardLoading, m.Stage.LoadingText);
+            Ui.Show(_cardBox, m.Stage.CardShown || m.Stage.SheetShown);
+            if (s.StepIndex != Session.LastStep) Ui.Show(_sheetNav, false);
+            Ui.SetText(_caption, m.Stage.Caption);
+            Ui.Show(_caption, m.Stage.Caption.Length > 0);
 
             // name
-            FieldMessage(_msgLast, _txtLast, Shown(Field.Last));
-            FieldMessage(_msgFirst, _txtFirst, Shown(Field.First));
-            FieldMessage(_msgMiddle, _txtMiddle, Shown(Field.Middle));
-            FieldMessage(_msgSuffix, _txtSuffix, Shown(Field.Suffix));
+            FieldMessage(_msgLast, _txtLast, m.Name.LastError);
+            FieldMessage(_msgFirst, _txtFirst, m.Name.FirstError);
+            FieldMessage(_msgMiddle, _txtMiddle, m.Name.MiddleError);
+            FieldMessage(_msgSuffix, _txtSuffix, m.Name.SuffixError);
             Ui.SetText(_txtLast, s.Last);
             Ui.SetText(_txtFirst, s.First);
             Ui.SetText(_txtMiddle, s.Middle);
             Ui.SetText(_txtSuffix, s.Suffix);
-            var fitError = s.Touched.Contains(Field.Last) && s.Touched.Contains(Field.First) ? p[Field.NameFit] : "";
-            _namePreview.TextColor = fitError.Length > 0 ? NSColor.SystemRed : NSColor.Label;
-            Ui.SetText(_namePreview, fitError.Length > 0 ? fitError : $"On the card: {(s.PrintedName.Length > 0 ? s.PrintedName : "—")}");
+            _namePreview.TextColor = m.Name.PreviewIsError ? NSColor.SystemRed : NSColor.Label;
+            Ui.SetText(_namePreview, m.Name.Preview);
 
             // who the ID is for
             _cmbKind.SelectItem(s.Kind == PersonKind.Intern ? 2 : s.Kind == PersonKind.Employee ? 1 : 0);
-            FieldMessage(_msgKind, _cmbKind, Shown(Field.Kind));
+            FieldMessage(_msgKind, _cmbKind, m.Title.KindError);
 
             // job title
             BuildTitles();
             _cmbTitle.SelectItem(Math.Max(0, _titleValues.IndexOf(s.Role1.Pick)));
-            Ui.Show(_txtTitleCustom, s.Role1.IsOther);
+            Ui.Show(_txtTitleCustom, m.Title.CustomShown);
             Ui.SetText(_txtTitleCustom, s.Role1.Custom);
-            FieldMessage(_msgTitle, _txtTitleCustom, Shown(Field.Title));
+            FieldMessage(_msgTitle, _txtTitleCustom, m.Title.TitleError);
             // a title this computer remembered can be dropped again
-            Ui.Show(_btnForgetTitle, s.Role1.Pick.Length > 0 && !s.Role1.IsOther && !TitleList.IsStandard(s.Role1.Pick));
-            Ui.Show(_fieldTitle2, s.ShowRole2);
-            Ui.Show(_btnRoleAdd, !s.ShowRole2);
+            Ui.Show(_btnForgetTitle, m.Title.ForgetShown);
+            Ui.Show(_fieldTitle2, m.Title.SecondShown);
+            Ui.Show(_btnRoleAdd, m.Title.AddSecondShown);
             _cmbTitle2.SelectItem(Math.Max(0, _title2Values.IndexOf(s.Role2.Pick)));
-            Ui.Show(_txtTitle2Custom, s.ShowRole2 && s.Role2.IsOther);
+            Ui.Show(_txtTitle2Custom, m.Title.SecondCustomShown);
             Ui.SetText(_txtTitle2Custom, s.Role2.Custom);
-            FieldMessage(_msgTitle2, _txtTitle2Custom, Shown(Field.Title2));
-            var titleFit = s.Touched.Contains(Field.Title) ? p[Field.TitleFit] : "";
-            Ui.Show(_titlePreview, titleFit.Length > 0);
-            Ui.SetText(_titlePreview, titleFit);
+            FieldMessage(_msgTitle2, _txtTitle2Custom, m.Title.SecondError);
+            Ui.Show(_titlePreview, m.Title.FitError.Length > 0);
+            Ui.SetText(_titlePreview, m.Title.FitError);
 
-            // number
-            var dup = s.Duplicate();
-            var seqError = Shown(Field.Seq);
-            // Nothing to say when the check is working: a taken number turns
-            // the line red and names who has it. The only thing worth a line
-            // here is the check not working.
-            var seqHelp = dup is not null && s.Reissue ? $"Replacement for {dup.Value.Entry.Id} ({dup.Value.Entry.Name}, {dup.Value.Entry.IssuedOn})."
-                : !_register.Shared ? "Checked against this computer only."
-                : !_register.SignedIn ? "Checked against this computer only. Sign in under Issued IDs to check every computer."
-                : s.DupShared == SharedAnswer.Unreachable ? "Could not reach the shared register, so only this computer was checked."
-                : "";
-            _msgSeq.TextColor = seqError.Length > 0 ? NSColor.SystemRed : NSColor.SecondaryLabel;
-            Ui.SetText(_msgSeq, seqError.Length > 0 ? seqError : seqHelp);
-            _txtSeq.AccessibilityHelp = seqError;
+            // number: the error while there is one, otherwise the standing note about what was checked
+            _msgSeq.TextColor = m.Number.LineIsError ? NSColor.SystemRed : NSColor.SecondaryLabel;
+            Ui.SetText(_msgSeq, m.Number.Line);
+            _txtSeq.AccessibilityHelp = m.Number.Error;
             Ui.SetText(_txtSeq, s.Seq);
             _cmbYear.SelectItem(Math.Max(0, _years.IndexOf(s.Year)));
-            Ui.Show(_reissueWrap, dup is not null && dup.Value.Source != Session.DuplicateSource.Queue);
+            Ui.Show(_reissueWrap, m.Number.ReissueShown);
             _chkReissue.State = s.Reissue ? NSCellStateValue.On : NSCellStateValue.Off;
 
-            RenderPhotoStep(p);
-            RenderSignStep(Shown(Field.Signature));
-            RenderCheckStep(p);
+            RenderPhotoStep(m.Photo);
+            RenderSignStep(m.Sign);
+            RenderCheckStep(m.Check);
 
             // one step at a time
-            for (var i = 0; i < _steps.Length; i++) Ui.Show(_steps[i], i == s.StepIndex);
-            RenderStepChips(p);
+            for (var i = 0; i < _steps.Length; i++) Ui.Show(_steps[i], i == m.StepIndex);
+            RenderStepChips(m.Chips);
 
             // the line under the buttons: a refusal while there is one, otherwise the quiet standing hint
-            var missingHere = Session.StepProblems(s.StepIndex, p);
-            var missingAll = p.Where(kv => kv.Value.Length > 0).Select(kv => kv.Key).ToList();
-            // after "stop adding" the form is empty on purpose and the job is whatever is queued
-            var queueOnly = onCheck && s.Queue.Count > 0 && !s.StartedCard;
-            var status = !loaded ? ""
-                : onCheck ? (missingAll.Count > 0 && !queueOnly ? $"Still needed: {string.Join(", ", missingAll.Select(Session.FieldLabel))}." : "")
-                : missingHere.Count > 0 ? $"Still needed: {string.Join(", ", missingHere.Select(Session.FieldLabel))}."
-                : "";
-            Ui.Show(_blocked, s.BlockedAbout is not null);
-            Ui.SetText(_blocked, s.BlockedText);
-            Ui.Show(_status, s.BlockedAbout is null && status.Length > 0);
-            Ui.SetText(_status, status);
+            Ui.Show(_blocked, m.Footer.BlockedShown);
+            Ui.SetText(_blocked, m.Footer.BlockedText);
+            Ui.Show(_status, m.Footer.StatusShown);
+            Ui.SetText(_status, m.Footer.StatusText);
 
-            Ui.Show(_btnBack, s.StepIndex > 0 && !(onCheck && _saved));
-            Ui.Show(_btnNext, !onCheck);
-            _btnNext.Title = s.StepIndex == Session.LastStep - 1 ? "Check the card" : "Next";
-            // Next is never disabled for an unfinished step: pressing it is how you ask what is missing.
-            _btnNext.Enabled = loaded;
+            Ui.Show(_btnBack, m.Footer.BackShown);
+            Ui.Show(_btnNext, m.Footer.NextShown);
+            _btnNext.Title = m.Footer.NextTitle;
+            _btnNext.Enabled = m.Footer.NextEnabled;
 
-            RenderJob();
-            RenderTools();
+            RenderJob(m.Job);
+            RenderTools(m);
             DrawPreview();
+            if (m.Stage.CardShown) Ui.Says(_cardImage, m.Stage.CardSays);
         }
         finally { _syncing = false; }
     }
 
-    private void RenderStepChips(Dictionary<Field, string> p)
+    private void RenderStepChips(IReadOnlyList<StepChip> states)
     {
-        var s = _session;
-        var stop = s.FurthestStep(p);
         for (var i = 0; i < _stepChips.Count; i++)
         {
-            var label = Session.Steps[i].Label;
-            var locked = i > stop;
-            var current = i == s.StepIndex;
-            // a step cannot be both finished and out of reach: locked wins
-            var done = Session.StepDone(i, p) && i != Session.LastStep && !current && !locked;
+            var state = states[i];
             var chip = _stepChips[i];
-            if ((current ? NSFont.BoldSystemFontOfSize(13) : NSFont.SystemFontOfSize(13)) is { } font) chip.Font = font;
-            chip.ContentTintColor = current ? NSColor.ControlAccent : done ? NSColor.Label : NSColor.SecondaryLabel;
-            // not disabled: a locked step can still be asked why it will not open
-            Ui.Says(chip, locked ? $"{label}. Locked until step {stop + 1}, {Session.Steps[stop].Label}, is finished."
-                : current ? $"{label}. Current step."
-                : $"{label}{(done ? ". Finished." : "")}");
-            chip.ToolTip = locked ? $"Finish {Session.Steps[stop].Label.ToLowerInvariant()} first" : "";
+            if ((state.Current ? NSFont.BoldSystemFontOfSize(13) : NSFont.SystemFontOfSize(13)) is { } font) chip.Font = font;
+            chip.ContentTintColor = state.Current ? NSColor.ControlAccent : state.Done ? NSColor.Label : NSColor.SecondaryLabel;
+            Ui.Says(chip, state.Says);
+            chip.ToolTip = state.ToolTip;
         }
     }
 
@@ -723,7 +704,7 @@ public sealed partial class MainWindow
         }
         // whatever the main job title is disappears from the second list
         var hide = _session.Role1.Value;
-        var second = titles.Where(t => hide.Length == 0 || !Naming.SameText(t, hide)).ToList();
+        var second = titles.Where(t => !Session.SecondRoleHides(t, hide)).ToList();
         var key2 = string.Join("\n", second);
         if (key2 != _titles2BuiltFor)
         {
@@ -745,50 +726,41 @@ public sealed partial class MainWindow
 
     /* ---- moving between steps ------------------------------------- */
 
-    private NSView? InputFor(Field f) => f switch
+    // Core names where the cursor goes (Screen.AfterMove); this is which control that is here.
+    private NSView ControlFor(FocusTarget target) => target switch
     {
-        Field.Last => _txtLast,
-        Field.First or Field.NameFit => _txtFirst,
-        Field.Middle => _txtMiddle,
-        Field.Suffix => _txtSuffix,
-        Field.Title or Field.TitleFit => _session.Role1.IsOther ? _txtTitleCustom : _cmbTitle,
-        Field.Title2 => _session.Role2.IsOther ? _txtTitle2Custom : _cmbTitle2,
-        Field.Seq => _txtSeq,
-        Field.Photo => _btnPhoto,
-        Field.Signature => _btnSign,
-        Field.Kind => _cmbKind,
-        _ => null,
+        FocusTarget.Last => _txtLast,
+        FocusTarget.First => _txtFirst,
+        FocusTarget.Middle => _txtMiddle,
+        FocusTarget.Suffix => _txtSuffix,
+        FocusTarget.Kind => _cmbKind,
+        FocusTarget.TitleChoice or FocusTarget.TitlePicked => _cmbTitle,
+        FocusTarget.TitleCustom => _txtTitleCustom,
+        FocusTarget.Title2Choice => _cmbTitle2,
+        FocusTarget.Title2Custom => _txtTitle2Custom,
+        FocusTarget.Seq => _txtSeq,
+        FocusTarget.PhotoButton => _btnPhoto,
+        FocusTarget.SignButton => _btnSign,
+        FocusTarget.NewIdButton => _btnNewId,
+        _ => _btnDownload,
     };
 
-    // Where the cursor lands when a step opens: the control the step is about.
-    private NSView LandingFor(int step) => step switch
+    /// <param name="result">What Next or a step chip answered; nothing for a move that cannot be refused.</param>
+    private void AfterMove(int from, MoveResult? result = null)
     {
-        0 => _txtLast,
-        1 => _session.Kind.Length == 0 ? _cmbKind : _cmbTitle,
-        2 => _txtSeq,
-        3 => _btnPhoto,
-        4 => _btnSign,
-        _ => _saved ? _btnNewId : _btnDownload,
-    };
-
-    private void AfterMove(int from, MoveResult result)
-    {
-        if (_session.StepIndex != Session.LastStep) _front = true;
-        if (_session.StepIndex != from) _saved = false;
+        var after = Screen.AfterMove(_session, from, result, _saved, OpenSigningOnArrival);
+        if (after.ShowFront) _front = true;
+        _saved = after.Saved;
         Render();
-        var target = result.FocusField is { } f ? InputFor(f) : _session.StepIndex != from ? LandingFor(_session.StepIndex) : null;
-        if (target is not null) Window.MakeFirstResponder(target);
-        if (_session.StepIndex == (int)Step.Sign && from != (int)Step.Sign && OpenSigningOnArrival && _session.Signature is null)
-        {
-            NSApplication.SharedApplication.BeginInvokeOnMainThread(SignNow);
-        }
+        if (after.Focus is { } focus) Window.MakeFirstResponder(ControlFor(focus));
+        if (after.OpenSigning) NSApplication.SharedApplication.BeginInvokeOnMainThread(SignNow);
     }
 
     private void EditStep(int step)
     {
         var from = _session.StepIndex;
         _session.GoStep(step);
-        AfterMove(from, new MoveResult(true, null));
+        AfterMove(from);
     }
 
     /* ---- what the operator types ----------------------------------- */
@@ -824,29 +796,16 @@ public sealed partial class MainWindow
 
     /* ---- step 4: photo -------------------------------------------- */
 
-    private void RenderPhotoStep(Dictionary<Field, string> p)
+    private void RenderPhotoStep(PhotoView v)
     {
-        var s = _session;
-        var photo = s.Photo;
-        var error = s.Touched.Contains(Field.Photo) || s.PhotoError.Length > 0 ? p[Field.Photo] : "";
-        var warnings = photo?.Check.Warnings ?? Array.Empty<string>();
-        var (color, text) = _checkingPhoto ? (NSColor.SecondaryLabel, "Looking at the photo…")
-            : error.Length > 0 ? (NSColor.SystemRed, error)
-            : warnings.Count > 0 ? (NSColor.SystemOrange, string.Join(" ", warnings))
-            : photo is { Background: PhotoBackground.Removed } ? (NSColor.SecondaryLabel, "The background was removed on this computer. Check the edges on the card.")
-            : photo is not null ? (NSColor.SecondaryLabel, "")
-            : (NSColor.SecondaryLabel, _remover is not null
-                ? "Any clear photo of the person. The app removes the background itself."
-                : _removerProblem.Length > 0
-                    ? "A cut-out PNG, or a photo on a plain green background. (The background remover is not available on this computer.)"
-                    : "Any clear photo of the person.");
-        _photoMsg.TextColor = color;
-        Ui.SetText(_photoMsg, text);
-        Ui.Show(_photoMsg, text.Length > 0);
-        _btnPhoto.Title = _checkingPhoto ? "Looking at the photo…" : photo is not null ? "Choose a different photo" : "Choose a photo";
-        _btnPhoto.Enabled = !_checkingPhoto;
-        Ui.SetText(_photoName, photo?.FileName ?? "");
-        Ui.Show(_photoName, photo is not null);
+        var photo = _session.Photo;
+        _photoMsg.TextColor = ToneColor(v.Tone);
+        Ui.SetText(_photoMsg, v.Message);
+        Ui.Show(_photoMsg, v.Message.Length > 0);
+        _btnPhoto.Title = v.ButtonTitle;
+        _btnPhoto.Enabled = v.ButtonEnabled;
+        Ui.SetText(_photoName, v.FileName);
+        Ui.Show(_photoName, v.HasPhoto);
         if (!ReferenceEquals(_thumbOf, photo))
         {
             _thumbOf = photo;
@@ -858,13 +817,12 @@ public sealed partial class MainWindow
                 _photoThumb.Image = Ui.ToNsImage(small, 138);
             }
         }
-        Ui.Show(_adjustBox, photo is not null);
-        _btnAdjustReset.Enabled = !s.Adjust.IsNone;
-        var zoom = Math.Round(s.Adjust.Zoom * 100);
-        if (Math.Abs(_sldZoom.DoubleValue - zoom) > 0.01) _sldZoom.DoubleValue = zoom;
-        Ui.SetText(_zoomOut, $"{zoom:0} %");
+        Ui.Show(_adjustBox, v.HasPhoto);
+        _btnAdjustReset.Enabled = v.ResetEnabled;
+        if (Math.Abs(_sldZoom.DoubleValue - v.ZoomPercent) > 0.01) _sldZoom.DoubleValue = v.ZoomPercent;
+        Ui.SetText(_zoomOut, v.ZoomText);
         // When the photo was turned away for something the prompt fixes, say so above it.
-        Ui.SetText(_guideLabel, error.Length > 0 && s.PhotoFixIsPrompt ? "Get a photo the ID will accept" : "If the cut-out looks wrong");
+        Ui.SetText(_guideLabel, v.GuideLabel);
         Ui.SetText(_copyStatusLabel, _copyStatus);
     }
 
@@ -877,33 +835,9 @@ public sealed partial class MainWindow
     /// <summary>Open a picture file and put it through the photo pipeline.</summary>
     internal async Task AcceptPhotoFile(string path)
     {
-        if (_checkingPhoto) return;
-        var name = Path.GetFileName(path);
-        long size;
-        try { size = new FileInfo(path).Length; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
-        var problem = PhotoPipeline.FileProblem(name, size);
-        if (problem.Length > 0) { _session.PhotoFailed(problem); _front = true; Render(); return; }
-        _checkingPhoto = true;
-        Render();
-        var card = _session.CardSerial;
-        var spec = _session.Geometry.Photo;
-        var remover = _remover;
-        (PhotoResult? Result, string Error) outcome;
-        try
-        {
-            outcome = await Task.Run(() =>
-            {
-                var (image, error) = MacPictures.Decode(path);
-                return image is null ? ((PhotoResult?)null, error) : (PhotoPipeline.Analyse(image, name, spec, remover), "");
-            });
-        }
-        finally { _checkingPhoto = false; }
-        // The card this photo was for has been put aside while it was being looked at: it must not land on the blank card that replaced it.
-        if (card != _session.CardSerial) { Render(); return; }
-        if (outcome.Result is null) _session.PhotoFailed(outcome.Error);
-        else _session.AcceptPhoto(outcome.Result);
-        _front = true;
+        // Core looks at the photo (Session.TakePhoto), and redraws through Session.Changed while it does.
+        // It answers false when the card the photo was for was put aside meanwhile: nothing landed.
+        if (await _session.TakePhoto(path, MacPictures.Decode, _remover)) _front = true;
         Render();
     }
 
@@ -917,7 +851,7 @@ public sealed partial class MainWindow
 
     /* ---- step 5: signature ---------------------------------------- */
 
-    private void RenderSignStep(string error)
+    private void RenderSignStep(SignView v)
     {
         var sig = _session.Signature;
         if (!ReferenceEquals(_sigShown, sig))
@@ -925,15 +859,12 @@ public sealed partial class MainWindow
             _sigShown = sig;
             _sigImage.Image = SignaturePicture(sig);
         }
-        _btnSign.Title = sig is null ? "Sign now" : "Sign again";
-        _btnClearSig.Enabled = sig is not null;
-        Ui.SetText(_sigHelp, sig is ScannedSignature scan
-            ? $"Scanned: {scan.FileName}. It prints in white on the card."
-            : "Signing opens on the whole screen, so the pen has room. It prints in white on the card.");
-        var shown = _sigError.Length > 0 ? _sigError : error;
-        Ui.Show(_sigMsg, shown.Length > 0);
-        Ui.SetText(_sigMsg, shown);
-        RenderDriver();
+        _btnSign.Title = v.ButtonTitle;
+        _btnClearSig.Enabled = v.HasSignature;
+        Ui.SetText(_sigHelp, v.Help);
+        Ui.Show(_sigMsg, v.MessageShown);
+        Ui.SetText(_sigMsg, v.Message);
+        RenderDriver(v.TabletNote);
     }
 
     // The signature as dark ink on white, the way the pad shows it.
@@ -955,7 +886,7 @@ public sealed partial class MainWindow
             }
             else if (signature is ScannedSignature scan)
             {
-                using var picture = MacCardRenderer.TintedScan(scan, "#1D1C1A");
+                using var picture = MacCardRenderer.TintedScan(scan, CardConfig.ScreenInk);
                 var scale = Math.Min((w - 40.0) / scan.Width, (h - 40.0) / scan.Height);
                 MacPictures.Draw(context, picture, new CGRect((w - scan.Width * scale) / 2, (h - scan.Height * scale) / 2, scan.Width * scale, scan.Height * scale));
             }
@@ -984,89 +915,59 @@ public sealed partial class MainWindow
 
     internal async Task AcceptSignatureFile(string path)
     {
-        var name = Path.GetFileName(path);
-        long size;
-        try { size = new FileInfo(path).Length; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
-        var problem = PhotoPipeline.FileProblem(name, size, "picture of the signature");
-        (ScannedSignature? Signature, string Error) outcome = (null, problem);
-        var card = _session.CardSerial;
-        if (problem.Length == 0)
-        {
-            outcome = await Task.Run(() =>
-            {
-                var (image, error) = MacPictures.Decode(path);
-                return image is null ? (null, error) : SignatureInk.FromImage(image, name);
-            });
-        }
-        if (card != _session.CardSerial) { Render(); return; }      // as with a photo: the card it was for is gone
-        if (outcome.Signature is null)
+        var scan = await _session.TakeSignatureScan(path, MacPictures.Decode);
+        if (scan.Landed)
         {
             // a scan that cannot be read leaves whatever signature was there
-            _sigError = outcome.Error;
-        }
-        else
-        {
-            _sigError = "";
-            _session.SetSignature(outcome.Signature);
-            _front = true;
+            _sigError = scan.Error;
+            if (scan.Error.Length == 0) _front = true;
         }
         Render();
     }
 
     /* ---- step 6: check and print ---------------------------------- */
 
-    private void RenderCheckStep(Dictionary<Field, string> p)
+    private void RenderCheckStep(CheckView v)
     {
         var s = _session;
         if (s.StepIndex != Session.LastStep) return;
-        var hasCurrent = s.Ready(p);
-        var cards = s.JobCards();
-        var plan = s.CurrentPlan();
 
-        Ui.Show(_reviewStage, !_saved);
-        Ui.Show(_savedStage, _saved);
-        Ui.SetText(_checkHeading, _saved ? (_savedCount > 1 ? $"{_savedCount} IDs ready to print" : "ID ready to print")
-            : hasCurrent ? "Is everything correct?" : "Ready to print");
-        Ui.Show(_reviewSub, !hasCurrent && !_saved);
-        Ui.SetText(_reviewSub, $"Printing the {cards.Count} card{(cards.Count == 1 ? "" : "s")} already in this print.");
+        Ui.Show(_reviewStage, !v.Saved);
+        Ui.Show(_savedStage, v.Saved);
+        Ui.SetText(_checkHeading, v.Heading);
+        Ui.Show(_reviewSub, v.SubShown);
+        Ui.SetText(_reviewSub, v.Sub);
 
         // a plain summary of the card on screen, each line one press from being edited
-        Ui.Show(_summary, hasCurrent);
-        if (hasCurrent && _art is not null && _renderer is not null)
+        Ui.Show(_summary, v.SummaryShown);
+        if (v.SummaryShown && _art is not null && _renderer is not null)
         {
-            var data = s.CardData();
-            _summaryImage.Image = Ui.ToNsImage(_renderer.RenderFront(_art, s.Geometry, data, 176 / CardConfig.CardWidthMm), 88);
-            Ui.SetText(_sumName, Naming.CollapseSpaces(data.Name));
-            Ui.SetText(_sumTitle, s.Geometry.Title.Uppercase ? Naming.Upper(data.Title) : data.Title);
-            Ui.SetText(_sumNumber, data.Seq is { } seq ? Naming.EmployeeId(s.Year, seq) : "");
+            _summaryImage.Image = Ui.ToNsImage(_renderer.RenderFront(_art, s.Geometry, s.CardData(), 176 / CardConfig.CardWidthMm), 88);
+            Ui.SetText(_sumName, v.SummaryName);
+            Ui.SetText(_sumTitle, v.SummaryTitle);
+            Ui.SetText(_sumNumber, v.SummaryNumber);
         }
-        var warnings = s.Photo?.Check.Warnings ?? Array.Empty<string>();
-        Ui.Show(_reviewWarning, hasCurrent && warnings.Count > 0);
-        Ui.SetText(_reviewWarning, string.Join(" ", warnings));
+        Ui.Show(_reviewWarning, v.WarningShown);
+        Ui.SetText(_reviewWarning, v.Warning);
 
         _layout.SelectedSegment = s.Layout == SheetMode.Duplex ? 1 : 0;
         _cmbPaper.SelectItem(Math.Max(0, Array.FindIndex(CardConfig.Papers, paper => paper.Key == s.Paper)));
-        if (plan is not null)
+        if (v.HasPlan)
         {
-            var per = plan.PerSheet;
-            var copies = s.PrintCopies(plan);
-            var total = cards.Count * copies;
-            var sheets = (int)Math.Ceiling(total / (double)per);
-            if (!ReferenceEquals(Window.FirstResponder, _txtCopies.CurrentEditor)) Ui.SetText(_txtCopies, copies.ToString(CultureInfo.InvariantCulture));
-            _copiesDown.Enabled = copies > 1;
-            _copiesUp.Enabled = copies < per * 20;
-            Ui.SetText(_copiesLabel, cards.Count > 1 ? "Copies of each card" : "Copies of this card");
-            // how many fit, and the sheet count only when it is more than one
-            Ui.SetText(_printNote, $"{per} cards per {s.Paper} sheet" + (sheets > 1 ? $" · {total} cards, {sheets} sheets" : "") + ".");
+            if (!ReferenceEquals(Window.FirstResponder, _txtCopies.CurrentEditor)) Ui.SetText(_txtCopies, v.CopiesText);
+            _copiesDown.Enabled = v.CopiesDownEnabled;
+            _copiesUp.Enabled = v.CopiesUpEnabled;
+            Ui.SetText(_copiesLabel, v.CopiesLabel);
+            Ui.SetText(_printNote, v.PrintNote);
         }
-        Ui.SetText(_reviewFile, _reviewFileNote.Length > 0 ? _reviewFileNote : s.PrintFileLine());
+        // "saved as pictures" stays under the buttons until a new ID is started
+        Ui.SetText(_reviewFile, _reviewFileNote.Length > 0 ? _reviewFileNote : v.FileLine);
         Ui.Show(_reviewErrorLabel, _reviewError.Length > 0);
         Ui.SetText(_reviewErrorLabel, _reviewError);
-        _btnDownload.Enabled = cards.Count > 0 && !_saving;
-        _btnDownload.Title = _saving ? "Saving the PDF…" : "Save the PDF";
-        _btnPng.Enabled = hasCurrent && !_saving;
-        _btnAddAnother.Enabled = hasCurrent && !_saving;
+        _btnDownload.Enabled = v.SaveEnabled;
+        _btnDownload.Title = v.SaveTitle;
+        _btnPng.Enabled = v.PicturesEnabled;
+        _btnAddAnother.Enabled = v.AddAnotherEnabled;
 
         Ui.SetText(_savedLine, $"Saved {Path.GetFileName(_savedPath)}. Print it at 100% (not “fit to page”).");
         Ui.Show(_savedNote, _savedTrouble.Length > 0);
@@ -1078,44 +979,36 @@ public sealed partial class MainWindow
         if (_session.StartedCard && !Confirm("Discard the ID you have started? The cards already in this print are kept.", "Discard")) return;
         var from = _session.StepIndex;
         _session.CancelAdding();
-        AfterMove(from, new MoveResult(true, null));
+        AfterMove(from);
     }
 
-    private void RenderJob()
+    private void RenderJob(JobView v)
     {
-        var s = _session;
-        var cards = s.JobCards();
-        var onCheck = s.StepIndex == Session.LastStep;
-        // the strip is for knowing what is already waiting; it has nothing to say during the very first card
-        var show = (s.Queue.Count > 0 || (onCheck && cards.Count > 0)) && !_saved;
-        Ui.Show(_queueStrip, show);
-        if (!show) return;
-        var key = string.Join("|", cards.Select(c => c.Id + c.Label + c.Current));
-        if (key != _jobShown)
+        Ui.Show(_queueStrip, v.Shown);
+        if (!v.Shown) return;
+        if (v.Key != _jobShown)
         {
-            _jobShown = key;
+            _jobShown = v.Key;
             foreach (var old in _jobList.ArrangedSubviews) { _jobList.RemoveArrangedSubview(old); old.RemoveFromSuperview(); }
-            for (var i = 0; i < cards.Count; i++)
+            for (var i = 0; i < v.Rows.Count; i++)
             {
-                var card = cards[i];
-                var who = Ui.Label($"{i + 1}.  {card.Label} · {card.Id}", maxWidth: 260);
+                var card = v.Rows[i];
+                var who = Ui.Label(card.Text, maxWidth: 260);
                 if (card.Current)
                 {
                     _jobList.AddArrangedSubview(Ui.Row(10, who, Ui.Note("on screen")));
                     continue;
                 }
                 var index = i;
-                var remove = Ui.Button("Remove", () => { var from = _session.StepIndex; _session.RemoveFromQueue(index); AfterMove(from, new MoveResult(true, null)); });
-                Ui.Says(remove, $"Take {card.Label} out of this print");
+                var remove = Ui.Button("Remove", () => { var from = _session.StepIndex; _session.RemoveFromQueue(index); AfterMove(from); });
+                Ui.Says(remove, card.RemoveSays);
                 _jobList.AddArrangedSubview(Ui.Row(10, who, remove));
             }
         }
-        Ui.SetText(_jobCount, $"{cards.Count} card{(cards.Count == 1 ? "" : "s")}");
-        Ui.SetText(_jobNote, s.Queue.Count == 0 ? ""
-            : onCheck ? "All of these print together, and are issued when you save."
-            : "Finish this card and they all go on one sheet.");
-        Ui.Show(_jobNote, s.Queue.Count > 0);
-        Ui.Show(_btnCancelAdd, s.Queue.Count > 0 && !onCheck);
+        Ui.SetText(_jobCount, v.Count);
+        Ui.SetText(_jobNote, v.Note);
+        Ui.Show(_jobNote, v.NoteShown);
+        Ui.Show(_btnCancelAdd, v.CancelAddShown);
     }
 
     private static string DocumentsFolder => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -1134,31 +1027,28 @@ public sealed partial class MainWindow
     internal async Task SavePrint(string path)
     {
         if (_saving || _art is null || _renderer is null) return;
-        var print = _session.PrintPages();
-        if (print is not { } pr || pr.Entries.Count == 0) return;
-        var (_, title) = _session.PrintFile();
-        var pages = _renderer.SheetPdfPages(_art, _session.Geometry, pr.Plan, pr.Entries, pr.Pages, _session.BackUpsideDown(pr.Plan));
-        var count = _session.JobCards().Count;
+        if (_session.Print() is not { } job) return;
+        var pages = _renderer.SheetPdfPages(_art, _session.Geometry, job.Plan, job.Entries, job.Pages, job.BackUpsideDown);
         _saving = true;
         _reviewError = "";
         Render();
-        var error = await WritePdf(path, pages, title);
+        // Core writes the PDF, and only once it is whole issues its cards (Session.SavePrint)
+        var saved = await _session.SavePrint(path, job, OnWindow(pages));
         _saving = false;
-        if (error.Length > 0)
+        if (saved.Error.Length > 0)
         {
-            _reviewError = error;
+            _reviewError = saved.Error;
             Render();
             return;
         }
-        var issued = _session.MarkIssued();
         _saved = true;
-        _savedCount = count;
+        _savedCount = saved.Cards;
         _savedPath = path;
         _savedTrouble = "";
         Render();
         Window.MakeFirstResponder(_btnNewId);
-        var report = await _session.RecordShared(issued);
-        if (report.Message() is { Length: > 0 } trouble)
+        // the shared register has been told meanwhile
+        if (await saved.Trouble is { Length: > 0 } trouble)
         {
             _savedTrouble = trouble;
             Render();
@@ -1166,41 +1056,16 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Write a PDF to disk. Pages are drawn on the window's own thread, one
-    /// at a time as they are asked for (the measurer is not shared between
-    /// threads); the compressing and writing happen off it. Returns "" or
-    /// what went wrong, in words for the operator.
+    /// Pages are drawn on the window's own thread, one at a time as the
+    /// writer asks for them (the measurer is not shared between threads);
+    /// the compressing and writing happen off it (PrintFiles.Write).
     /// </summary>
-    private static async Task<string> WritePdf(string path, List<Func<PdfPage>> pages, string title)
+    private static List<Func<PdfPage>> OnWindow(List<Func<PdfPage>> pages) => pages.Select(page => (Func<PdfPage>)(() =>
     {
-        var onWindow = pages.Select(page => (Func<PdfPage>)(() =>
-        {
-            PdfPage? drawn = null;
-            NSApplication.SharedApplication.InvokeOnMainThread(() => drawn = page());
-            return drawn ?? throw new InvalidOperationException("A page of the print could not be drawn.");
-        })).ToList();
-        var partial = path + ".part";
-        try
-        {
-            await Task.Run(() =>
-            {
-                using (var stream = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    PdfWriter.Write(stream, onWindow, title, DateTime.Now);
-                }
-                File.Move(partial, path, overwrite: true);
-            });
-            return "";
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or OutOfMemoryException or InvalidOperationException)
-        {
-            try { File.Delete(partial); }
-            catch (Exception d) when (d is IOException or UnauthorizedAccessException) { /* nothing more to be done about a file that will not go */ }
-            return e is OutOfMemoryException
-                ? "This print is too large for this computer’s memory. Print fewer cards at a time."
-                : $"The file couldn’t be saved there ({e.Message.TrimEnd('.')}). If it is open in another program, close it, or choose a different folder.";
-        }
-    }
+        PdfPage? drawn = null;
+        NSApplication.SharedApplication.InvokeOnMainThread(() => drawn = page());
+        return drawn ?? throw new InvalidOperationException("A page of the print could not be drawn.");
+    })).ToList();
 
     private void SavePictures()
     {
@@ -1208,19 +1073,18 @@ public sealed partial class MainWindow
         var stem = Path.GetFileNameWithoutExtension(_session.PrintFile().FileName);
         var front = AskWhereToSave("Save the front as a picture", stem + "-front.png");
         if (front is null) return;
-        var back = Path.Combine(Path.GetDirectoryName(front) ?? DocumentsFolder,
-            Path.GetFileNameWithoutExtension(front).Replace("-front", "", StringComparison.OrdinalIgnoreCase) + "-back.png");
+        var back = PrintFiles.BackPictureFor(front, DocumentsFolder);
         try
         {
             var ppm = CardConfig.PrintPxPerMm;
             MacPictures.SavePng(_renderer.RenderFront(_art, _session.Geometry, _session.CardData(), ppm), front);
             MacPictures.SavePng(_renderer.RenderBack(_art, ppm, _session.RotateBack), back);
             // pictures are a proof to look at, not a print: the card is issued when the PDF is saved
-            _reviewFileNote = $"Saved {Path.GetFileName(front)} and {Path.GetFileName(back)}. The card is not issued until you save the PDF.";
+            _reviewFileNote = PrintFiles.PicturesSaved(front, back);
         }
         catch (Exception x) when (x is IOException or UnauthorizedAccessException)
         {
-            _reviewError = $"The pictures couldn’t be saved there ({x.Message.TrimEnd('.')}). Choose a different folder.";
+            _reviewError = PrintFiles.PicturesNotSaved(x);
         }
         Render();
     }
@@ -1232,7 +1096,7 @@ public sealed partial class MainWindow
         _reviewFileNote = "";
         _reviewError = "";
         _session.NewId();
-        AfterMove(from, new MoveResult(true, null));
+        AfterMove(from);
     }
 
     // Saving a file silently would leave the operator with no idea where the print went.
@@ -1257,31 +1121,24 @@ public sealed partial class MainWindow
                 : _renderer.RenderBack(_art, PreviewPpm, s.RotateBack);
             _cardImage.Image = Ui.ToNsImage(side, CardPointsWide);
             if (EditingMap) _map.Refresh();
-            Ui.Says(_cardImage, _front
-                ? $"Front of the ID card for {(s.PrintedName.Length > 0 ? s.PrintedName : "a new hire")}"
-                : "Back of the ID card");
             return;
         }
-        var print = s.PrintPages();
-        if (print is not { } pr || pr.Pages.Count == 0) { _cardImage.Image = null; Ui.Show(_sheetNav, false); return; }
-        s.PreviewPage = Math.Clamp(s.PreviewPage, 0, pr.Pages.Count - 1);
-        var page = pr.Pages[s.PreviewPage];
+        // which page there is to show, and what is said about it, is Core's (Session.SheetPreview)
+        if (s.SheetPreview() is not { } sheet) { _cardImage.Image = null; Ui.Show(_sheetNav, false); return; }
         var art = _art;
         var renderer = _renderer;
-        var backUp = s.BackUpsideDown(pr.Plan);
         // every card on a sheet has the same back; draw it once
         RgbaImage? back = null;
-        var sheet = renderer.RenderSheet(pr.Plan, page, SheetPreviewPpm,
-            i => renderer.RenderFront(art, s.Geometry, pr.Entries[i], SheetPreviewPpm),
-            _ => back ??= renderer.RenderBack(art, SheetPreviewPpm, backUp));
-        PaperEdge(sheet);
-        _cardImage.Image = Ui.ToNsImage(sheet, CardPointsWide);
-        var which = pr.Plan.Mode != SheetMode.Duplex ? "" : page.Backs ? "Backs, reversed to match. " : "Fronts. ";
-        Ui.Says(_cardImage, $"Preview of page {s.PreviewPage + 1} of the {s.Paper} sheet. {which}".Trim());
-        Ui.SetText(_previewCaption, $"{which}Page {s.PreviewPage + 1} of {pr.Pages.Count} · {s.Paper}");
-        Ui.Show(_sheetNav, pr.Pages.Count > 1);
-        _prevPage.Enabled = s.PreviewPage > 0;
-        _nextPage.Enabled = s.PreviewPage < pr.Pages.Count - 1;
+        var picture = renderer.RenderSheet(sheet.Plan, sheet.Page, SheetPreviewPpm,
+            i => renderer.RenderFront(art, s.Geometry, sheet.Entries[i], SheetPreviewPpm),
+            _ => back ??= renderer.RenderBack(art, SheetPreviewPpm, sheet.BackUpsideDown));
+        PaperEdge(picture);
+        _cardImage.Image = Ui.ToNsImage(picture, CardPointsWide);
+        Ui.Says(_cardImage, sheet.Says);
+        Ui.SetText(_previewCaption, sheet.Caption);
+        Ui.Show(_sheetNav, sheet.NavShown);
+        _prevPage.Enabled = sheet.PreviousEnabled;
+        _nextPage.Enabled = sheet.NextEnabled;
     }
 
     // White paper on a pale window: a grey hairline round the preview (never the print) shows where the paper ends.
@@ -1311,17 +1168,12 @@ public sealed partial class MainWindow
         Render();
     }
 
-    private static readonly Dictionary<string, string> ToolTitles = new()
+    private void RenderTools(Screen m)
     {
-        [ToolKey.Register] = "Issued IDs", [ToolKey.Batch] = "Batch from a list", [ToolKey.Printer] = "Printer setting", [ToolKey.Design] = "Card design",
-    };
-
-    private void RenderTools()
-    {
-        // the design can only be changed before an ID is started
-        var designOk = _session.DesignAllowed;
-        Ui.Show(_railDesign, designOk);
-        if (!designOk && _tool == ToolKey.Design) _tool = null;
+        // the design can only be changed before an ID is started: Core takes
+        // its button away and shuts its drawer once one is
+        Ui.Show(_railDesign, m.Tools.DesignOffered);
+        _tool = m.Tools.Open;
 
         // Editing the map and having the Card design drawer open are the
         // same state, and this is where that is enforced rather than in each
@@ -1331,15 +1183,14 @@ public sealed partial class MainWindow
         if (EditingMap && _tool != ToolKey.Design) StopAdjusting();
 
         Ui.Show(_drawer, _tool is not null);
-        var all = _register.All();
-        _railRegister.Title = all.Count > 0 ? $"Issued IDs ({all.Count})" : "Issued IDs";
+        _railRegister.Title = m.Tools.RegisterButton;
         if (_tool is null) return;
-        Ui.SetText(_drawerTitle, _tool == ToolKey.Register && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
+        Ui.SetText(_drawerTitle, m.Tools.DrawerTitle);
         Ui.Show(_toolRegister, _tool == ToolKey.Register);
         Ui.Show(_toolBatch, _tool == ToolKey.Batch);
         Ui.Show(_toolPrinter, _tool == ToolKey.Printer);
         Ui.Show(_toolDesign, _tool == ToolKey.Design);
-        if (_tool == ToolKey.Register) RenderRegister(all);
+        if (m.Register is { } register) RenderRegister(register);
         if (_tool == ToolKey.Batch) RenderBatch();
         if (_tool == ToolKey.Design) RenderDesign();
         if (_tool == ToolKey.Printer)
@@ -1349,47 +1200,28 @@ public sealed partial class MainWindow
         }
     }
 
-    private void RenderRegister(IReadOnlyList<RegisterEntry> all)
+    /// <summary>The issued IDs, who is signed in to the shared register on this computer, and what the register has refused.</summary>
+    private void RenderRegister(RegisterView v)
     {
-        _btnRegisterCsv.Enabled = all.Count > 0;
-        RenderSignIn();
-        Ui.SetText(_registerNote, all.Count > 0
-            ? "The most recent cards issued on this computer. Each one is also written to the shared register, which is what the duplicate check reads."
-            : "Nothing issued yet. Every card you save is listed here, and written to the shared register.");
+        _btnRegisterCsv.Enabled = v.ExportEnabled;
+        Ui.SetText(_registerAccount, v.Account);
+        Ui.Show(_signInForm, v.SignInShown);
+        Ui.Show(_signedInActions, v.SignedInShown);
+        Ui.Show(_refusedPanel, v.RefusedShown);
+        Ui.SetText(_refusedNote, v.RefusedNote);
+        Ui.SetText(_registerNote, v.Note);
         Ui.SetText(_registerMsg, _registerMessage);
         Ui.Show(_registerMsg, _registerMessage.Length > 0);
-        var key = string.Join("|", all.Take(12).Select(e => e.Id + e.IssuedAt)) + all.Count;
-        if (key == _registerShown) return;
-        _registerShown = key;
+        if (v.Key == _registerShown) return;
+        _registerShown = v.Key;
         foreach (var old in _registerList.ArrangedSubviews) { _registerList.RemoveArrangedSubview(old); old.RemoveFromSuperview(); }
-        foreach (var entry in all.Take(12))
+        foreach (var entry in v.Rows)
         {
             _registerList.AddArrangedSubview(Ui.Column(1,
-                Ui.Label($"{entry.Id}{(entry.Replacement ? " (replacement)" : "")} · {entry.IssuedOn}", bold: true, maxWidth: 280),
-                Ui.Label($"{entry.Name} · {entry.Title}", 12, muted: true, maxWidth: 280)));
+                Ui.Label($"{entry.Head} · {entry.When}", bold: true, maxWidth: 280),
+                Ui.Label(entry.Detail, 12, muted: true, maxWidth: 280)));
         }
-        if (all.Count > 12) _registerList.AddArrangedSubview(Ui.Label($"… and {all.Count - 12} more in the saved list.", 12, muted: true, maxWidth: 280));
-    }
-
-    /// <summary>Who is signed in to the shared register on this computer, and what the register has refused.</summary>
-    private void RenderSignIn()
-    {
-        var shared = _register.Shared;
-        var signedIn = _register.SignedIn;
-        var waiting = _register.WaitingForShared;
-        Ui.SetText(_registerAccount, !shared ? "This copy of the app keeps its own list only."
-            : signedIn ? $"Signed in as {_register.SignedInAs}."
-                + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} still waiting to be written to it." : "")
-            : (_register.SignInProblem.Length > 0 ? _register.SignInProblem + " " : "")
-                + "Sign in with your Keystone account, once on this computer, so numbers are checked against every computer."
-                + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} waiting to be written to it." : ""));
-        Ui.Show(_signInForm, shared && !signedIn);
-        Ui.Show(_signedInActions, shared && signedIn);
-        var refused = _register.Refused;
-        Ui.Show(_refusedPanel, refused.Count > 0);
-        Ui.SetText(_refusedNote, refused.Count == 0 ? "" : string.Join("\n", refused.Select(r =>
-            $"{r.Card.Id} belongs to {r.Holder.Name}{(r.Holder.IssuedOn.Length > 0 ? $" (issued {r.Holder.IssuedOn})" : "")}. "
-            + $"The card made here for {r.Card.Name} is a duplicate: take it back, and make it again with a number that is free.")));
+        if (v.More.Length > 0) _registerList.AddArrangedSubview(Ui.Label(v.More, 12, muted: true, maxWidth: 280));
     }
 
     private void SaveRegisterCsv()
@@ -1398,7 +1230,7 @@ public sealed partial class MainWindow
         if (path is null) return;
         try
         {
-            File.WriteAllText(path, _register.ToCsv());
+            File.WriteAllText(path, _session.RegisterCsv());
             _registerMessage = $"Saved {Path.GetFileName(path)}.";
             ShowInFinder(path);
         }
@@ -1415,9 +1247,7 @@ public sealed partial class MainWindow
         if (path is null) return;
         try
         {
-            var added = _register.ImportCsv(File.ReadAllText(path));
-            _registerMessage = added > 0 ? $"Added {added} card{(added == 1 ? "" : "s")} from that list." : "Nothing new in that list.";
-            _session.RefreshDuplicate();
+            _registerMessage = _session.ImportRegister(File.ReadAllText(path));
         }
         catch (Exception x) when (x is IOException or UnauthorizedAccessException)
         {
@@ -1434,33 +1264,21 @@ public sealed partial class MainWindow
         Render();
         try
         {
-            var result = await _register.SignIn(_txtSignInEmail.StringValue, _txtSignInPassword.StringValue);
-            // the password is not kept anywhere, this box included
+            // Core signs in, reads the register and sends the cards saved before anyone signed in (Session.SignIn)
+            var signingIn = _session.SignIn(_txtSignInEmail.StringValue, _txtSignInPassword.StringValue);
+            // the password is not kept anywhere, this box included: it has been handed over
             _txtSignInPassword.StringValue = "";
-            if (!result.Ok)
-            {
-                _registerMessage = result.Error;
-                Render();
-                Window.MakeFirstResponder(_txtSignInPassword);
-                return;
-            }
-            var read = await _register.LoadIndex();
-            // cards saved before anyone signed in are sent now
-            var left = read ? await _register.SendWaiting() : _register.WaitingForShared;
-            _session.RefreshDuplicate();
-            _registerMessage = !read ? $"Signed in, but the register could not be read just now. {_register.LastProblem}"
-                : left > 0 ? $"Signed in. {left} card{(left == 1 ? "" : "s")} could not be written yet and will be tried again."
-                : "Signed in. This computer now checks every number against the shared register.";
+            var result = await signingIn;
+            _registerMessage = result.Message;
             Render();
+            if (!result.Ok) Window.MakeFirstResponder(_txtSignInPassword);
         }
         finally { _btnSignIn.Enabled = true; }
     }
 
     private void SignOut()
     {
-        _register.SignOut();
-        _session.RefreshDuplicate();
-        _registerMessage = "Signed out. Numbers are checked against this computer only until somebody signs in.";
+        _registerMessage = _session.SignOut();
         Render();
     }
 
@@ -1471,12 +1289,7 @@ public sealed partial class MainWindow
         Render();
         try
         {
-            var ping = await _register.Ping();
-            if (ping.Ok) await _register.SendWaiting();
-            _session.RefreshDuplicate();
-            _registerMessage = ping.Ok
-                ? $"The shared register is answering: {ping.Rows} card{(ping.Rows == 1 ? "" : "s")} in it."
-                : ping.Error;
+            _registerMessage = await _session.CheckRegister();
             Render();
         }
         finally { _btnRegisterTest.Enabled = true; }

@@ -12,11 +12,11 @@ public class StepTests
         Assert.Equal(0, s.FurthestStep());
 
         // every way forward from an empty form stays on step 1
-        Assert.False(s.NextStep().Moved);
+        s.NextStep();
         Assert.Equal(0, s.StepIndex);
         for (var i = 1; i <= Session.LastStep; i++)
         {
-            Assert.False(s.ChipPressed(i).Moved);
+            s.ChipPressed(i);
             Assert.Equal(0, s.StepIndex);
         }
         s.GoStep(4);
@@ -35,10 +35,9 @@ public class StepTests
         // pressing a locked chip from a finished step names the step in the way
         s.SetNamePart(Field.Last, "Reyes");
         s.SetNamePart(Field.First, "Ana");
-        Assert.True(s.NextStep().Moved);
+        Assert.Null(s.NextStep().FocusField);
         Assert.Equal(1, s.StepIndex);
         var chip = s.ChipPressed(4);
-        Assert.False(chip.Moved);
         Assert.Equal(1, s.StepIndex);
         // the first thing the step asks is who the ID is for
         Assert.Equal(Field.Kind, chip.FocusField);
@@ -87,7 +86,7 @@ public class StepTests
     {
         var s = Make.Session();
         Make.FillForm(s);
-        for (var i = 0; i < Session.LastStep; i++) Assert.True(s.NextStep().Moved);
+        for (var i = 0; i < Session.LastStep; i++) Assert.Null(s.NextStep().FocusField);
         Assert.Equal(Session.LastStep, s.StepIndex);
         Assert.NotNull(s.ReviewEntry);
         Assert.Equal("APG-2026-124", s.ReviewEntry!.Id);
@@ -107,7 +106,6 @@ public class StepTests
         // the name stops fitting the card
         s.SetNamePart(Field.First, "Bartholomew Maximilian Featherstonehaugh Cholmondeley Marjoribanks");
         var r = s.NextStep();
-        Assert.False(r.Moved);
         Assert.Equal(0, s.StepIndex);
         Assert.Equal(Field.NameFit, r.FocusField);
     }
@@ -180,7 +178,8 @@ public class StepTests
         var t = Make.Session();
         t.SetNamePart(Field.Last, "reyes");
         t.SetNamePart(Field.First, "ana maria");
-        Assert.True(t.NextStep().Moved);
+        t.NextStep();
+        Assert.Equal(1, t.StepIndex);
         Assert.Equal("Reyes", t.Last);
         Assert.Equal("Ana Maria", t.First);
     }
@@ -497,9 +496,9 @@ public class PrintJobTests
         Assert.Equal(2, print.Pages.Count);
 
         s.SetCopies(100000);
-        Assert.Equal(plan.PerSheet * 20, s.PrintCopies(plan));
+        Assert.Equal(80, s.PrintCopies(plan));               // twenty sheets of four
         s.NudgeCopies(1);
-        Assert.Equal(plan.PerSheet * 20, s.Copies);
+        Assert.Equal(80, s.Copies);
 
         s.SetLayout(SheetMode.Duplex);
         Assert.Null(s.Copies);                                // the two layouts hold different numbers
@@ -700,7 +699,6 @@ public class RegisterTests
         var ping = await r.Ping();
         Assert.True(ping.Ok);
         Assert.Equal(652, ping.Rows);
-        Assert.Equal("demo-idmaker", ping.Sheet);
     }
 
     [Fact]

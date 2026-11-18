@@ -83,18 +83,14 @@ public sealed partial class MainWindow
     private void RenderBatch()
     {
         _btnBatch.Enabled = !_batchRunning && _batchCsv is not null && _batchPhotos.Length > 0 && _art is not null;
-        Ui.SetText(_csvMsg, _batchCsv is null ? "Columns: last, first, title, seq, and optionally middle, suffix, title2, year, photo, signature, replacement." : Path.GetFileName(_batchCsv));
-        Ui.SetText(_photosMsg, _batchPhotos.Length > 0 ? $"{_batchPhotos.Length} photo{(_batchPhotos.Length == 1 ? "" : "s")} chosen." : "Choose every photo. They are matched to the list by file name.");
-        Ui.SetText(_sigsMsg, _batchSigs.Length > 0 ? $"{_batchSigs.Length} signature{(_batchSigs.Length == 1 ? "" : "s")} chosen." : "Photos or scans of signatures on white paper. Rows without one get a card with no signature.");
+        var chosen = Screen.BatchChosen(_batchCsv, _batchPhotos.Length, _batchSigs.Length);
+        Ui.SetText(_csvMsg, chosen.List);
+        Ui.SetText(_photosMsg, chosen.Photos);
+        Ui.SetText(_sigsMsg, chosen.Signatures);
 
         var layout = BatchLayoutChoice;
         Ui.Show(_batchPaperField, layout != Batch.LayoutCards);
-        if (layout == Batch.LayoutCards) Ui.SetText(_layoutMsg, "Two pages per person, each the size of the card.");
-        else
-        {
-            var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex);
-            Ui.SetText(_layoutMsg, plan is null ? "" : $"{plan.PerSheet} cards per sheet ({plan.Cols} × {plan.Rows}, {(plan.Landscape ? "landscape" : "portrait")}).");
-        }
+        Ui.SetText(_layoutMsg, Screen.BatchLayoutLine(layout, BatchPaperChoice));
         Ui.SetText(_batchStatusLabel, _batchStatus);
         Ui.Show(_batchStatusLabel, _batchStatus.Length > 0);
 
@@ -103,14 +99,11 @@ public sealed partial class MainWindow
         foreach (var old in _batchReport.ArrangedSubviews) { _batchReport.RemoveArrangedSubview(old); old.RemoveFromSuperview(); }
         foreach (var r in _batchResults)
         {
-            var (color, note) = !r.Ok ? (NSColor.SystemRed, r.Problem)
-                : r.Warnings.Count > 0 || r.NoSignature
-                    ? (NSColor.SystemOrange, string.Join(" ", new[] { r.NoSignature ? "No signature on this card." : "" }.Concat(r.Warnings).Where(t => t.Length > 0)))
-                    : (NSColor.SecondaryLabel, "Ready.");
+            var (tone, head, text) = Screen.BatchRow(r);
             // the words say which it is; the colour only agrees with them
-            var line = Ui.Label((r.Ok ? "" : "Skipped: ") + note, 12, maxWidth: DrawerText);
-            line.TextColor = color;
-            _batchReport.AddArrangedSubview(Ui.Column(1, DrawerHead(r.Ok ? $"{r.Id} · {r.Label}" : $"Line {r.Line} · {r.Label}"), line));
+            var line = Ui.Label(text, 12, maxWidth: DrawerText);
+            line.TextColor = ToneColor(tone);
+            _batchReport.AddArrangedSubview(Ui.Column(1, DrawerHead(head), line));
         }
     }
 
@@ -155,13 +148,12 @@ public sealed partial class MainWindow
             catch (Exception x) when (x is IOException or UnauthorizedAccessException) { BatchSays($"The list couldn’t be read ({x.Message.TrimEnd('.')})."); return; }
 
             // duplicates across computers are only caught if the shared register has been read
-            if (_register.Shared && !await _register.LoadIndex())
+            if (!await _session.ReadSharedRegister())
                 BatchSays("The shared register could not be reached, so numbers are checked against this computer only.");
 
             var geometry = _session.Geometry;
-            var remover = _remover;
             // its own measurer: the batch runs off the window's thread, and the window keeps drawing with the other one
-            var services = new Batch.Services(_register, MacTextMeasurer.Load(InBundle("Fonts")), geometry, MacPictures.Decode, remover, () => DateTime.Now);
+            var services = _session.BatchServices(MacTextMeasurer.Load(InBundle("Fonts")), MacPictures.Decode, _remover);
             var photos = _batchPhotos;
             var sigs = _batchSigs;
             var outcome = await Task.Run(() => Batch.Run(csv, photos, sigs, services,
@@ -179,29 +171,23 @@ public sealed partial class MainWindow
             {
                 var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex);
                 if (plan is null) { BatchSays("That paper is not one this app prints on."); return; }
-                var backUp = plan.Mode == SheetMode.Duplex && _session.Flip == DuplexFlip.ShortEdge ? !_session.RotateBack : _session.RotateBack;
-                pages = _renderer.SheetPdfPages(_art, geometry, plan, entries, Sheets.Pages(entries.Count, plan, _session.Flip), backUp);
+                pages = _renderer.SheetPdfPages(_art, geometry, plan, entries, Sheets.Pages(entries.Count, plan, _session.Flip), _session.BackUpsideDown(plan));
             }
             var (_, title) = Batch.FileFor(good.Count, layout != Batch.LayoutCards, DateTime.Now);
             BatchSays("Building the PDF…");
-            var error = await WritePdf(savePath, pages, title);
+            var error = await PrintFiles.Write(savePath, OnWindow(pages), title, DateTime.Now);
             if (error.Length > 0) { BatchSays(error); return; }
 
             // only the rows that made it into the PDF are issued
             var issued = good.Where(r => r.Entry is not null).Select(r => r.Entry!).ToList();       // SAFETY: filtered to the rows that have one on the same line
-            foreach (var entry in issued) { _register.Record(entry); _register.NoteShared(entry); }
-            _session.RefreshDuplicate();
+            // here at once; the shared register is told while the result is put on screen (Session.IssueBatch)
+            var telling = _session.IssueBatch(issued);
             var skipped = outcome.Results.Count - good.Count;
             BatchSays($"{good.Count} card{(good.Count == 1 ? "" : "s")} saved as {Path.GetFileName(savePath)}"
                 + (skipped > 0 ? $" · {skipped} row{(skipped == 1 ? "" : "s")} skipped, see below." : ". Print at 100%."));
             ShowInFinder(savePath);
 
-            var report = await _session.RecordShared(issued);
-            if (report.Message() is { Length: > 0 } trouble)
-            {
-                _session.RefreshDuplicate();
-                BatchSays(_batchStatus + " " + trouble);
-            }
+            if (await telling is { Length: > 0 } trouble) BatchSays(_batchStatus + " " + trouble);
         }
         finally
         {
@@ -223,7 +209,6 @@ public sealed partial class MainWindow
     private string _designMsg = "";
     private string _designWarnHead = "";
     private IReadOnlyList<string> _designWarnLines = Array.Empty<string>();
-    private (Dictionary<string, RectMm> Boxes, RectMm PhotoRect)? _editSnapshot;
 
     private readonly MapEditorView _map = new() { Hidden = true };
     private readonly NSTextField _designName = DrawerNote();
@@ -236,9 +221,9 @@ public sealed partial class MainWindow
 
     private bool EditingMap => !_map.Hidden;
 
-    private string StoredArtwork(string side) => Path.Combine(_files.Directory, TemplateStore.ArtworkFileName(side));
+    private string StoredArtwork(string side) => _design.StoredArtwork(side);
 
-    private void ApplyGeometry() => _session.Geometry = _templates.Geometry();
+    private void ApplyGeometry() => _design.Apply();
 
     private NSStackView BuildDesignTool()
     {
@@ -268,7 +253,7 @@ public sealed partial class MainWindow
             _designReadout,
             Ui.Button("Keep this map", KeepMap, primary: false),
             Ui.Button("Discard changes", DiscardMap),
-            Ui.Button("Put the boxes back where the built-in design has them", () => { _templates.ResetBoxes(); ApplyGeometry(); _map.Refresh(); Render(); }),
+            Ui.Button("Put the boxes back where the built-in design has them", () => { _design.ResetBoxes(); _map.Refresh(); Render(); }),
         }) _designAdjust.AddArrangedSubview(view);
         return Ui.Column(8, _designName, _designHome, _designAdjust, _designMsgLabel, _designWarnLabel, _btnTplReset);
     }
@@ -316,12 +301,8 @@ public sealed partial class MainWindow
             MacPictures.SavePng(MacPictures.ToRgba(art.Front), StoredArtwork("front"));
             MacPictures.SavePng(MacPictures.ToRgba(art.Back), StoredArtwork("back"));
 
-            var name = Path.GetFileNameWithoutExtension(frontPath).Replace('-', ' ').Replace('_', ' ').Trim();
-            _templates.AdoptArtwork(name, ((int)front.Width, (int)front.Height), ((int)back.Width, (int)back.Height));
-            _templates.Save();
+            _designMsg = _design.Adopt(frontPath, ((int)front.Width, (int)front.Height), ((int)back.Width, (int)back.Height));
             _art = art;
-            ApplyGeometry();
-            _designMsg = _templates.Note.Length > 0 ? _templates.Note : "In use. Check the map against the new artwork.";
             ShowContrastWarnings();
             // the map is wherever it was, which is unlikely to suit new artwork
             StartAdjusting();
@@ -329,7 +310,7 @@ public sealed partial class MainWindow
         }
         catch (Exception x) when (x is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _designMsg = $"That artwork couldn’t be used ({x.Message.TrimEnd('.')}). Save it as PNG and try again.";
+            _designMsg = DesignDesk.ArtworkNotUsable(x);
             Render();
         }
     }
@@ -342,20 +323,13 @@ public sealed partial class MainWindow
     private void ShowContrastWarnings()
     {
         var warnings = _art is null ? Array.Empty<ContrastWarning>() : _templates.Warnings(MacPictures.ToRgba(_art.Front));
-        _designWarnHead = "";
-        _designWarnLines = Array.Empty<string>();
-        if (warnings.Count == 0) return;
-        var names = warnings.Select(w => w.Label).ToList();
-        var list = names.Count > 1 ? $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]}" : names[0];
-        _designWarnHead = $"The {list} would be hard to read on this artwork. Put a darker shape behind {(warnings.Count > 1 ? "those boxes" : "that box")}.";
-        _designWarnLines = warnings.Select(w => $"{w.Label}: prints in {w.Ink}, contrast {w.Ratio:0.0}:1 against the artwork (needs {w.Need:0}:1).").ToList();
+        (_designWarnHead, _designWarnLines) = Screen.ContrastReport(warnings);
     }
 
     internal void StartAdjusting()
     {
-        if (!_session.DesignAllowed) return;
-        // what Discard puts back: the map as it was when the editor opened
-        _editSnapshot = _templates.Snapshot();
+        // not once a card is started; and Core keeps the map as it is now, for Discard to put back
+        if (!_design.Begin()) return;
         _front = true;
         _tool = ToolKey.Design;
         _map.Hidden = false;
@@ -364,33 +338,30 @@ public sealed partial class MainWindow
         Window.MakeFirstResponder(_map);
     }
 
-    // Leaving the editor by any route keeps the changes: the preview has
-    // been showing the result the whole time, and throwing away work on a
-    // stray click is the worse of the two mistakes. Discard is right there
-    // for the other direction.
+    // Leaving the editor by any route keeps the changes (DesignDesk.End).
+    // Discard is right there for the other direction.
     private void StopAdjusting()
     {
         _map.Hidden = true;
-        if (_templates.IsPristine) _templates.Clear();      // looked, moved nothing
-        else _templates.Save();
-        ApplyGeometry();
+        _design.End();
     }
 
     internal void KeepMap()
     {
-        StopAdjusting();
+        _map.Hidden = true;
+        var said = _design.Keep();
         ShowContrastWarnings();                             // the boxes may have been moved somewhere lighter
-        _designMsg = _templates.IsCustom ? "Saved on this computer." : "Nothing was moved.";
+        _designMsg = said;
         Render();
         Window.MakeFirstResponder(_btnTplMap);
     }
 
     internal void DiscardMap()
     {
-        _templates.RestoreSnapshot(_editSnapshot);
-        StopAdjusting();
+        _map.Hidden = true;
+        var said = _design.Discard();
         ShowContrastWarnings();
-        _designMsg = "Left as it was.";
+        _designMsg = said;
         Render();
         Window.MakeFirstResponder(_btnTplMap);
     }
@@ -399,17 +370,12 @@ public sealed partial class MainWindow
     {
         if (!Confirm("Go back to the card the app was built with? The artwork and the map you set up here are removed from this computer.", "Go back")) return;
         _map.Hidden = true;
-        _templates.Clear();
-        foreach (var side in new[] { "front", "back" })
-        {
-            try { File.Delete(StoredArtwork(side)); }
-            catch (Exception x) when (x is IOException or UnauthorizedAccessException) { /* an orphaned picture is harmless: nothing points at it any more */ }
-        }
+        // the map and the stored artwork are removed from this computer (DesignDesk.BackToBuiltIn)
+        var said = _design.BackToBuiltIn();
         _art = _builtInArt;
         _frontFile = _backFile = null;
-        ApplyGeometry();
         ShowContrastWarnings();
-        _designMsg = "Back to the built-in design.";
+        _designMsg = said;
         Render();
     }
 
@@ -418,7 +384,7 @@ public sealed partial class MainWindow
     private readonly PhotoDragView _photoDrag = new() { TranslatesAutoresizingMaskIntoConstraints = false };
     private (double Dx, double Dy) _dragFrom;
 
-    private bool CanDragPhoto => _session.Photo is not null && _front && !EditingMap && _session.StepIndex != Session.LastStep;
+    private bool CanDragPhoto => Screen.CanDragPhoto(_session, _front, EditingMap);
 
     private void WireCard()
     {
@@ -489,16 +455,14 @@ public sealed partial class MainWindow
         }
     }
 
-    private void RenderDriver()
+    private void RenderDriver(string tabletNote)
     {
         var installed = PenDriver.Installed;
         Ui.Show(_btnDriver, !installed);
         _btnDriver.Enabled = !_driverBusy;
         Ui.SetText(_driverMsg, _driverStatus);
         Ui.Show(_driverMsg, _driverStatus.Length > 0);
-        Ui.SetText(_tabletNote, installed
-            ? "A pen tablet draws thicker where you press harder."
-            : "No pen tablet driver was found on this Mac, so sign with the mouse or trackpad, or use a scan. The app can install the XP-Pen driver.");
+        Ui.SetText(_tabletNote, tabletNote);
     }
 
     /* ---- for the window test --------------------------------------- */

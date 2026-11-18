@@ -54,6 +54,20 @@ public static class CardConfig
     public const string AppName = "Alpha Premier ID Maker";
     public const string AppVersion = "2.0.4";          // stamped into every PDF's metadata
 
+    // Values the app's other files have to spell for themselves, because they
+    // cannot read this one: the project files, the markup, the installer, the
+    // packaging scripts. Each has its home here, and HomeTests reads those
+    // files and fails when one of them says something else.
+    public const string Publisher = "Alpha Premier Group of Companies";
+    /// <summary>The program's file name without its ending, on both platforms.</summary>
+    public const string ProgramName = "AlphaPremierIdMaker";
+    /// <summary>Where the Windows app writes what stopped it, in its data folder; the installer's checks look for it.</summary>
+    public const string LastErrorFile = "last-error.txt";
+    /// <summary>The company's gold, as the windows use it. Not a colour on the card: those are in the card map.</summary>
+    public const string BrandGold = "#D4AF37";
+    /// <summary>Ink as it is shown on screen while signing. The printed signature takes its colour from the card map.</summary>
+    public const string ScreenInk = "#1D1C1A";
+
     // The pictures the app is built with, by file name: in assets/ in the
     // repository, and in Assets beside the program or inside the Mac bundle.
     public const string FrontArtFile = "front-template.png";

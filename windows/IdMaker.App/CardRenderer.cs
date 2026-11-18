@@ -142,8 +142,6 @@ public sealed class CardRenderer
     // a photo is converted once and kept for as long as its pixels are
     private readonly ConditionalWeakTable<RgbaImage, BitmapSource> _photos = new();
     private readonly ConditionalWeakTable<ScannedSignature, BitmapSource> _scans = new();
-    private QrCode? _qr;
-    private string _qrKey = "";
 
     public CardRenderer(WpfTextMeasurer measurer) { _measurer = measurer; }
 
@@ -249,86 +247,89 @@ public sealed class CardRenderer
         });
     }
 
+    // Core says what is on the front and in what order (CardDrawing.Front).
+    // This draws each of those things with WPF, and decides nothing else.
     private void DrawFront(DrawingContext dc, CardArt art, CardGeometry geo, CardData? data, double ppm, int w, int h, bool showGuides)
     {
         var full = new Rect(0, 0, w, h);
-        dc.DrawImage(art.Front, full);
 
-        if (data is { Photo: not null, Placement: not null })
+        // the maintainer's overlay (Ctrl+Shift+G): over the artwork and the photo, under everything else
+        var guidesDue = showGuides;
+        void Guides()
         {
-            var p = data.Placement;
-            dc.PushClip(Polygons(new[] { geo.PhotoClip }, ppm));
-            if (p.ShortBy > 0)
-            {
-                // A photo too closely cropped to reach the bottom of its
-                // window. Enlarging it until it did cost the head its size;
-                // cutting it off square costs the card its looks. Fading the
-                // last few millimetres costs neither.
-                var fade = Math.Min(CardConfig.Photo.FadeMm, p.H / 3);
-                var bottom = (p.Y + p.H) * ppm;
-                var mask = new LinearGradientBrush(Colors.White, Colors.Transparent, new Point(0, bottom - fade * ppm), new Point(0, bottom))
-                {
-                    MappingMode = BrushMappingMode.Absolute,
-                };
-                mask.Freeze();
-                dc.PushOpacityMask(mask);
-            }
-            dc.DrawImage(_photos.GetValue(data.Photo, ToBitmap), new Rect(p.X * ppm, p.Y * ppm, p.W * ppm, p.H * ppm));
-            if (p.ShortBy > 0) dc.Pop();
-            dc.Pop();
-        }
-
-        // the band and the gold line, back on top of the photo
-        if (geo.FrontClip.Count > 0)
-        {
-            dc.PushClip(Polygons(geo.FrontClip, ppm));
-            dc.DrawImage(art.Front, full);
-            dc.Pop();
-        }
-
-        if (showGuides)
-        {
+            guidesDue = false;
             var thick = Math.Max(1, ppm * 0.12);
             dc.DrawGeometry(null, new Pen(Solid("#D0167A"), thick), Polygons(new[] { geo.PhotoClip }, ppm));
             if (geo.FrontClip.Count > 0) dc.DrawGeometry(null, new Pen(Solid("#00B3FF"), thick), Polygons(geo.FrontClip, ppm));
         }
 
-        if (data is null) return;
-
-        var layout = TextFit.Layout(_measurer, geo, data.Name, data.Title, data.Year, data.Seq);
-        DrawText(dc, geo.Name, layout.Name, ppm);
-        DrawText(dc, geo.Title, layout.Title, ppm);
-        DrawText(dc, geo.EmployeeNo, layout.EmployeeNo, ppm);
-
-        if (data.Signature is { HasInk: true }) DrawSignature(dc, data.Signature, geo.Signature, ppm);
-        DrawQr(dc, geo.Qr, ppm);
-    }
-
-    private void DrawText(DrawingContext dc, TextSpec spec, FittedText fit, double ppm)
-    {
-        if (fit.Lines.Count == 0) return;
-        var place = TextFit.Place(_measurer, spec, fit, ppm);
-        var brush = Solid(spec.Color);
-        for (var i = 0; i < fit.Lines.Count; i++)
+        foreach (var op in CardDrawing.Front(_measurer, geo, data, ppm))
         {
-            var width = _measurer.Width(spec.Font, place.Px, fit.Lines[i]);
-            var x = spec.Align switch
+            if (guidesDue && op is not (ArtworkOp or PhotoOp)) Guides();
+            switch (op)
             {
-                HAlign.Center => place.AnchorX - width / 2,
-                HAlign.Right => place.AnchorX - width,
-                _ => place.AnchorX,
-            };
-            foreach (var (word, offset) in _measurer.Words(spec.Font, place.Px, fit.Lines[i]))
-            {
-                var ft = _measurer.Format(spec.Font, place.Px, word, brush);
-                // Filled as outlines rather than drawn as text. Text drawn as
-                // text is nudged onto whole pixels and smoothed according to
-                // the computer's display settings, so the same card would
-                // come out slightly differently from one PC to the next.
-                // Outlines land exactly where they are put, the same everywhere.
-                dc.DrawGeometry(brush, null, ft.BuildGeometry(new Point(x + offset, place.Baselines[i] - ft.Baseline)));
+                case ArtworkOp { Clip: null }:
+                {
+                    dc.DrawImage(art.Front, full);
+                    break;
+                }
+                case ArtworkOp { Clip: { } clip }:
+                {
+                    dc.PushClip(Polygons(clip, ppm));
+                    dc.DrawImage(art.Front, full);
+                    dc.Pop();
+                    break;
+                }
+                case PhotoOp photo:
+                {
+                    dc.PushClip(Polygons(new[] { photo.Clip }, ppm));
+                    if (photo.Fades)
+                    {
+                        // kept only where a white-to-clear gradient is
+                        var mask = new LinearGradientBrush(Colors.White, Colors.Transparent, new Point(0, photo.FadeFrom), new Point(0, photo.FadeTo))
+                        {
+                            MappingMode = BrushMappingMode.Absolute,
+                        };
+                        mask.Freeze();
+                        dc.PushOpacityMask(mask);
+                    }
+                    dc.DrawImage(_photos.GetValue(photo.Image, ToBitmap), new Rect(photo.X, photo.Y, photo.W, photo.H));
+                    if (photo.Fades) dc.Pop();
+                    dc.Pop();
+                    break;
+                }
+                case WordOp word:
+                {
+                    var brush = Solid(word.Color);
+                    var ft = _measurer.Format(word.Font, word.Px, word.Word, brush);
+                    // Filled as outlines rather than drawn as text. Text drawn as
+                    // text is nudged onto whole pixels and smoothed according to
+                    // the computer's display settings, so the same card would
+                    // come out slightly differently from one PC to the next.
+                    // Outlines land exactly where they are put, the same everywhere.
+                    dc.DrawGeometry(brush, null, ft.BuildGeometry(new Point(word.X, word.Baseline - ft.Baseline)));
+                    break;
+                }
+                case InkOp ink:
+                {
+                    DrawInk(dc, ink.Segments, Solid(ink.Color), ink.Ox, ink.Oy, ink.Scale, ink.WidthScale);
+                    break;
+                }
+                case ScanOp scan:
+                {
+                    // SAFETY: as in Solid(): a "#RRGGBB" string from the card map always converts to a Color.
+                    var white = _scans.GetValue(scan.Scan, s => TintedScan(s, (Color)ColorConverter.ConvertFromString(scan.Color)));
+                    dc.DrawImage(white, new Rect(scan.X, scan.Y, scan.W, scan.H));
+                    break;
+                }
+                case QrOp qr:
+                {
+                    DrawQr(dc, qr, ppm);
+                    break;
+                }
             }
         }
+        if (guidesDue) Guides();
     }
 
     /* ---- signature ------------------------------------------------ */
@@ -377,70 +378,29 @@ public sealed class CardRenderer
         return bmp;
     }
 
-    private void DrawSignature(DrawingContext dc, Signature signature, SignatureSpec spec, double ppm)
-    {
-        if (signature is ScannedSignature scan)
-        {
-            var fit = SignatureInk.FitInto(spec, 0, 0, scan.Width, scan.Height);
-            // SAFETY: as in Solid(): a "#RRGGBB" string from CardConfig always converts to a Color.
-            var white = _scans.GetValue(scan, s => TintedScan(s, (Color)ColorConverter.ConvertFromString(spec.Color)));
-            dc.DrawImage(white, new Rect(fit.Left * ppm, fit.Top * ppm, scan.Width * fit.Scale * ppm, scan.Height * fit.Scale * ppm));
-            return;
-        }
-        if (signature is not DrawnSignature drawn) return;
-        var (minX, minY, inkW, inkH) = SignatureInk.Bounds(drawn);
-        var f = SignatureInk.FitInto(spec, minX, minY, inkW, inkH);
-        // Widths are asked for in pad units that come out as StrokeMm on the
-        // card: a width of v mm is v / Scale pad units.
-        var segments = SignatureInk.Segments(drawn, spec.MinStrokeMm / f.Scale, spec.StrokeMm / f.Scale);
-        var scale = f.Scale * ppm;
-        DrawInk(dc, segments, Solid(spec.Color), (f.Left - minX * f.Scale) * ppm, (f.Top - minY * f.Scale) * ppm, scale, scale);
-    }
-
     /* ---- QR -------------------------------------------------------- */
 
-    private void DrawQr(DrawingContext dc, QrSpec spec, double ppm)
+    // Core has snapped the code to whole print pixels and found the runs of dark modules (CardDrawing).
+    private static void DrawQr(DrawingContext dc, QrOp qr, double ppm)
     {
-        var key = spec.Content + "|" + spec.ErrorCorrection;
-        if (_qr is null || _qrKey != key) { _qr = QrCode.Encode(spec.Content, spec.ErrorCorrection); _qrKey = key; }
-        var n = _qr.Size;
-
-        // Everything is snapped to whole PRINT pixels, so the code stays
-        // crisp at 300 DPI whatever resolution this is being drawn at.
-        var printPpm = CardConfig.PrintPxPerMm;
-        double Snap(double mm) => Math.Floor(mm * printPpm + 0.5) / printPpm;
-        double x0 = Snap(spec.X), y0 = Snap(spec.Y), side = Snap(spec.Size);
-        dc.DrawRectangle(Solid(spec.Background), null, new Rect(x0 * ppm, y0 * ppm, side * ppm, side * ppm));
-
-        // module size: whole print pixels, leaving a two-module quiet zone each side
-        var moduleMm = Math.Max(1, Math.Floor(side * printPpm / (n + 4))) / printPpm;
-        var codeMm = n * moduleMm;
-        double left = Snap(x0 + (side - codeMm) / 2), top = Snap(y0 + (side - codeMm) / 2);
+        dc.DrawRectangle(Solid(qr.Background), null, new Rect(qr.X * ppm, qr.Y * ppm, qr.Side * ppm, qr.Side * ppm));
 
         // one figure for the whole code: neighbouring modules share an edge exactly, so no hairlines between them
         var g = new StreamGeometry { FillRule = FillRule.Nonzero };
         using (var ctx = g.Open())
         {
-            for (var r = 0; r < n; r++)
+            foreach (var run in qr.Runs)
             {
-                for (var c = 0; c < n; c++)
-                {
-                    if (!_qr.IsDark(r, c)) continue;
-                    // a run of dark modules along the row becomes one rectangle
-                    var end = c;
-                    while (end + 1 < n && _qr.IsDark(r, end + 1)) end++;
-                    double px = (left + c * moduleMm) * ppm, py = (top + r * moduleMm) * ppm;
-                    double qx = (left + (end + 1) * moduleMm) * ppm, qy = (top + (r + 1) * moduleMm) * ppm;
-                    ctx.BeginFigure(new Point(px, py), true, true);
-                    ctx.LineTo(new Point(qx, py), false, false);
-                    ctx.LineTo(new Point(qx, qy), false, false);
-                    ctx.LineTo(new Point(px, qy), false, false);
-                    c = end;
-                }
+                double px = (qr.Left + run.Start * qr.ModuleMm) * ppm, py = (qr.Top + run.Row * qr.ModuleMm) * ppm;
+                double qx = (qr.Left + (run.End + 1) * qr.ModuleMm) * ppm, qy = (qr.Top + (run.Row + 1) * qr.ModuleMm) * ppm;
+                ctx.BeginFigure(new Point(px, py), true, true);
+                ctx.LineTo(new Point(qx, py), false, false);
+                ctx.LineTo(new Point(qx, qy), false, false);
+                ctx.LineTo(new Point(px, qy), false, false);
             }
         }
         g.Freeze();
-        dc.DrawGeometry(Solid(spec.Color), null, g);
+        dc.DrawGeometry(Solid(qr.Color), null, g);
     }
 
     /* ---- sheets ---------------------------------------------------- */

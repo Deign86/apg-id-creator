@@ -24,9 +24,9 @@ public partial class MainWindow : Window
     private const string PictureFilter = "Pictures (PNG, JPG, WebP)|*.png;*.jpg;*.jpeg;*.webp";
 
     private readonly FileStore _files;
-    private readonly Register _register;
     private readonly Session _session;
     private readonly TemplateStore _templates;
+    private readonly DesignDesk _design;
 
     private CardRenderer? _renderer;
     private CardArt? _builtInArt;
@@ -37,7 +37,6 @@ public partial class MainWindow : Window
 
     private bool _front = true;                 // which side the preview shows
     private bool _guides;                       // maintainer overlay (Ctrl+Shift+G)
-    private bool _checkingPhoto;
     private bool _built;                        // false while the markup is still loading: controls announce their starting values before their neighbours exist
     private bool _syncing;                      // true while Render() writes to controls, so their handlers stand down
     private string? _tool;                      // which tool drawer is open, if any
@@ -68,10 +67,11 @@ public partial class MainWindow : Window
     internal MainWindow(FileStore files, Register? register)
     {
         _files = files;
-        _register = register ?? new Register(files, keeper: new WindowsKeeper());
         _templates = new TemplateStore(files);
-        _session = new Session(_register, new TitleList(files), files, post: action => Dispatcher.BeginInvoke(action));
+        // the window never talks to the register itself: every job that does is the Session's (Core/Jobs.cs)
+        _session = new Session(register ?? new Register(files, keeper: new WindowsKeeper()), new TitleList(files), files, post: action => Dispatcher.BeginInvoke(action));
         _session.Changed += Render;
+        _design = new DesignDesk(_session, _templates, files.Directory);
         AskForSignature = (name, existing) =>
         {
             var window = new SignWindow(name, existing) { Owner = this };
@@ -83,6 +83,9 @@ public partial class MainWindow : Window
         _built = true;
         MapOverlay.Store = _templates;
         MapOverlay.Changed += moved => { if (moved) { ApplyGeometry(); DrawPreview(); } DesignReadout.Text = MapOverlay.Readout(); };
+        // Still needed: Render runs on every keystroke and every change of the window's size, and a
+        // sheet is every card in the print drawn again. The sheet is drawn once nothing has asked for
+        // it for 120 ms. (The Mac draws it at once; AppTests waits for this timer.)
         _sheetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _sheetTimer.Tick += (_, _) => { _sheetTimer.Stop(); DrawSheetPreview(); };
 
@@ -116,7 +119,7 @@ public partial class MainWindow : Window
 
     private static string BesideProgram(params string[] parts) => Path.Combine(new[] { AppContext.BaseDirectory }.Concat(parts).ToArray());
 
-    private string StoredArtwork(string side) => Path.Combine(_files.Directory, TemplateStore.ArtworkFileName(side));
+    private string StoredArtwork(string side) => _design.StoredArtwork(side);
 
     private void Boot()
     {
@@ -151,7 +154,7 @@ public partial class MainWindow : Window
         }
 
         // start reading the register now rather than on the first keystroke
-        if (_register.Shared) _ = WarmRegister();
+        if (_session.HasSharedRegister) _ = WarmRegister();
         // the model takes a moment to load; the form does not wait for it
         _ = LoadRemover();
         Render();
@@ -160,14 +163,9 @@ public partial class MainWindow : Window
 
     private async Task WarmRegister()
     {
-        if (await _register.LoadIndex())
-        {
-            // cards saved while the register was out of reach are sent now that it answers
-            await _register.SendWaiting();
-        }
-        // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
-        if (_register.Refused.Count > 0) _tool = ToolKey.Register;
-        _session.RefreshDuplicate();
+        // Cards saved while the register was out of reach are sent now that it answers. One of them may
+        // have been refused: somebody else took its number meanwhile. That cannot wait to be found.
+        if (await _session.WarmRegister()) _tool = ToolKey.Register;
         Render();
     }
 
@@ -183,7 +181,7 @@ public partial class MainWindow : Window
         Render();
     }
 
-    private void ApplyGeometry() => _session.Geometry = _templates.Geometry();
+    private void ApplyGeometry() => _design.Apply();
 
     // Everything named by DynamicResource has already changed colour. What is
     // left are the few pictures drawn from the window's colours — none at the
@@ -207,6 +205,27 @@ public partial class MainWindow : Window
         Theme.Paint(input, Control.BorderBrushProperty, error.Length > 0 ? "Color.Danger" : "Color.ControlBorder");
     }
 
+    /// <summary>What only the window knows. Core decides the rest of the screen from it (Screen.From).</summary>
+    private ScreenInput ScreenState() => new(HostPlatform.Windows)
+    {
+        Front = _front,
+        Loaded = _art is not null && _renderer is not null,
+        LoadError = _loadError,
+        Saved = _saved,
+        SavedCount = _savedCount,
+        Saving = _saving,
+        CheckingPhoto = _session.CheckingPhoto,
+        RemoverReady = _remover is not null,
+        RemoverProblem = _removerProblem,
+        SignatureError = _sigError,
+        TabletDriver = PenTablet.DriverInstalled,
+        EditingMap = EditingMap,
+        Tool = _tool,
+    };
+
+    private static string TextStyle(Tone tone) => tone switch { Tone.Error => "Text.Error", Tone.Warning => "Text.Warning", _ => "Text.Note" };
+
+    // Core says what the screen shows (Screen.From); this copies it onto the controls.
     internal void Render()
     {
         if (!_built) return;
@@ -214,114 +233,86 @@ public partial class MainWindow : Window
         try
         {
             var s = _session;
-            var p = s.Problems();
-            s.ClearBlockedIfFixed(p);
-            string Shown(Field f) => s.Touched.Contains(f) ? p[f] : "";
-            var onCheck = s.StepIndex == Session.LastStep;
-            var loaded = _art is not null && _renderer is not null;
+            var m = Screen.From(s, ScreenState());
 
             // the stage shows the card while it is being made, the sheet at the end
-            Show(SideTabs, !onCheck);
+            Show(SideTabs, m.Stage.SideTabsShown);
             SideFront.IsChecked = _front;
             SideBack.IsChecked = !_front;
-            Show(CardLoading, !loaded);
-            SetText(CardLoading, _loadError.Length > 0 ? _loadError : "Loading the card…");
-            Show(CardBox, loaded && !onCheck);
-            Show(SheetImage, loaded && onCheck);
-            if (!onCheck) Show(SheetNav, false);
-            SetText(Caption, onCheck
-                ? (s.Layout == SheetMode.Duplex ? "Print both sides, then cut along the marks." : "Cut along the marks and stick each pair back to back.")
-                : _front ? "" : "The back is the same on every card.");
+            Show(CardLoading, m.Stage.LoadingShown);
+            SetText(CardLoading, m.Stage.LoadingText);
+            Show(CardBox, m.Stage.CardShown);
+            Show(SheetImage, m.Stage.SheetShown);
+            if (s.StepIndex != Session.LastStep) Show(SheetNav, false);
+            SetText(Caption, m.Stage.Caption);
 
             // name
-            FieldMessage(MsgLast, TxtLast, Shown(Field.Last));
-            FieldMessage(MsgFirst, TxtFirst, Shown(Field.First));
-            FieldMessage(MsgMiddle, TxtMiddle, Shown(Field.Middle));
-            FieldMessage(MsgSuffix, TxtSuffix, Shown(Field.Suffix));
+            FieldMessage(MsgLast, TxtLast, m.Name.LastError);
+            FieldMessage(MsgFirst, TxtFirst, m.Name.FirstError);
+            FieldMessage(MsgMiddle, TxtMiddle, m.Name.MiddleError);
+            FieldMessage(MsgSuffix, TxtSuffix, m.Name.SuffixError);
             SyncText(TxtLast, s.Last);
             SyncText(TxtFirst, s.First);
             SyncText(TxtMiddle, s.Middle);
             SyncText(TxtSuffix, s.Suffix);
-            var fitError = s.Touched.Contains(Field.Last) && s.Touched.Contains(Field.First) ? p[Field.NameFit] : "";
-            NamePreview.Style = Theme.Style(fitError.Length > 0 ? "Text.Error" : "Text.Body");
-            SetText(NamePreview, fitError.Length > 0 ? fitError : $"On the card: {(s.PrintedName.Length > 0 ? s.PrintedName : "—")}");
+            NamePreview.Style = Theme.Style(m.Name.PreviewIsError ? "Text.Error" : "Text.Body");
+            SetText(NamePreview, m.Name.Preview);
 
             // who the ID is for
             // SAFETY: CmbKind's items are the two ComboBoxItems in the markup, each with its kind as a string Tag.
             CmbKind.SelectedItem = CmbKind.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.Kind);
-            FieldMessage(MsgKind, CmbKind, Shown(Field.Kind));
+            FieldMessage(MsgKind, CmbKind, m.Title.KindError);
 
             // job title
             BuildTitleChips();
             SyncChips(TitleChips, s.Role1.Pick, null);
-            Show(TxtTitleCustom, s.Role1.IsOther);
+            Show(TxtTitleCustom, m.Title.CustomShown);
             SyncText(TxtTitleCustom, s.Role1.Custom);
-            FieldMessage(MsgTitle, TxtTitleCustom, Shown(Field.Title));
-            Show(FieldTitle2, s.ShowRole2);
-            Show(BtnRoleAdd, !s.ShowRole2);
+            FieldMessage(MsgTitle, TxtTitleCustom, m.Title.TitleError);
+            Show(FieldTitle2, m.Title.SecondShown);
+            Show(BtnRoleAdd, m.Title.AddSecondShown);
             // whatever the main job title is disappears from the second row
             SyncChips(Title2Chips, s.Role2.Pick, s.Role1.Value);
-            Show(TxtTitle2Custom, s.ShowRole2 && s.Role2.IsOther);
+            Show(TxtTitle2Custom, m.Title.SecondCustomShown);
             SyncText(TxtTitle2Custom, s.Role2.Custom);
-            FieldMessage(MsgTitle2, TxtTitle2Custom, Shown(Field.Title2));
-            var titleFit = s.Touched.Contains(Field.Title) ? p[Field.TitleFit] : "";
-            Show(TitlePreview, titleFit.Length > 0);
-            SetText(TitlePreview, titleFit);
+            FieldMessage(MsgTitle2, TxtTitle2Custom, m.Title.SecondError);
+            Show(TitlePreview, m.Title.FitError.Length > 0);
+            SetText(TitlePreview, m.Title.FitError);
 
-            // number
-            var dup = s.Duplicate();
-            var seqError = Shown(Field.Seq);
-            // nothing to say when the check is working: a taken number turns
-            // the field red and names who has it. The only thing worth a
-            // line here is the check not working.
-            var seqHelp = dup is not null && s.Reissue ? $"Replacement for {dup.Value.Entry.Id} ({dup.Value.Entry.Name}, {dup.Value.Entry.IssuedOn})."
-                : !_register.Shared ? "Checked against this computer only."
-                : !_register.SignedIn ? "Checked against this computer only. Sign in under Issued IDs to check every computer."
-                : s.DupShared == SharedAnswer.Unreachable ? "Could not reach the shared register, so only this computer was checked."
-                : "";
-            MsgSeq.Style = Theme.Style(seqError.Length > 0 ? "Text.Error" : "Text.Note");
-            FieldMessage(MsgSeq, TxtSeq, seqError);
-            if (seqError.Length == 0) SetText(MsgSeq, seqHelp);
+            // number: the error while there is one, otherwise the standing note about what was checked
+            MsgSeq.Style = Theme.Style(m.Number.LineIsError ? "Text.Error" : "Text.Note");
+            FieldMessage(MsgSeq, TxtSeq, m.Number.Error);
+            if (!m.Number.LineIsError) SetText(MsgSeq, m.Number.Help);
             SyncText(TxtSeq, s.Seq);
             if (!Equals(CmbYear.SelectedItem, s.Year)) CmbYear.SelectedItem = s.Year;
-            Show(ReissueWrap, dup is not null && dup.Value.Source != Session.DuplicateSource.Queue);
+            Show(ReissueWrap, m.Number.ReissueShown);
             ChkReissue.IsChecked = s.Reissue;
 
-            RenderPhotoStep(p);
-            RenderSignStep(Shown(Field.Signature));
-            RenderCheckStep(p);
+            RenderPhotoStep(m.Photo);
+            RenderSignStep(m.Sign);
+            RenderCheckStep(m.Check);
 
             // one step at a time
             var steps = new FrameworkElement[] { StepName, StepTitle, StepNumber, StepPhoto, StepSign, StepCheck };
-            for (var i = 0; i < steps.Length; i++) Show(steps[i], i == s.StepIndex);
-            RenderStepChips(p);
+            for (var i = 0; i < steps.Length; i++) Show(steps[i], i == m.StepIndex);
+            RenderStepChips(m.Chips);
 
             // the line under the buttons: a refusal while there is one,
             // otherwise the quiet standing hint
-            var missingHere = Session.StepProblems(s.StepIndex, p);
-            var missingAll = p.Where(kv => kv.Value.Length > 0).Select(kv => kv.Key).ToList();
-            // after "stop adding" the form is empty on purpose and the job is whatever is queued
-            var queueOnly = onCheck && s.Queue.Count > 0 && !s.StartedCard;
-            var status = !loaded ? ""
-                : onCheck ? (missingAll.Count > 0 && !queueOnly ? $"Still needed: {string.Join(", ", missingAll.Select(Session.FieldLabel))}." : "")
-                : missingHere.Count > 0 ? $"Still needed: {string.Join(", ", missingHere.Select(Session.FieldLabel))}."
-                : "";
-            Show(Blocked, s.BlockedAbout is not null);
-            SetText(Blocked, s.BlockedText);
-            Show(Status, s.BlockedAbout is null && status.Length > 0);
-            SetText(Status, status);
+            Show(Blocked, m.Footer.BlockedShown);
+            SetText(Blocked, m.Footer.BlockedText);
+            Show(Status, m.Footer.StatusShown);
+            SetText(Status, m.Footer.StatusText);
 
-            Show(BtnBack, s.StepIndex > 0 && !(onCheck && _saved));
-            Show(BtnNext, !onCheck);
-            BtnNext.Content = s.StepIndex == Session.LastStep - 1 ? "Check the card" : "Next";
-            // Next is never disabled for an unfinished step. A disabled
-            // button is a dead end: it cannot be focused and it cannot
-            // explain itself. Pressing it is how you ask what is missing.
-            BtnNext.IsEnabled = loaded;
+            Show(BtnBack, m.Footer.BackShown);
+            Show(BtnNext, m.Footer.NextShown);
+            BtnNext.Content = m.Footer.NextTitle;
+            BtnNext.IsEnabled = m.Footer.NextEnabled;
 
-            RenderJob();
-            RenderTools();
+            RenderJob(m.Job);
+            RenderTools(m);
             DrawPreview();
+            if (m.Stage.CardShown) AutomationProperties.SetName(CardImage, m.Stage.CardSays);
         }
         finally { _syncing = false; }
     }
@@ -348,19 +339,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RenderStepChips(Dictionary<Field, string> p)
+    private void RenderStepChips(IReadOnlyList<StepChip> states)
     {
-        var s = _session;
-        var stop = s.FurthestStep(p);
         for (var i = 0; i < _stepChips.Count; i++)
         {
-            var label = Session.Steps[i].Label;
-            var locked = i > stop;
-            var current = i == s.StepIndex;
-            // a step cannot be both finished and out of reach: locked wins
-            var done = Session.StepDone(i, p) && i != Session.LastStep && !current && !locked;
+            var state = states[i];
+            var (locked, current, done) = (state.Locked, state.Current, state.Done);
             var chip = _stepChips[i];
-            chip.Content = label;
+            chip.Content = state.Label;
             // The rule over the word carries the state in its thickness as well
             // as its colour: thick for finished and for the step you are on,
             // a hairline for the ones to come. Gold marks only where you are.
@@ -369,56 +355,48 @@ public partial class MainWindow : Window
             Theme.Paint(chip, Control.BorderBrushProperty, current ? "Color.AccentSolid" : done ? "Color.Strong" : locked ? "Color.Line" : "Color.ControlBorder");
             Theme.Paint(chip, Control.ForegroundProperty, current || done ? "Color.Text" : "Color.TextMuted");
             chip.FontWeight = current ? FontWeights.SemiBold : FontWeights.Normal;
-            // not disabled: a locked step can still be asked why it will not open
-            var name = locked ? $"{label}. Locked until step {stop + 1}, {Session.Steps[stop].Label}, is finished."
-                : current ? $"{label}. Current step."
-                : $"{label}{(done ? ". Finished." : "")}";
-            AutomationProperties.SetName(chip, name);
-            chip.ToolTip = locked ? $"Finish {Session.Steps[stop].Label.ToLowerInvariant()} first" : null;
+            AutomationProperties.SetName(chip, state.Says);
+            chip.ToolTip = state.ToolTip.Length > 0 ? state.ToolTip : null;
         }
     }
 
     /* ---- moving between steps ------------------------------------- */
 
-    private Control? InputFor(Field f) => f switch
+    // Core names where the cursor goes (Screen.AfterMove); this is which control that is here.
+    private Control? ControlFor(FocusTarget target) => target switch
     {
-        Field.Last => TxtLast, Field.First or Field.NameFit => TxtFirst, Field.Middle => TxtMiddle, Field.Suffix => TxtSuffix,
-        Field.Title or Field.TitleFit => TxtTitleCustom.IsVisible ? TxtTitleCustom : FirstChip(TitleChips),
-        Field.Title2 => TxtTitle2Custom.IsVisible ? TxtTitle2Custom : FirstChip(Title2Chips),
-        Field.Seq => TxtSeq, Field.Photo => BtnPhoto, Field.Signature => BtnSign,
-        Field.Kind => CmbKind,
+        FocusTarget.Last => TxtLast,
+        FocusTarget.First => TxtFirst,
+        FocusTarget.Middle => TxtMiddle,
+        FocusTarget.Suffix => TxtSuffix,
+        FocusTarget.Kind => CmbKind,
+        FocusTarget.TitleChoice => FirstChip(TitleChips),
+        FocusTarget.TitlePicked => TitleChips.Children.OfType<RadioButton>().FirstOrDefault(c => c.IsChecked == true) ?? FirstChip(TitleChips),
+        FocusTarget.TitleCustom => TxtTitleCustom,
+        FocusTarget.Title2Choice => FirstChip(Title2Chips),
+        FocusTarget.Title2Custom => TxtTitle2Custom,
+        FocusTarget.Seq => TxtSeq,
+        FocusTarget.PhotoButton => BtnPhoto,
+        FocusTarget.SignButton => BtnSign,
+        FocusTarget.SaveButton => BtnDownload,
+        FocusTarget.NewIdButton => BtnNewId,
         _ => null,
     };
 
     private static Control? FirstChip(Panel chips) => chips.Children.OfType<RadioButton>().FirstOrDefault(c => c.IsVisible);
 
-    // Where the cursor lands when a step opens: the control the step is
-    // about, not merely the first thing in it. Landing on the year box when
-    // the step is about the number sent the typing to the wrong field.
-    private Control? LandingFor(int step) => step switch
+    /// <param name="result">What Next or a step chip answered; nothing for a move that cannot be refused.</param>
+    private void AfterMove(int from, MoveResult? result = null)
     {
-        0 => TxtLast,
-        // the step's first question until it is answered, then the job title
-        1 => _session.Kind.Length == 0 ? CmbKind
-            : TitleChips.Children.OfType<RadioButton>().FirstOrDefault(c => c.IsChecked == true) ?? FirstChip(TitleChips),
-        2 => TxtSeq,
-        3 => BtnPhoto,
-        4 => BtnSign,
-        _ => _saved ? BtnNewId : BtnDownload,
-    };
-
-    private void AfterMove(int from, MoveResult result)
-    {
-        if (_session.StepIndex != Session.LastStep) _front = true;
-        if (_session.StepIndex != from) { _saved = false; StepScroll.ScrollToTop(); }
+        var after = Screen.AfterMove(_session, from, result, _saved, OpenSigningOnArrival);
+        if (after.ShowFront) _front = true;
+        _saved = after.Saved;
+        if (after.StepChanged) StepScroll.ScrollToTop();
         Render();
-        var target = result.FocusField is { } f ? InputFor(f) : _session.StepIndex != from ? LandingFor(_session.StepIndex) : null;
+        var target = after.Focus is { } focus ? ControlFor(focus) : null;
         // after the layout pass, so a control that has only just appeared can take the focus
         if (target is not null) Dispatcher.BeginInvoke(() => target.Focus(), DispatcherPriority.Input);
-        if (_session.StepIndex == (int)Step.Sign && from != (int)Step.Sign && OpenSigningOnArrival && _session.Signature is null)
-        {
-            Dispatcher.BeginInvoke(SignNow, DispatcherPriority.ApplicationIdle);
-        }
+        if (after.OpenSigning) Dispatcher.BeginInvoke(SignNow, DispatcherPriority.ApplicationIdle);
     }
 
     private void BtnNext_Click(object sender, RoutedEventArgs e) => AfterMove(_session.StepIndex, _session.NextStep());
@@ -427,7 +405,7 @@ public partial class MainWindow : Window
     {
         var from = _session.StepIndex;
         _session.Back();
-        AfterMove(from, new MoveResult(true, null));
+        AfterMove(from);
     }
 
     private void SummaryEdit_Click(object sender, RoutedEventArgs e)
@@ -436,7 +414,7 @@ public partial class MainWindow : Window
         var step = int.Parse((string)((FrameworkElement)sender).Tag, CultureInfo.InvariantCulture);
         var from = _session.StepIndex;
         _session.GoStep(step);
-        AfterMove(from, new MoveResult(true, null));
+        AfterMove(from);
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -539,7 +517,7 @@ public partial class MainWindow : Window
         {
             // SAFETY: every chip's Tag is the string value given to Chip().
             var value = (string)chip.Tag;
-            var hidden = !string.IsNullOrEmpty(hide) && value != RoleChoice.Other && Naming.SameText(value, hide);
+            var hidden = Session.SecondRoleHides(value, hide ?? "");
             Show(chip, !hidden);
             chip.IsChecked = !hidden && value == selected;
         }
@@ -594,44 +572,29 @@ public partial class MainWindow : Window
 
     /* ---- step 4: photo -------------------------------------------- */
 
-    private void RenderPhotoStep(Dictionary<Field, string> p)
+    private void RenderPhotoStep(PhotoView v)
     {
-        var s = _session;
-        var photo = s.Photo;
-        var error = s.Touched.Contains(Field.Photo) || s.PhotoError.Length > 0 ? p[Field.Photo] : "";
-        var warnings = photo?.Check.Warnings ?? Array.Empty<string>();
-        var (style, text) = _checkingPhoto ? ("Text.Note", "Looking at the photo…")
-            : error.Length > 0 ? ("Text.Error", error)
-            : warnings.Count > 0 ? ("Text.Warning", string.Join(" ", warnings))
-            : photo is { Background: PhotoBackground.Removed } ? ("Text.Note", "The background was removed on this computer. Check the edges on the card.")
-            : photo is not null ? ("Text.Note", "")
-            : ("Text.Note", _remover is not null
-                ? "Any clear photo of the person. The app removes the background itself."
-                : _removerProblem.Length > 0
-                    ? "A cut-out PNG, or a photo on a plain green background. (The background remover is not available on this computer.)"
-                    : "Any clear photo of the person.");
-        PhotoMsg.Style = Theme.Style(style);
-        SetText(PhotoMsg, text);
-        BtnPhoto.Content = _checkingPhoto ? "Looking at the photo…" : photo is not null ? "Choose a different photo" : "Choose a photo";
-        BtnPhoto.IsEnabled = !_checkingPhoto;
+        var photo = _session.Photo;
+        PhotoMsg.Style = Theme.Style(TextStyle(v.Tone));
+        SetText(PhotoMsg, v.Message);
+        BtnPhoto.Content = v.ButtonTitle;
+        BtnPhoto.IsEnabled = v.ButtonEnabled;
         // it stands out until there is a photo; after that the way forward is Next
         BtnPhoto.Style = Theme.Style(photo is null ? "Button.Strong" : "Button.Ghost");
-        SetText(PhotoName, photo?.FileName ?? "");
-        Show(PhotoName, photo is not null);
+        SetText(PhotoName, v.FileName);
+        Show(PhotoName, v.HasPhoto);
         PhotoThumb.Source = photo is null ? null : ThumbFor(photo);
 
-        Show(AdjustBox, photo is not null);
-        BtnAdjustReset.IsEnabled = !s.Adjust.IsNone;
-        var zoom = Math.Round(s.Adjust.Zoom * 100);
-        if (Math.Abs(SldZoom.Value - zoom) > 0.01) SldZoom.Value = zoom;
-        SetText(ZoomOut, $"{zoom:0} %");
+        Show(AdjustBox, v.HasPhoto);
+        BtnAdjustReset.IsEnabled = v.ResetEnabled;
+        if (Math.Abs(SldZoom.Value - v.ZoomPercent) > 0.01) SldZoom.Value = v.ZoomPercent;
+        SetText(ZoomOut, v.ZoomText);
         CardSurface.Cursor = photo is not null && _front && !EditingMap ? Cursors.SizeAll : null;
 
         // When the photo was turned away for something the prompt fixes,
         // put the fix in front of the operator instead of leaving it folded away.
-        var wantsPrompt = error.Length > 0 && s.PhotoFixIsPrompt;
-        SetText(GuideLabel, wantsPrompt ? "Get a photo the ID will accept" : "If the cut-out looks wrong");
-        if (wantsPrompt && !GuideBox.IsExpanded) GuideBox.IsExpanded = true;
+        SetText(GuideLabel, v.GuideLabel);
+        if (v.WantsPrompt && !GuideBox.IsExpanded) GuideBox.IsExpanded = true;
     }
 
     private PhotoResult? _thumbOf;
@@ -668,38 +631,9 @@ public partial class MainWindow : Window
     /// <summary>Open a picture file and put it through the photo pipeline.</summary>
     internal async Task AcceptPhotoFile(string path)
     {
-        if (_checkingPhoto) return;
-        var name = Path.GetFileName(path);
-        long size;
-        try { size = new FileInfo(path).Length; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
-        var problem = PhotoPipeline.FileProblem(name, size);
-        if (problem.Length > 0) { _session.PhotoFailed(problem); _front = true; Render(); return; }
-
-        _checkingPhoto = true;
-        Render();
-        var card = _session.CardSerial;
-        var spec = _session.Geometry.Photo;
-        var remover = _remover;
-        (PhotoResult? Result, string Error) outcome;
-        try
-        {
-            outcome = await Task.Run(() =>
-            {
-                var (image, error) = ImageFiles.Decode(path);
-                return image is null ? ((PhotoResult?)null, error) : (PhotoPipeline.Analyse(image, name, spec, remover), "");
-            });
-        }
-        finally { _checkingPhoto = false; }
-
-        // The card this photo was for has been put aside while it was being
-        // looked at (the operator went back to the print). It must not land
-        // on the blank card that replaced it.
-        if (card != _session.CardSerial) { Render(); return; }
-
-        if (outcome.Result is null) _session.PhotoFailed(outcome.Error);
-        else _session.AcceptPhoto(outcome.Result);
-        _front = true;
+        // Core looks at the photo (Session.TakePhoto), and redraws through Session.Changed while it does.
+        // It answers false when the card the photo was for was put aside meanwhile: nothing landed.
+        if (await _session.TakePhoto(path, ImageFiles.Decode, _remover)) _front = true;
         Render();
     }
 
@@ -724,7 +658,7 @@ public partial class MainWindow : Window
     private void BtnAdjustReset_Click(object sender, RoutedEventArgs e) { _session.ResetAdjust(); Render(); }
 
     // dragging the photo on the card itself, and the wheel to resize it
-    private bool CanDragPhoto => _session.Photo is not null && _front && !EditingMap && _session.StepIndex != Session.LastStep;
+    private bool CanDragPhoto => Screen.CanDragPhoto(_session, _front, EditingMap);
 
     private void Card_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -783,11 +717,11 @@ public partial class MainWindow : Window
 
     private ScannedSignature? _scanShown;
 
-    private void RenderSignStep(string error)
+    private void RenderSignStep(SignView v)
     {
         var sig = _session.Signature;
         var scan = sig as ScannedSignature;
-        Theme.Paint(SigFrame, Border.BorderBrushProperty, error.Length > 0 ? "Color.Danger" : "Color.ControlBorder");
+        Theme.Paint(SigFrame, Border.BorderBrushProperty, v.Error.Length > 0 ? "Color.Danger" : "Color.ControlBorder");
         Show(SigPreview, scan is null);
         Show(SigImage, scan is not null);
         if (scan is not null && !ReferenceEquals(_scanShown, scan))
@@ -798,17 +732,13 @@ public partial class MainWindow : Window
         if (scan is null) { _scanShown = null; SigImage.Source = null; }
         if (!ReferenceEquals(_padShows, sig)) { _padShows = sig; SigPreview.Value = sig as DrawnSignature; }
 
-        BtnSign.Content = sig is null ? "Sign now" : "Sign again";
-        BtnSign.Style = Theme.Style(sig is null ? "Button.Strong" : "Button.Ghost");
-        BtnClearSig.IsEnabled = sig is not null;
-        SetText(SigHelp, scan is not null
-            ? $"Scanned: {scan.FileName}. It prints in white on the card."
-            : "Signing opens on the whole screen, so the pen has room. It prints in white on the card.");
-        Show(SigMsg, error.Length > 0 || _sigError.Length > 0);
-        SetText(SigMsg, _sigError.Length > 0 ? _sigError : error);
-        SetText(TabletNote, PenTablet.DriverInstalled
-            ? "A pen tablet draws thicker where you press harder."
-            : "No pen tablet driver is installed on this computer, so sign with the mouse or use a scan. The installer can add the XP-Pen driver.");
+        BtnSign.Content = v.ButtonTitle;
+        BtnSign.Style = Theme.Style(v.HasSignature ? "Button.Ghost" : "Button.Strong");
+        BtnClearSig.IsEnabled = v.HasSignature;
+        SetText(SigHelp, v.Help);
+        Show(SigMsg, v.MessageShown);
+        SetText(SigMsg, v.Message);
+        SetText(TabletNote, v.TabletNote);
     }
 
     private Signature? _padShows;
@@ -845,33 +775,13 @@ public partial class MainWindow : Window
 
     internal async Task AcceptSignatureFile(string path)
     {
-        var name = Path.GetFileName(path);
-        long size;
-        try { size = new FileInfo(path).Length; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { size = 0; }
-        var problem = PhotoPipeline.FileProblem(name, size, "picture of the signature");
-        (ScannedSignature? Signature, string Error) outcome = (null, problem);
-        var card = _session.CardSerial;
-        if (problem.Length == 0)
-        {
-            SigHelp.Text = "Reading the signature…";
-            outcome = await Task.Run(() =>
-            {
-                var (image, error) = ImageFiles.Decode(path);
-                return image is null ? (null, error) : SignatureInk.FromImage(image, name);
-            });
-        }
-        if (card != _session.CardSerial) { Render(); return; }      // as with a photo: the card it was for is gone
-        if (outcome.Signature is null)
+        SigHelp.Text = "Reading the signature…";
+        var scan = await _session.TakeSignatureScan(path, ImageFiles.Decode);
+        if (scan.Landed)
         {
             // a scan that cannot be read leaves whatever signature was there
-            _sigError = outcome.Error;
-        }
-        else
-        {
-            _sigError = "";
-            _session.SetSignature(outcome.Signature);
-            _front = true;
+            _sigError = scan.Error;
+            if (scan.Error.Length == 0) _front = true;
         }
         Render();
     }
@@ -890,9 +800,6 @@ public partial class MainWindow : Window
         CardImage.Source = _front
             ? _renderer.RenderFront(_art, _session.Geometry, _session.CardData(), ppm, _guides)
             : _renderer.RenderBack(_art, ppm, _session.RotateBack);
-        AutomationProperties.SetName(CardImage, _front
-            ? $"Front of the ID card for {(_session.PrintedName.Length > 0 ? _session.PrintedName : "a new hire")}"
-            : "Back of the ID card");
     }
 
     private const double SheetPreviewPpm = 96 / 25.4;
@@ -900,27 +807,22 @@ public partial class MainWindow : Window
     private void DrawSheetPreview()
     {
         if (_art is null || _renderer is null || _session.StepIndex != Session.LastStep) return;
-        var print = _session.PrintPages();
-        if (print is not { } pr || pr.Pages.Count == 0) { SheetImage.Source = null; Show(SheetNav, false); return; }
-        var s = _session;
-        s.PreviewPage = Math.Clamp(s.PreviewPage, 0, pr.Pages.Count - 1);
-        var page = pr.Pages[s.PreviewPage];
+        // which page there is to show, and what is said about it, is Core's (Session.SheetPreview)
+        if (_session.SheetPreview() is not { } sheet) { SheetImage.Source = null; Show(SheetNav, false); return; }
         var art = _art;
         var renderer = _renderer;
-        var geo = s.Geometry;
-        var backUp = s.BackUpsideDown(pr.Plan);
+        var geo = _session.Geometry;
         // every card on a sheet has the same back; draw it once
         BitmapSource? back = null;
-        SheetImage.Source = renderer.RenderSheet(pr.Plan, page, SheetPreviewPpm,
-            i => renderer.RenderFront(art, geo, pr.Entries[i], SheetPreviewPpm),
-            _ => back ??= renderer.RenderBack(art, SheetPreviewPpm, backUp));
+        SheetImage.Source = renderer.RenderSheet(sheet.Plan, sheet.Page, SheetPreviewPpm,
+            i => renderer.RenderFront(art, geo, sheet.Entries[i], SheetPreviewPpm),
+            _ => back ??= renderer.RenderBack(art, SheetPreviewPpm, sheet.BackUpsideDown));
 
-        var side = pr.Plan.Mode != SheetMode.Duplex ? "" : page.Backs ? "Backs, reversed to match. " : "Fronts. ";
-        AutomationProperties.SetName(SheetImage, $"Preview of page {s.PreviewPage + 1} of the {s.Paper} sheet. {side}".Trim());
-        SetText(PreviewCaption, $"{side}Page {s.PreviewPage + 1} of {pr.Pages.Count} · {s.Paper}");
-        Show(SheetNav, pr.Pages.Count > 1);
-        PrevPage.IsEnabled = s.PreviewPage > 0;
-        NextPage.IsEnabled = s.PreviewPage < pr.Pages.Count - 1;
+        AutomationProperties.SetName(SheetImage, sheet.Says);
+        SetText(PreviewCaption, sheet.Caption);
+        Show(SheetNav, sheet.NavShown);
+        PrevPage.IsEnabled = sheet.PreviousEnabled;
+        NextPage.IsEnabled = sheet.NextEnabled;
     }
 
     private void Side_Click(object sender, RoutedEventArgs e)
@@ -930,6 +832,6 @@ public partial class MainWindow : Window
         Render();
     }
 
-    private void PrevPage_Click(object sender, RoutedEventArgs e) { _session.PreviewPage--; DrawSheetPreview(); }
-    private void NextPage_Click(object sender, RoutedEventArgs e) { _session.PreviewPage++; DrawSheetPreview(); }
+    private void PrevPage_Click(object sender, RoutedEventArgs e) { _session.TurnPreviewPage(-1); DrawSheetPreview(); }
+    private void NextPage_Click(object sender, RoutedEventArgs e) { _session.TurnPreviewPage(1); DrawSheetPreview(); }
 }

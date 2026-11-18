@@ -47,8 +47,12 @@ public sealed record CardData(
 /// <summary>A finished card waiting to print with the others.</summary>
 public sealed record JobCard(string Id, string Label, string Title, CardData Data, RegisterEntry Entry, bool Current);
 
-/// <summary>What pressing Next, or a step chip, led to.</summary>
-public sealed record MoveResult(bool Moved, Field? FocusField);
+/// <summary>
+/// What pressing Next, or a step chip, led to: the field to send the cursor
+/// to when the move was refused, or null. Where the form now stands is
+/// Session.StepIndex.
+/// </summary>
+public sealed record MoveResult(Field? FocusField);
 
 /// <summary>
 /// The four tools beside the form, by the name each window keeps the open
@@ -85,17 +89,6 @@ public sealed partial class Session
         _ => "signature",
     };
 
-    [GeneratedRegex(@"^[\p{L}\p{M} .,'’-]+$")] private static partial Regex NameChars();
-    [GeneratedRegex(@"^[\p{L}\p{M}. \d]+$")] private static partial Regex SuffixChars();
-    [GeneratedRegex(@"^[\p{L}\p{M}\d .,'’&()/-]+$")] private static partial Regex TitleChars();
-    [GeneratedRegex(@"^\d{1,4}$")] private static partial Regex SeqDigits();
-
-    /// <summary>Would this whole name print? Shared with the batch reader.</summary>
-    public static bool NamePrints(string name) => NameChars().IsMatch(name);
-
-    /// <summary>Is this a card number as it is written: one to four digits? Shared with the batch reader.</summary>
-    public static bool IsSeqText(string text) => SeqDigits().IsMatch(text);
-
     // The three print settings kept between runs: the key each is stored under and the values it takes.
     private const string RotateBackKey = "rotate-back", On = "1", Off = "0";
     private const string FlipKey = "duplex-flip", FlipShort = "short", FlipLong = "long";
@@ -121,6 +114,9 @@ public sealed partial class Session
         Flip = settings.Get(FlipKey) == FlipShort ? DuplexFlip.ShortEdge : DuplexFlip.LongEdge;
         Layout = settings.Get(LayoutKey) == LayoutDuplex ? SheetMode.Duplex : SheetMode.Pairs;
     }
+
+    /// <summary>The register this form issues into. For Core's own use (Screen); the windows go through the Session.</summary>
+    internal Register Register => _register;
 
     /// <summary>Raised whenever anything the window shows may have changed without the window asking.</summary>
     public event Action? Changed;
@@ -182,8 +178,7 @@ public sealed partial class Session
 
     /* ---- derived -------------------------------------------------- */
 
-    public int? SeqNumber =>
-        IsSeqText(Seq) && int.Parse(Seq, CultureInfo.InvariantCulture) > 0 ? int.Parse(Seq, CultureInfo.InvariantCulture) : null;
+    public int? SeqNumber => CardRules.SeqNumber(Seq);
 
     public NameParts NameParts => new(Last, First, Middle, Suffix);
     public string Role2Value => ShowRole2 ? Role2.Value : "";
@@ -208,28 +203,28 @@ public sealed partial class Session
         var dup = Duplicate();
         return new Dictionary<Field, string>
         {
-            [Field.Last] = last.Length == 0 ? "Enter the last name." : !NameChars().IsMatch(last) ? badChars : "",
-            [Field.First] = first.Length == 0 ? "Enter the first name." : !NameChars().IsMatch(first) ? badChars : "",
-            [Field.Middle] = middle.Length > 0 && !NameChars().IsMatch(middle) ? badChars : "",
-            [Field.Suffix] = suffix.Length > 0 && !SuffixChars().IsMatch(suffix) ? "Use something like Jr., Sr., II or III." : "",
+            [Field.Last] = last.Length == 0 ? "Enter the last name." : !CardRules.NamePrints(last) ? badChars : "",
+            [Field.First] = first.Length == 0 ? "Enter the first name." : !CardRules.NamePrints(first) ? badChars : "",
+            [Field.Middle] = middle.Length > 0 && !CardRules.NamePrints(middle) ? badChars : "",
+            [Field.Suffix] = suffix.Length > 0 && !CardRules.SuffixPrints(suffix) ? "Use something like Jr., Sr., II or III." : "",
             [Field.NameFit] = last.Length > 0 && first.Length > 0 && layout is { Name.Fits: false }
                 ? "This name is too long for the card, even at the smallest size. Try a shorter first name." : "",
             // never guessed: the attendance system takes interns, and only interns, from this
             [Field.Kind] = Kind.Length == 0 ? "Choose whether this ID is for an employee or an intern." : "",
             [Field.Title] = Role1.Pick.Length == 0 ? "Choose the job title."
                 : Role1.IsOther && Role1.Value.Length == 0 ? "Type the job title."
-                : Role1.IsOther && !TitleChars().IsMatch(Role1.Value) ? badTitle
+                : Role1.IsOther && !CardRules.TitlePrints(Role1.Value) ? badTitle
                 : "",
             [Field.Title2] = !ShowRole2 ? ""
                 : Role2.Value.Length > 0 && Naming.SameText(Role2.Value, Role1.Value) ? "This is the same as the job title above. Pick a different role, or remove it."
                 : Role2.IsOther && Role2.Value.Length == 0 ? "Type the second role, or remove it."
-                : Role2.IsOther && !TitleChars().IsMatch(Role2.Value) ? badTitle
+                : Role2.IsOther && !CardRules.TitlePrints(Role2.Value) ? badTitle
                 : Role2.Pick.Length == 0 ? "Choose the second role, or remove it."
                 : "",
             [Field.TitleFit] = JobTitle.Length > 0 && layout is { Title.Fits: false }
                 ? "This job title is too long for the card, even at the smallest size. Try a shorter wording." : "",
             [Field.Seq] = Seq.Length == 0 ? "Enter the employee number HR assigned, such as 124."
-                : SeqNumber is null ? "Use 1 to 4 digits, such as 124."
+                : SeqNumber is null ? $"Use 1 to {CardRules.MostSeqDigits} digits, such as 124."
                 : dup is not null && !Reissue ? DuplicateMessage(dup.Value)
                 : DupShared == SharedAnswer.Pending ? "Checking the shared register for this number…"
                 : "",
@@ -404,17 +399,17 @@ public sealed partial class Session
         {
             SayBlocked(stop, p);
             GoStep(stop);
-            return new MoveResult(false, FirstProblem(stop, p));
+            return new MoveResult(FirstProblem(stop, p));
         }
 
         if (StepProblems(StepIndex, p).Count > 0)
         {
             foreach (var f in Steps[StepIndex].Fields) Touched.Add(f);
             SayBlocked(StepIndex, p);
-            return new MoveResult(false, FirstProblem(StepIndex, p));
+            return new MoveResult(FirstProblem(StepIndex, p));
         }
         if (StepIndex < LastStep) GoStep(StepIndex + 1);
-        return new MoveResult(true, null);
+        return new MoveResult(null);
     }
 
     public void Back() => GoStep(StepIndex - 1);
@@ -423,11 +418,11 @@ public sealed partial class Session
     {
         var p = Problems();
         var stop = FurthestStep(p);
-        if (i <= stop) { GoStep(i); return new MoveResult(true, null); }
+        if (i <= stop) { GoStep(i); return new MoveResult(null); }
         // locked: go to what is blocking it and say which step that is
         SayBlocked(stop, p);
         GoStep(stop);
-        return new MoveResult(false, FirstProblem(stop, p));
+        return new MoveResult(FirstProblem(stop, p));
     }
 
     /* ---- typing --------------------------------------------------- */
@@ -501,6 +496,13 @@ public sealed partial class Session
 
     public IReadOnlyList<string> TitleOptions() => _titles.All();
 
+    /// <summary>
+    /// The second role can never repeat the first, so whatever the job title
+    /// is disappears from the second list. "Other…" always stays.
+    /// </summary>
+    public static bool SecondRoleHides(string title, string firstRole) =>
+        firstRole.Length > 0 && title != RoleChoice.Other && Naming.SameText(title, firstRole);
+
     public void ForgetTitle(string title)
     {
         _titles.Forget(title);
@@ -513,7 +515,7 @@ public sealed partial class Session
     {
         Example = false;
         Touched.Add(Field.Seq);
-        var digits = new string(typed.Where(char.IsAsciiDigit).Take(4).ToArray());
+        var digits = CardRules.SeqTyped(typed);
         Seq = digits;
         Reissue = false;
         RefreshDuplicate();
@@ -605,17 +607,12 @@ public sealed partial class Session
     private RegisterEntry MakeEntry()
     {
         var data = CardData();
-        return new RegisterEntry
-        {
-            Id = Naming.EmployeeId(Year, data.Seq!.Value), Year = Year, Seq = data.Seq.Value,
-            Name = Naming.CollapseSpaces(data.Name),
-            Last = Naming.CollapseSpaces(Last), First = Naming.CollapseSpaces(First),
-            Middle = Naming.CollapseSpaces(Middle), Suffix = Naming.CollapseSpaces(Suffix),
-            Title = Naming.CollapseSpaces(data.Title), Role1 = Role1.Value, Role2 = Role2Value,
-            IssuedAt = _now().ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
-            Replacement = Duplicate() is not null,
-            Kind = Kind,
-        };
+        // SAFETY: an entry is only made for a card that is Ready, and a card with no number is not.
+        var seq = data.Seq!.Value;
+        return RegisterEntry.Issue(
+            Year, seq, Naming.CollapseSpaces(data.Name), Naming.CollapseSpaces(data.Title),
+            new NameParts(Naming.CollapseSpaces(Last), Naming.CollapseSpaces(First), Naming.CollapseSpaces(Middle), Naming.CollapseSpaces(Suffix)),
+            Role1.Value, Role2Value, Kind, replacement: Duplicate() is not null, _now());
     }
 
     /// <summary>Called on arriving at the last step: fixes what this card will be recorded as.</summary>
@@ -628,6 +625,7 @@ public sealed partial class Session
         if (Measurer is not null && Ready())
         {
             var data = CardData();
+            // SAFETY: Ready() is true, and a card with no number is not ready.
             list.Add(new JobCard(Naming.EmployeeId(Year, data.Seq!.Value), Naming.CollapseSpaces(data.Name), data.Title, data, ReviewEntry ?? MakeEntry(), true));
         }
         return list;
@@ -638,6 +636,7 @@ public sealed partial class Session
     {
         if (!Ready()) { GoStep(0); return false; }
         var data = CardData();
+        // SAFETY: Ready() was true just above, and a card with no number is not ready.
         Queue.Add(new JobCard(Naming.EmployeeId(Year, data.Seq!.Value), Naming.CollapseSpaces(data.Name), data.Title, data, ReviewEntry ?? MakeEntry(), false));
         ClearCard(keepQueue: true);
         GoStep(0);
@@ -736,8 +735,14 @@ public sealed partial class Session
     public int PrintCopies(SheetPlan? plan)
     {
         if (plan is null || Copies is null) return 1;
-        return Math.Clamp(Copies.Value, 1, plan.PerSheet * 20);
+        return Math.Clamp(Copies.Value, 1, MostCopies(plan));
     }
+
+    /// <summary>However many copies are asked for, one card never fills more sheets than this.</summary>
+    public const int MostSheetsOfOneCard = 20;
+
+    /// <summary>The most copies of each card this paper and layout allow.</summary>
+    public static int MostCopies(SheetPlan plan) => plan.PerSheet * MostSheetsOfOneCard;
 
     public void SetPaper(string paper) { Paper = CardConfig.PaperOrDefault(paper).Key; Copies = null; PreviewPage = 0; }
     public void SetCopies(int? copies) => Copies = copies;
@@ -745,7 +750,7 @@ public sealed partial class Session
     public void NudgeCopies(int by)
     {
         var plan = CurrentPlan();
-        var max = plan is null ? 200 : plan.PerSheet * 20;
+        var max = plan is null ? 200 : MostCopies(plan);
         Copies = Math.Clamp(PrintCopies(plan) + by, 1, max);
     }
 
@@ -779,6 +784,29 @@ public sealed partial class Session
         var entries = new List<CardData>();
         foreach (var c in cards) for (var n = 0; n < copies; n++) entries.Add(c.Data);
         return (plan, entries, Sheets.Pages(entries.Count, plan, Flip));
+    }
+
+    /// <summary>Look at the sheet before or after the one on screen. Which pages exist is settled by SheetPreview.</summary>
+    public void TurnPreviewPage(int by) => PreviewPage += by;
+
+    /// <summary>
+    /// The page of the print the stage shows on the last step, and what is
+    /// said about it. Null when there is nothing to print. PreviewPage is
+    /// brought back inside the pages there are.
+    /// </summary>
+    public SheetPreview? SheetPreview()
+    {
+        if (PrintPages() is not { } print || print.Pages.Count == 0) return null;
+        PreviewPage = Math.Clamp(PreviewPage, 0, print.Pages.Count - 1);
+        var page = print.Pages[PreviewPage];
+        var side = print.Plan.Mode != SheetMode.Duplex ? "" : page.Backs ? "Backs, reversed to match. " : "Fronts. ";
+        return new SheetPreview(
+            print.Plan, print.Entries, page, BackUpsideDown(print.Plan),
+            Says: $"Preview of page {PreviewPage + 1} of the {Paper} sheet. {side}".Trim(),
+            Caption: $"{side}Page {PreviewPage + 1} of {print.Pages.Count} · {Paper}",
+            NavShown: print.Pages.Count > 1,
+            PreviousEnabled: PreviewPage > 0,
+            NextEnabled: PreviewPage < print.Pages.Count - 1);
     }
 
     /// <summary>The file this print is saved as, and the title inside it.</summary>
@@ -845,6 +873,11 @@ public sealed partial class Session
         return new SharedReport(waiting, refused);
     }
 }
+
+/// <summary>One page of the print as the stage shows it: what to draw, and the words and buttons around it.</summary>
+public sealed record SheetPreview(
+    SheetPlan Plan, IReadOnlyList<CardData> Entries, SheetPage Page, bool BackUpsideDown,
+    string Says, string Caption, bool NavShown, bool PreviousEnabled, bool NextEnabled);
 
 /// <summary>What became of the cards just sent to the shared register.</summary>
 public sealed record SharedReport(IReadOnlyList<RegisterEntry> Waiting, IReadOnlyList<RefusedCard> Refused)
