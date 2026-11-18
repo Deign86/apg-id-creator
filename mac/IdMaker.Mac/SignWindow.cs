@@ -46,11 +46,11 @@ internal sealed class SignaturePadView : NSView
     }
 
     // NSEventSubtypeTabletPoint, as AppKit numbers it; the event gives its subtype as a bare number.
-    private const short TabletPoint = 1;
+    private const short TabletPointSubtype = 1;
 
     // A tablet's events carry how hard the pen presses; a mouse's do not.
     private static double PressureOf(NSEvent e) =>
-        e.Subtype == TabletPoint ? Math.Clamp(e.Pressure, 0f, 1f) : -1;
+        e.Subtype == TabletPointSubtype ? Math.Clamp(e.Pressure, 0f, 1f) : -1;
 
     private InkPoint ToPad(NSEvent e)
     {

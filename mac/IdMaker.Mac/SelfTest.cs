@@ -6,7 +6,7 @@ namespace IdMaker.Mac;
 /// <summary>The checks that need a real Mac: run with `--selftest`.</summary>
 internal static class SelfTest
 {
-    public static int Run(string? repo)
+    public static int Run(string? repo, bool needsRegister = false)
     {
         var failed = 0;
         void Check(string what, bool holds)
@@ -16,6 +16,9 @@ internal static class SelfTest
         }
 
         Check($"shares the Windows app's rules (version {CardConfig.AppVersion})", CardConfig.AppVersion.Length > 0);
+        // A release must know which project the register is; which one is not printed.
+        if (needsRegister) Check("this build was given the register's project", CardConfig.Register is not null);
+        else Console.WriteLine(CardConfig.Register is null ? "      (built without the register's project: this copy keeps its own list)" : "      (built with the register's project)");
 
         MacKeeper.Forget();
         var keeper = new MacKeeper();

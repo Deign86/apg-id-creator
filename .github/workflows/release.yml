@@ -2,7 +2,9 @@ name: Release
 
 # Every change to the app that reaches main is released by itself: the
 # installer package is built, proved to install and start, and published as
-# a GitHub release named after the app's version.
+# a GitHub release named after the app's version. The Mac app's two disk
+# images (Apple Silicon and Intel) are then built, opened and started, and
+# added to the same release.
 #
 # The version is the one in windows/IdMaker.App/IdMaker.App.csproj. A
 # version that has already been released is not released twice: bump it
@@ -13,6 +15,7 @@ on:
     branches: [main]
     paths:
       - 'windows/**'
+      - 'mac/**'
       - 'assets/**'
       - '.github/workflows/release.yml'
       - '!**/*.md'            # a change to the documents alone releases nothing
@@ -29,6 +32,8 @@ jobs:
   release:
     runs-on: windows-latest
     timeout-minutes: 30
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     env:
       DOTNET_NOLOGO: 'true'
       DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
@@ -148,3 +153,68 @@ jobs:
           "@
           gh release create $tag $zip $exe windows/dist/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Alpha Premier ID Maker $tag" --notes $notes
           if ($LASTEXITCODE -ne 0) { throw 'The release was not published.' }
+
+  # The Mac app, added to the release the Windows job made (or, for a
+  # version released before there was a Mac app, to the one already there).
+  mac:
+    needs: release
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+      GH_TOKEN: ${{ github.token }}
+      MAC_XCODE: '/Applications/Xcode_26.6.app'
+      TAG: ${{ needs.release.outputs.tag }}
+    defaults:
+      run:
+        working-directory: mac
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is the Mac app already on this release
+        id: have
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null || { echo "There is no release $TAG to add the Mac app to."; exit 1; }
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -q '\.dmg$'; then
+            echo "done=true" >> "$GITHUB_OUTPUT"; echo "::notice::$TAG already has the Mac app."
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+          grep -q "<Version>${TAG#v}</Version>" IdMaker.Mac/IdMaker.Mac.csproj || { echo "mac/IdMaker.Mac/IdMaker.Mac.csproj is not at version ${TAG#v}."; exit 1; }
+      - uses: actions/setup-dotnet@v4
+        if: steps.have.outputs.done == 'false'
+        with:
+          dotnet-version: 10.0.4xx
+      - name: Workload and Xcode
+        if: steps.have.outputs.done == 'false'
+        run: |
+          sudo xcode-select -s "$MAC_XCODE"
+          dotnet workload install macos --from-rollback-file workloads.json
+      - name: Rosetta, to run the Intel build on this Apple Silicon runner
+        if: steps.have.outputs.done == 'false'
+        run: softwareupdate --install-rosetta --agree-to-license
+      - name: Build both disk images, open them and start the app
+        if: steps.have.outputs.done == 'false'
+        env:
+          IDMAKER_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          IDMAKER_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+        run: |
+          ./package.sh osx-arm64 AppleSilicon --needs-register
+          ./package.sh osx-x64 Intel --needs-register
+      - name: Add them to the release
+        if: steps.have.outputs.done == 'false'
+        run: |
+          cd dist
+          arm="AlphaPremierIdMaker-Mac-AppleSilicon-$TAG.dmg"
+          intel="AlphaPremierIdMaker-Mac-Intel-$TAG.dmg"
+          mv AlphaPremierIdMaker-AppleSilicon.dmg "$arm"
+          mv AlphaPremierIdMaker-Intel.dmg "$intel"
+          shasum -a 256 "$arm" "$intel" > SHA256SUMS-Mac.txt
+          gh release upload "$TAG" "$arm" "$intel" SHA256SUMS-Mac.txt --repo "$GITHUB_REPOSITORY"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > body.md
+          cat >> body.md <<NOTES
+
+          **On a Mac:** download \`$arm\` (M1 and later) or \`$intel\` (older Intel Macs), open it, and drag the app into Applications. The app is not signed by an Apple developer account, so the first time macOS says it cannot check it: open System Settings, Privacy & Security, and choose *Open Anyway*. On its first start it offers to install the XP-Pen pen tablet driver.
+          NOTES
+          sed -i '' 's/^          //' body.md
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file body.md

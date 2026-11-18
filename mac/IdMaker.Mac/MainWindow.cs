@@ -555,6 +555,8 @@ public sealed partial class MainWindow
         Render();
     }
 
+    internal bool Loaded => _art is not null && _renderer is not null;
+    internal string LoadError => _loadError;
     internal bool RemoverReady => _remover is not null;
     internal string RemoverProblem => _removerProblem;
     internal OnnxBackgroundRemover? Remover => _remover;

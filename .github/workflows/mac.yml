@@ -89,3 +89,36 @@ jobs:
           name: mac-report
           path: report
           if-no-files-found: ignore
+
+  # The disk image a release hands out, built and opened the same way, so a
+  # change that breaks packaging is seen here and not on release day. Kept
+  # as a run artifact; nothing is released from here.
+  package:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+      MAC_XCODE: '/Applications/Xcode_26.6.app'
+    defaults:
+      run:
+        working-directory: mac
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.4xx
+      - name: Workload and Xcode
+        run: |
+          sudo xcode-select -s "$MAC_XCODE"
+          dotnet workload install macos --from-rollback-file workloads.json
+      - name: Rosetta, to run the Intel build on this Apple Silicon runner
+        run: softwareupdate --install-rosetta --agree-to-license
+      - name: Apple Silicon disk image
+        run: ./package.sh osx-arm64 AppleSilicon
+      - name: Intel disk image
+        run: ./package.sh osx-x64 Intel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-disk-images
+          path: mac/dist/*.dmg

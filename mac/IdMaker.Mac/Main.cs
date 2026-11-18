@@ -6,7 +6,7 @@ NSApplication.Init();
 if (args.Contains("--selftest"))
 {
     var at = Array.IndexOf(args, "--repo");
-    return SelfTest.Run(at >= 0 && at + 1 < args.Length ? args[at + 1] : null);
+    return SelfTest.Run(at >= 0 && at + 1 < args.Length ? args[at + 1] : null, args.Contains("--needs-register"));
 }
 
 #if WINDOWTEST
@@ -21,6 +21,9 @@ if (args.Contains("--windowtest"))
 }
 #endif
 
-NSApplication.SharedApplication.Delegate = new AppDelegate();
+// `--starttest` starts the app as a double-click does, says whether the
+// window opened with the card in it, and quits: how a packaged app is
+// shown to start.
+NSApplication.SharedApplication.Delegate = new AppDelegate { ExitAfterStart = args.Contains("--starttest") };
 NSApplication.Main(args);
 return 0;

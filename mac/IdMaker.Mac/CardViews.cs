@@ -79,16 +79,16 @@ internal sealed class FileDropView : NSView
         RegisterForDraggedTypes(new[] { FileUrl });
     }
 
-    private static string? PathOn(NSDraggingInfo sender)
+    private static string? PathOn(INSDraggingInfo sender)
     {
         var address = sender.DraggingPasteboard.GetStringForType(FileUrl);
         return address is { Length: > 0 } && NSUrl.FromString(address) is { IsFileUrl: true, Path: { Length: > 0 } path } ? path : null;
     }
 
-    public override NSDragOperation DraggingEntered(NSDraggingInfo sender) =>
+    public override NSDragOperation DraggingEntered(INSDraggingInfo sender) =>
         PathOn(sender) is null ? NSDragOperation.None : NSDragOperation.Copy;
 
-    public override bool PerformDragOperation(NSDraggingInfo sender)
+    public override bool PerformDragOperation(INSDraggingInfo sender)
     {
         if (PathOn(sender) is not { } path) return false;
         Dropped(path);
