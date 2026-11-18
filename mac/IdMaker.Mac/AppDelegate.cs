@@ -9,7 +9,8 @@ public sealed class AppDelegate : NSApplicationDelegate
     {
         _main = new MainWindow();
         _main.Window.MakeKeyAndOrderFront(this);
-        NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+        if (OperatingSystem.IsMacOSVersionAtLeast(14)) NSApplication.SharedApplication.Activate();
+        else NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
     }
 
     public override bool ApplicationShouldTerminateAfterLastWindowClosed(NSApplication sender) => true;

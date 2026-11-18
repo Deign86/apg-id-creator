@@ -96,14 +96,34 @@ public static class MacPictures
         return ToRgba(pixels, width, height);
     }
 
-    /// <summary>Open a picture file as straight RGBA, or say why not.</summary>
+    // 12,000 pixels on the longer side: several times the largest phone camera, and what bounds the memory a picture can take.
+    private const int MaxSidePixels = 12_000;
+
+    /// <summary>
+    /// Open a picture file as straight RGBA, honouring the way a phone says
+    /// it was held, or say why not.
+    /// </summary>
     public static (RgbaImage? Image, string Error) Decode(string path)
     {
-        // shortcut: a phone's "which way up" note is not honoured yet, so a portrait JPEG may open on its side; revisit with the photo step (GATES.md, M4).
-        using var image = Load(path);
-        return image is null
-            ? (null, "This file couldn’t be opened as a picture. Try saving it again as PNG or JPG.")
-            : (ToRgba(image), "");
+        const string cannot = "This file couldn’t be opened as a picture. Try saving it again as PNG or JPG.";
+        using var source = CGImageSource.FromUrl(NSUrl.FromFilename(path));
+        if (source is null || source.ImageCount < 1) return (null, cannot);
+        // Asked for as a "thumbnail" only because that is the request that turns the picture the way it was held.
+        using var image = source.CreateThumbnail(0, new CGImageThumbnailOptions
+        {
+            CreateThumbnailFromImageAlways = true,
+            CreateThumbnailWithTransform = true,
+            MaxPixelSize = MaxSidePixels,
+        });
+        return image is null ? (null, cannot) : (ToRgba(image), "");
+    }
+
+    /// <summary>A picture at another size, as artwork is stored at the printing size.</summary>
+    public static CGImage Resize(CGImage image, int width, int height)
+    {
+        var (context, pixels) = Surface(width, height);
+        using (context) Draw(context, image, new CGRect(0, 0, width, height));
+        return ToImage(ToRgba(pixels, width, height));
     }
 
     public static void SavePng(RgbaImage image, string path)
@@ -430,6 +450,19 @@ public sealed class MacCardRenderer
             result.Add(() => ToPdfPage(
                 RenderSheet(plan, page, ppm, i => RenderFront(art, geo, entries[i], ppm), _ => RenderBack(art, ppm, backUpsideDown)),
                 plan.PageWidthMm, plan.PageHeightMm));
+        }
+        return result;
+    }
+
+    /// <summary>One card per page, front then back, each page the size of the card.</summary>
+    public List<Func<PdfPage>> CardPdfPages(CardArt art, CardGeometry geo, IReadOnlyList<CardData> entries, bool rotateBack)
+    {
+        var ppm = CardConfig.PrintPxPerMm;
+        var result = new List<Func<PdfPage>>();
+        foreach (var data in entries)
+        {
+            result.Add(() => ToPdfPage(RenderFront(art, geo, data, ppm), CardConfig.CardWidthMm, CardConfig.CardHeightMm));
+            result.Add(() => ToPdfPage(RenderBack(art, ppm, rotateBack), CardConfig.CardWidthMm, CardConfig.CardHeightMm));
         }
         return result;
     }

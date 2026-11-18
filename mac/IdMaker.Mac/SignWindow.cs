@@ -45,9 +45,12 @@ internal sealed class SignaturePadView : NSView
         NeedsDisplay = true;
     }
 
+    // NSEventSubtypeTabletPoint, as AppKit numbers it; the event gives its subtype as a bare number.
+    private const short TabletPoint = 1;
+
     // A tablet's events carry how hard the pen presses; a mouse's do not.
     private static double PressureOf(NSEvent e) =>
-        e.Subtype == NSEventSubtype.TabletPoint ? Math.Clamp(e.Pressure, 0f, 1f) : -1;
+        e.Subtype == TabletPoint ? Math.Clamp(e.Pressure, 0f, 1f) : -1;
 
     private InkPoint ToPad(NSEvent e)
     {
@@ -118,7 +121,6 @@ internal static class SignWindow
         var window = new NSWindow(screen, NSWindowStyle.Titled, NSBackingStore.Buffered, false)
         {
             Title = firstName.Length > 0 ? $"{firstName}, please sign" : "Please sign",
-            ReleasedWhenClosed = false,
         };
         var pad = new SignaturePadView { TranslatesAutoresizingMaskIntoConstraints = false, Value = existing };
         DrawnSignature? result = null;

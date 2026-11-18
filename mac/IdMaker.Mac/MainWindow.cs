@@ -3,9 +3,10 @@
 // Render() redraws everything from the Session each time something changes,
 // as the Windows window does, so no two parts of the screen can disagree.
 //
-// Built from AppKit's own controls, in code. What the Windows app has and
-// this does not yet: the batch from a CSV, the card design tools, and
-// dragging the photo on the card (the buttons and the slider move it).
+// Built from AppKit's own controls, in code. It does what the Windows
+// window does (windows/IdMaker.App/MainWindow.xaml.cs), step for step and
+// tool for tool; the tools beyond the register and the printer setting are
+// in MainWindow.Tools.cs.
 
 using System.Globalization;
 using IdMaker.Core;
@@ -13,7 +14,7 @@ using IdMaker.Vision;
 
 namespace IdMaker.Mac;
 
-public sealed class MainWindow
+public sealed partial class MainWindow
 {
     private readonly FileStore _files;
     private readonly Register _register;
@@ -62,7 +63,13 @@ public sealed class MainWindow
 
     private readonly NSImageView _logo = Ui.Picture(56, 56);
     private readonly NSButton _railRegister;
+    private readonly NSButton _railBatch;
     private readonly NSButton _railPrinter;
+    private readonly NSButton _railDesign;
+    private readonly NSStackView _toolBatch;
+    private readonly NSStackView _toolDesign;
+    private readonly NSView _cardBox = new() { TranslatesAutoresizingMaskIntoConstraints = false };
+    private const double CardPointsWide = 400;
 
     private readonly NSStackView _drawer;
     private readonly NSTextField _drawerTitle = Ui.Label("", 16, bold: true, maxWidth: 280);
@@ -194,14 +201,18 @@ public sealed class MainWindow
 
         /* ---- rail ---- */
         _railRegister = Ui.Button("Issued IDs", () => ToggleTool("register"));
+        _railBatch = Ui.Button("Batch from a list", () => ToggleTool("batch"));
         _railPrinter = Ui.Button("Printer setting", () => ToggleTool("printer"));
+        _railDesign = Ui.Button("Card design", () => ToggleTool("design"));
         var rail = Ui.Column(10,
             _logo,
             Ui.Label("Alpha Premier", 12, muted: true, maxWidth: 150),
             Ui.Label("ID Maker", 16, bold: true, maxWidth: 150),
             Ui.Note("Tools"),
             _railRegister,
+            _railBatch,
             _railPrinter,
+            _railDesign,
             Ui.Note($"Version {CardConfig.AppVersion}"));
         rail.WidthAnchor.ConstraintEqualTo(160).Active = true;
 
@@ -230,7 +241,9 @@ public sealed class MainWindow
             Ui.Label("Set this once. It decides how the sheet of backs is reversed, so each back lands behind the right front. If the backs come out behind the wrong people, change it and print again. It only applies when printing both sides.", 12, muted: true, maxWidth: 280),
             _chkRotate,
             Ui.Label("Only if printed cards come out with the back upside down. Remembered on this computer.", 12, muted: true, maxWidth: 280));
-        _drawer = Ui.Column(12, Ui.Row(12, _drawerTitle, Ui.Button("Close", CloseTool)), _toolRegister, _toolPrinter);
+        _toolBatch = BuildBatchTool();
+        _toolDesign = BuildDesignTool();
+        _drawer = Ui.Column(12, Ui.Row(12, _drawerTitle, Ui.Button("Close", CloseTool)), _toolRegister, _toolBatch, _toolPrinter, _toolDesign);
         _drawer.WidthAnchor.ConstraintEqualTo(300).Active = true;
         foreach (var label in new[] { _refusedNote, _registerNote, _registerAccount, _registerMsg }) label.PreferredMaxLayoutWidth = 280;
 
@@ -243,7 +256,20 @@ public sealed class MainWindow
         _sheetNav = Ui.Row(12, _prevPage, _previewCaption, _nextPage);
         _btnCancelAdd = Ui.Button("Stop adding and go back to the print", CancelAdding);
         _queueStrip = Ui.Column(6, Ui.Row(12, Ui.Label("In this print", 14, bold: true, maxWidth: 200), _jobCount), _jobList, _jobNote, _btnCancelAdd);
-        var stage = Ui.Column(10, _sideTabs, _cardLoading, _cardImage, _caption, _sheetNav, _queueStrip);
+        // the card, and over it whatever takes the mouse: the photo while a card is made, the design's boxes while the map is open
+        foreach (var layer in new NSView[] { _cardImage, _photoDrag, _map })
+        {
+            _cardBox.AddSubview(layer);
+            NSLayoutConstraint.ActivateConstraints(new[]
+            {
+                layer.LeadingAnchor.ConstraintEqualTo(_cardBox.LeadingAnchor),
+                layer.TrailingAnchor.ConstraintEqualTo(_cardBox.TrailingAnchor),
+                layer.TopAnchor.ConstraintEqualTo(_cardBox.TopAnchor),
+                layer.BottomAnchor.ConstraintEqualTo(_cardBox.BottomAnchor),
+            });
+        }
+        WireCard();
+        var stage = Ui.Column(10, _sideTabs, _cardLoading, _cardBox, _caption, _sheetNav, _queueStrip);
         stage.Alignment = NSLayoutAttribute.CenterX;
         stage.WidthAnchor.ConstraintEqualTo(420).Active = true;
 
@@ -284,7 +310,7 @@ public sealed class MainWindow
             if (_syncing || index < 0 || index >= _titleValues.Count) return;
             _session.PickRole1(_titleValues[index]);
             Render();
-            if (_titleValues[index] == RoleChoice.Other) Window.MakeFirstResponder(_txtTitleCustom);
+            if (_titleValues[index] == RoleChoice.Other) Window!.MakeFirstResponder(_txtTitleCustom);       // SAFETY: the window exists before anything in it can be pressed
         });
         _txtTitleCustom.Changed += (_, _) => OnTitleCustomChanged();
         _txtTitleCustom.EditingEnded += (_, _) => { _session.Touch(Field.Title); Render(); };
@@ -294,7 +320,7 @@ public sealed class MainWindow
             if (_syncing || index < 0 || index >= _title2Values.Count) return;
             _session.PickRole2(_title2Values[index]);
             Render();
-            if (_title2Values[index] == RoleChoice.Other) Window.MakeFirstResponder(_txtTitle2Custom);
+            if (_title2Values[index] == RoleChoice.Other) Window!.MakeFirstResponder(_txtTitle2Custom);     // SAFETY: as above
         });
         _txtTitle2Custom.Changed += (_, _) => { if (_syncing) return; _session.TypeRole2(_txtTitle2Custom.StringValue); Render(); };
         _txtTitle2Custom.EditingEnded += (_, _) => { _session.Touch(Field.Title2); Render(); };
@@ -346,7 +372,7 @@ public sealed class MainWindow
                 _front = true;
                 Render();
             });
-            button.AccessibilityLabel = says;
+            Ui.Says(button, says);
             return button;
         }
         _adjustBox = Ui.Column(6,
@@ -356,7 +382,7 @@ public sealed class MainWindow
             _btnAdjustReset);
         _steps[3] = Ui.Column(8,
             Ui.Heading("Their photo"),
-            Ui.Row(14, _photoThumb, Ui.Column(6, _btnPhoto, _photoName)),
+            new FileDropView(Ui.Row(14, _photoThumb, Ui.Column(6, _btnPhoto, Ui.Note("or drop a picture here"), _photoName))) { Dropped = path => _ = AcceptPhotoFile(path) },
             _photoMsg, _adjustBox,
             _guideLabel,
             Ui.Note("The app removes the background itself, on this computer. If it leaves bits of background or cuts into the person, a photo against a plain wall usually fixes it. Failing that, an AI tool can make a green-background copy: open Gemini or ChatGPT signed in to the company’s enterprise account, attach the photo, paste the prompt and send it, then save the result and choose it here."),
@@ -370,7 +396,9 @@ public sealed class MainWindow
             Ui.Heading("Their signature"),
             _sigImage,
             Ui.Row(8, _btnSign, Ui.Button("Use a scan instead", ChooseSignatureScan), _btnClearSig),
-            _sigHelp, _sigMsg, _tabletNote);
+            _sigHelp, _sigMsg, _tabletNote, _btnDriver, _driverMsg);
+        _btnDriver.Activated += (_, _) => _ = RunDriverInstall();
+        _driverMsg.PreferredMaxLayoutWidth = (nfloat)Ui.TextWidth;
 
         // step 6: check and print
         _summary = Ui.Row(14, _summaryImage, Ui.Column(2,
@@ -393,9 +421,9 @@ public sealed class MainWindow
         });
         _txtCopies.Changed += (_, _) => OnCopiesChanged();
         _copiesDown = Ui.Button("−", () => { _session.NudgeCopies(-1); Render(); });
-        _copiesDown.AccessibilityLabel = "One fewer copy";
+        Ui.Says(_copiesDown, "One fewer copy");
         _copiesUp = Ui.Button("+", () => { _session.NudgeCopies(1); Render(); });
-        _copiesUp.AccessibilityLabel = "One more copy";
+        Ui.Says(_copiesUp, "One more copy");
         _btnAddAnother = Ui.Button("Add another ID to this print", () => { var from = _session.StepIndex; _session.AddAnother(); AfterMove(from, new MoveResult(true, null)); });
         _btnDownload = Ui.Button("Save the PDF", ChooseWhereToSave, primary: true);
         _btnPng = Ui.Button("Save as pictures instead", SavePictures);
@@ -429,7 +457,6 @@ public sealed class MainWindow
             false)
         {
             Title = CardConfig.AppName,
-            ReleasedWhenClosed = false,
         };
         var content = Window.ContentView!;
         content.AddSubview(columns);
@@ -465,11 +492,25 @@ public sealed class MainWindow
             var front = MacPictures.Load(InBundle("Assets", "front-template.png"));
             var back = MacPictures.Load(InBundle("Assets", "back.png"));
             if (front is null || back is null) throw new IOException("the card artwork is missing.");
-            _art = new CardArt(front, back);
+            _builtInArt = new CardArt(front, back);
+            _art = _builtInArt;
             using var logo = MacPictures.Load(InBundle("Assets", "logo.png"));
             if (logo is not null) _logo.Image = new NSImage(logo, new CGSize(56, 56));
-            // shortcut: a design put in on Windows is not carried here; the Mac app draws the built-in design until the design tools are built (GATES.md, M4).
-            _session.Geometry = _templates.Geometry();
+
+            // a design put in earlier is still the one in use
+            if (_templates.Restore() && _templates.HasArtwork)
+            {
+                var storedFront = MacPictures.Load(StoredArtwork("front"));
+                var storedBack = MacPictures.Load(StoredArtwork("back"));
+                if (storedFront is not null && storedBack is not null) _art = new CardArt(storedFront, storedBack);
+                else
+                {
+                    // the pictures are gone: the record of them is no use without them
+                    _templates.Clear();
+                }
+            }
+            ApplyGeometry();
+            ShowContrastWarnings();
             // Only now: whether a name fits the card cannot be answered without the fonts.
             _session.Measurer = measurer;
         }
@@ -484,6 +525,8 @@ public sealed class MainWindow
         _ = LoadRemover();
         Render();
         Window.MakeFirstResponder(_txtLast);
+        // after the window is up, so the question has something to sit over
+        NSApplication.SharedApplication.BeginInvokeOnMainThread(OfferDriver);
     }
 
     private async Task WarmRegister()
@@ -543,7 +586,7 @@ public sealed class MainWindow
             _sideTabs.SelectedSegment = _front ? 0 : 1;
             Ui.Show(_cardLoading, !loaded);
             Ui.SetText(_cardLoading, _loadError.Length > 0 ? _loadError : "Loading the card…");
-            Ui.Show(_cardImage, loaded);
+            Ui.Show(_cardBox, loaded);
             if (!onCheck) Ui.Show(_sheetNav, false);
             var caption = onCheck
                 ? (s.Layout == SheetMode.Duplex ? "Print both sides, then cut along the marks." : "Cut along the marks and stick each pair back to back.")
@@ -652,12 +695,12 @@ public sealed class MainWindow
             // a step cannot be both finished and out of reach: locked wins
             var done = Session.StepDone(i, p) && i != Session.LastStep && !current && !locked;
             var chip = _stepChips[i];
-            chip.Font = current ? NSFont.BoldSystemFontOfSize(13) : NSFont.SystemFontOfSize(13);
+            if ((current ? NSFont.BoldSystemFontOfSize(13) : NSFont.SystemFontOfSize(13)) is { } font) chip.Font = font;
             chip.ContentTintColor = current ? NSColor.ControlAccent : done ? NSColor.Label : NSColor.SecondaryLabel;
             // not disabled: a locked step can still be asked why it will not open
-            chip.AccessibilityLabel = locked ? $"{label}. Locked until step {stop + 1}, {Session.Steps[stop].Label}, is finished."
+            Ui.Says(chip, locked ? $"{label}. Locked until step {stop + 1}, {Session.Steps[stop].Label}, is finished."
                 : current ? $"{label}. Current step."
-                : $"{label}{(done ? ". Finished." : "")}";
+                : $"{label}{(done ? ". Finished." : "")}");
             chip.ToolTip = locked ? $"Finish {Session.Steps[stop].Label.ToLowerInvariant()} first" : "";
         }
     }
@@ -868,7 +911,7 @@ public sealed class MainWindow
     {
         var board = NSPasteboard.GeneralPasteboard;
         board.ClearContents();
-        _copyStatus = board.SetStringForType(CardConfig.PhotoPrompt, NSPasteboard.NSPasteboardTypeString) ? "Copied." : "The prompt could not be copied.";
+        _copyStatus = board.SetStringForType(CardConfig.PhotoPrompt, "public.utf8-plain-text")      /* plain text, as the pasteboard names it */ ? "Copied." : "The prompt could not be copied.";
         Render();
     }
 
@@ -890,9 +933,7 @@ public sealed class MainWindow
         var shown = _sigError.Length > 0 ? _sigError : error;
         Ui.Show(_sigMsg, shown.Length > 0);
         Ui.SetText(_sigMsg, shown);
-        Ui.SetText(_tabletNote, PenDriver.Installed
-            ? "A pen tablet draws thicker where you press harder."
-            : "No XP-Pen tablet driver was found on this Mac, so sign with the mouse or trackpad, or use a scan.");
+        RenderDriver();
     }
 
     // The signature as dark ink on white, the way the pad shows it.
@@ -1065,7 +1106,7 @@ public sealed class MainWindow
                 }
                 var index = i;
                 var remove = Ui.Button("Remove", () => { var from = _session.StepIndex; _session.RemoveFromQueue(index); AfterMove(from, new MoveResult(true, null)); });
-                remove.AccessibilityLabel = $"Take {card.Label} out of this print";
+                Ui.Says(remove, $"Take {card.Label} out of this print");
                 _jobList.AddArrangedSubview(Ui.Row(10, who, remove));
             }
         }
@@ -1214,10 +1255,11 @@ public sealed class MainWindow
             var side = _front
                 ? _renderer.RenderFront(_art, s.Geometry, s.CardData(), PreviewPpm)
                 : _renderer.RenderBack(_art, PreviewPpm, s.RotateBack);
-            _cardImage.Image = Ui.ToNsImage(side, 400);
-            _cardImage.AccessibilityLabel = _front
+            _cardImage.Image = Ui.ToNsImage(side, CardPointsWide);
+            if (EditingMap) _map.Refresh();
+            Ui.Says(_cardImage, _front
                 ? $"Front of the ID card for {(s.PrintedName.Length > 0 ? s.PrintedName : "a new hire")}"
-                : "Back of the ID card";
+                : "Back of the ID card");
             return;
         }
         var print = s.PrintPages();
@@ -1234,7 +1276,7 @@ public sealed class MainWindow
             _ => back ??= renderer.RenderBack(art, SheetPreviewPpm, backUp));
         _cardImage.Image = Ui.ToNsImage(sheet, 400);
         var which = pr.Plan.Mode != SheetMode.Duplex ? "" : page.Backs ? "Backs, reversed to match. " : "Fronts. ";
-        _cardImage.AccessibilityLabel = $"Preview of page {s.PreviewPage + 1} of the {s.Paper} sheet. {which}".Trim();
+        Ui.Says(_cardImage, $"Preview of page {s.PreviewPage + 1} of the {s.Paper} sheet. {which}".Trim());
         Ui.SetText(_previewCaption, $"{which}Page {s.PreviewPage + 1} of {pr.Pages.Count} · {s.Paper}");
         Ui.Show(_sheetNav, pr.Pages.Count > 1);
         _prevPage.Enabled = s.PreviewPage > 0;
@@ -1255,16 +1297,37 @@ public sealed class MainWindow
         Render();
     }
 
+    private static readonly Dictionary<string, string> ToolTitles = new()
+    {
+        ["register"] = "Issued IDs", ["batch"] = "Batch from a list", ["printer"] = "Printer setting", ["design"] = "Card design",
+    };
+
     private void RenderTools()
     {
+        // the design can only be changed before an ID is started
+        var designOk = _session.DesignAllowed;
+        Ui.Show(_railDesign, designOk);
+        if (!designOk && _tool == "design") _tool = null;
+
+        // Editing the map and having the Card design drawer open are the
+        // same state, and this is where that is enforced rather than in each
+        // of the handlers that can close it: the Keep button lives in that
+        // drawer, so any route that closed the drawer without it would leave
+        // the boxes on the card with no button anywhere to finish with.
+        if (EditingMap && _tool != "design") StopAdjusting();
+
         Ui.Show(_drawer, _tool is not null);
         var all = _register.All();
         _railRegister.Title = all.Count > 0 ? $"Issued IDs ({all.Count})" : "Issued IDs";
         if (_tool is null) return;
-        Ui.SetText(_drawerTitle, _tool == "register" ? (all.Count > 0 ? $"Issued IDs ({all.Count})" : "Issued IDs") : "Printer setting");
+        Ui.SetText(_drawerTitle, _tool == "register" && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
         Ui.Show(_toolRegister, _tool == "register");
+        Ui.Show(_toolBatch, _tool == "batch");
         Ui.Show(_toolPrinter, _tool == "printer");
+        Ui.Show(_toolDesign, _tool == "design");
         if (_tool == "register") RenderRegister(all);
+        if (_tool == "batch") RenderBatch();
+        if (_tool == "design") RenderDesign();
         if (_tool == "printer")
         {
             _cmbFlip.SelectItem(_session.Flip == DuplexFlip.ShortEdge ? 1 : 0);

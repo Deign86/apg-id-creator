@@ -75,24 +75,13 @@ jobs:
         if: always()
         working-directory: ${{ github.workspace }}
         run: |
-          for name in 3-check 4-saved 7-refused; do
+          for name in 3-check 7-refused 8-batch 9-map; do
             [ -f "report/$name.png" ] || continue
             sips -Z 1000 -s format jpeg -s formatOptions 55 "report/$name.png" --out "report/$name.jpg" >/dev/null
             echo "=====BEGIN $name====="
             base64 -i "report/$name.jpg" | fold -w 200
             echo "=====END $name====="
           done
-      # shortcut: finds the pen tablet driver's file and its checksum once, so they can be pinned (GATES.md, M7); replaced by the pinned check when they are.
-      - name: Pen tablet driver, as XP-Pen serves it
-        if: always()
-        working-directory: ${{ runner.temp }}
-        run: |
-          url='https://download01.xp-pen.com/file/2026/10/XPPenMac_4.0.21_261026.zip'
-          curl -sSL --fail -o driver.zip "$url" || { echo "not at $url"; exit 0; }
-          shasum -a 256 driver.zip; ls -l driver.zip
-          unzip -o -q driver.zip -d driver && find driver -maxdepth 3 | head -40
-          dmg=$(find driver -name '*.dmg' | head -1)
-          [ -n "$dmg" ] && shasum -a 256 "$dmg" && hdiutil attach -nobrowse -readonly "$dmg" | tail -3 && ls -la /Volumes/*/ | head -40
       - name: Keep the card it drew
         if: always()
         uses: actions/upload-artifact@v4

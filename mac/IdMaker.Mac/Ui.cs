@@ -13,7 +13,7 @@ internal static class Ui
     {
         var label = NSTextField.CreateWrappingLabel(text);
         label.PreferredMaxLayoutWidth = (nfloat)maxWidth;
-        label.Font = bold ? NSFont.BoldSystemFontOfSize((nfloat)size) : NSFont.SystemFontOfSize((nfloat)size);
+        if ((bold ? NSFont.BoldSystemFontOfSize((nfloat)size) : NSFont.SystemFontOfSize((nfloat)size)) is { } font) label.Font = font;
         if (muted) label.TextColor = NSColor.SecondaryLabel;
         label.Selectable = false;
         label.TranslatesAutoresizingMaskIntoConstraints = false;
@@ -40,7 +40,7 @@ internal static class Ui
     public static NSTextField Field(string accessibilityLabel, double width = 0)
     {
         var field = new NSTextField { TranslatesAutoresizingMaskIntoConstraints = false, AccessibilityLabel = accessibilityLabel };
-        field.Font = NSFont.SystemFontOfSize(14);
+        if (NSFont.SystemFontOfSize(14) is { } font) field.Font = font;
         if (width > 0) field.WidthAnchor.ConstraintEqualTo((nfloat)width).Active = true;
         return field;
     }
@@ -65,7 +65,8 @@ internal static class Ui
 
     public static NSPopUpButton Popup(string accessibilityLabel, IEnumerable<string> items, Action<int> picked)
     {
-        var popup = new NSPopUpButton(CGRect.Empty, false) { TranslatesAutoresizingMaskIntoConstraints = false, AccessibilityLabel = accessibilityLabel };
+        var popup = new NSPopUpButton(CGRect.Empty, false) { TranslatesAutoresizingMaskIntoConstraints = false };
+        Says(popup, accessibilityLabel);
         foreach (var item in items) popup.AddItem(item);
         popup.Activated += (_, _) => picked((int)popup.IndexOfSelectedItem);
         return popup;
@@ -105,6 +106,9 @@ internal static class Ui
         return view;
     }
 
+    /// <summary>What VoiceOver reads for a control whose title alone does not say what it does.</summary>
+    public static void Says(NSView view, string label) => view.AccessibilityLabel = label;
+
     public static void Show(NSView view, bool visible)
     {
         if (view.Hidden == visible) view.Hidden = !visible;
@@ -135,6 +139,6 @@ internal static class Ui
         if (rep is null) return;
         view.CacheDisplay(view.Bounds, rep);
         var png = rep.RepresentationUsingTypeProperties(NSBitmapImageFileType.Png, new NSDictionary());
-        png?.Save(path, true);
+        png?.Save(NSUrl.FromFilename(path), true);
     }
 }

@@ -9,6 +9,7 @@
 
 using IdMaker.Core;
 using IdMaker.Tests;
+using ImageIO;
 
 namespace IdMaker.Mac;
 
@@ -55,6 +56,11 @@ internal static class WindowTest
                 await Signing_in_under_issued_ids_connects_this_computer_to_the_shared_register();
                 await A_card_the_register_refused_is_put_in_front_of_the_operator_until_it_is_dealt_with();
                 await The_background_remover_runs_on_this_mac();
+                await A_batch_makes_a_card_for_every_good_row_and_says_why_it_skipped_the_rest(repo);
+                The_card_design_can_be_moved_kept_discarded_replaced_and_reset(repo);
+                await The_photo_can_be_dragged_on_the_card(repo);
+                A_phone_photo_stored_sideways_is_stood_upright(repo);
+                await The_driver_is_offered_once_and_the_one_xp_pen_serves_is_the_one_pinned();
             }
         }
         // Whatever a test throws is a failed test, reported with the rest; this is the one place that has to hear all of it.
@@ -120,6 +126,10 @@ internal static class WindowTest
             AskForSignature = (_, _) => Session.ExampleSignature(),
             AskForFile = _ => null,
             AskWhereToSave = (_, _) => null,
+            AskForFiles = _ => Array.Empty<string>(),
+            // nothing is installed on the Mac the tests run on
+            OfferDriverOnStart = false,
+            InstallDriver = () => Task.FromResult(""),
         };
         window.Window.MakeKeyAndOrderFront(null);
         return window;
@@ -293,6 +303,156 @@ internal static class WindowTest
             var matte = await Task.Run(() => remover.Matte(picture));
             Check("and answers with one value per pixel", matte is not null && matte.Length == 480 * 640);
         }
+        window.Window.Close();
+    }
+
+    private static async Task A_batch_makes_a_card_for_every_good_row_and_says_why_it_skipped_the_rest(string repo)
+    {
+        Console.WriteLine("A batch makes a card for every good row and says why it skipped the rest");
+        var folder = TempFolder();
+        var window = Open(folder, new Register(new FileStore(folder)) { Project = null });
+        var year = DateTime.Now.Year;
+        // the same picture under two names, as a folder of photos named for their rows would be
+        var photos = new[] { Path.Combine(folder, "reyes.png"), Path.Combine(folder, "cruz.png") };
+        foreach (var photo in photos) File.Copy(Path.Combine(repo, "assets", "example-cut-out.png"), photo);
+        var csv = Path.Combine(folder, "list.csv");
+        File.WriteAllText(csv,
+            "last,first,middle,suffix,title,title2,seq,year,photo,signature,replacement,kind\r\n"
+            + $"Reyes,Ana,,,HR Associate,,301,{year},reyes.png,,,employee\r\n"
+            + $"Cruz,Juan,,,IT Associate,,302,{year},cruz.png,,,intern\r\n"
+            + $"Santos,Maria,,,IT Associate,,303,{year},nobody.png,,,intern\r\n");
+
+        window.ToggleTool("batch");
+        window.SetBatchFiles(csv, photos, Array.Empty<string>());
+        window.BatchLayoutBox.SelectItem(2);            // one card per page
+        Press(window.BatchLayoutBox);
+
+        await window.RunBatch(Path.Combine(folder, "no-such-folder", "batch.pdf"));
+        Check($"a batch that cannot be saved says so (“{window.BatchStatus}”)", window.BatchStatus.Contains("couldn’t be saved"));
+        Check("and issues nothing", window.Register.All().Count == 0);
+
+        var pdf = Path.Combine(folder, "batch.pdf");
+        await window.RunBatch(pdf);
+        var results = window.BatchResults;
+        Check($"the batch ran (“{window.BatchStatus}”)", File.Exists(pdf) && new FileInfo(pdf).Length > 10_000);
+        Check("two rows made cards", results.Count(r => r.Ok) == 2);
+        var skipped = results.FirstOrDefault(r => !r.Ok);
+        Check($"the row with no photo is skipped, with the reason (“{skipped?.Problem}”)", skipped is { Problem.Length: > 0 } && skipped.Label.Contains("Santos"));
+        var issued = window.Register.All().Select(e => e.Id).OrderBy(id => id).ToList();
+        Check("exactly the two that are in the PDF are issued", issued.SequenceEqual(new[] { Naming.EmployeeId(year, 301), Naming.EmployeeId(year, 302) }));
+        Check("an intern in the list is issued as an intern", window.Register.All().Any(e => e.Id == Naming.EmployeeId(year, 302) && e.Kind == PersonKind.Intern));
+        Shoot(window, "8-batch");
+        window.Window.Close();
+    }
+
+    private static void The_card_design_can_be_moved_kept_discarded_replaced_and_reset(string repo)
+    {
+        Console.WriteLine("The card design can be moved, kept, discarded, replaced and reset");
+        var folder = TempFolder();
+        var window = Open(folder, new Register(new FileStore(folder)) { Project = null });
+        var builtIn = window.Session.Geometry;
+
+        Check("Card design is offered on a blank card", !window.DesignRailButton.Hidden);
+        window.ToggleTool("design");
+        window.StartAdjusting();
+        Check("“Show the map” puts the boxes over the card", window.MapShown);
+
+        // move the name box a millimetre to the right, as four presses of the arrow key do
+        window.Map.SelectNext(backwards: false);
+        var before = window.Templates.Box(BoxKey.Name);
+        for (var i = 0; i < 4; i++) window.Map.Nudge(0.25, 0, resize: false);
+        var after = window.Templates.Box(BoxKey.Name);
+        Check($"the arrow keys move the selected box ({before.X:0.00} → {after.X:0.00} mm)", Math.Abs(after.X - before.X - 1) < 0.001);
+        Check("and the card is drawn to the new map straight away", window.Session.Geometry != builtIn);
+        Shoot(window, "9-map");
+
+        window.DiscardMap();
+        Check($"“Discard changes” puts it back (“{window.DesignMessage}”)", !window.MapShown && Math.Abs(window.Templates.Box(BoxKey.Name).X - before.X) < 0.001 && !window.Templates.IsCustom);
+
+        window.StartAdjusting();            // the name box is still the selected one
+        window.Map.Nudge(0.25, 0, resize: false);
+        window.KeepMap();
+        Check($"“Keep this map” saves it on this computer (“{window.DesignMessage}”)", !window.MapShown && window.Templates.IsCustom);
+        var reopened = new TemplateStore(new FileStore(folder));
+        Check("and it is still there when the app opens again", reopened.Restore() && Math.Abs(reopened.Box(BoxKey.Name).X - before.X - 0.25) < 0.001);
+
+        // artwork of the wrong shape is turned away; artwork of the right shape is stored and used
+        window.UseArtwork(Path.Combine(repo, "assets", "logo.png"), Path.Combine(repo, "assets", "back.png"));
+        Check($"artwork that is not card-shaped is refused (“{window.DesignMessage}”)", !window.Templates.HasArtwork && window.DesignMessage.Length > 0);
+        window.UseArtwork(Path.Combine(repo, "assets", "front-template.png"), Path.Combine(repo, "assets", "back.png"));
+        Check($"card-shaped artwork is taken ({window.DesignNameLine})", window.Templates.HasArtwork && File.Exists(Path.Combine(folder, "template-front.png")) && window.MapShown);
+        window.KeepMap();
+
+        window.ResetDesign();
+        Check($"“Go back to the built-in design” removes all of it (“{window.DesignMessage}”)",
+            !window.Templates.IsCustom && !File.Exists(Path.Combine(folder, "template-front.png")) && window.Session.Geometry == builtIn);
+
+        // once a card is started the design is out of reach
+        TypeName(window, Field.Last, "Reyes");
+        Check("Card design is put away once an ID is started", window.DesignRailButton.Hidden);
+        window.Window.Close();
+    }
+
+    private static async Task The_photo_can_be_dragged_on_the_card(string repo)
+    {
+        Console.WriteLine("The photo can be dragged on the card");
+        var folder = TempFolder();
+        var window = Open(folder, new Register(new FileStore(folder)) { Project = null });
+        await window.AcceptPhotoFile(Path.Combine(repo, "assets", "example-cut-out.png"));
+        var s = window.Session;
+        Check("with a photo on the card", s.Photo is not null && s.Adjust.IsNone);
+        // 40 points to the right on a card drawn 400 points wide is a tenth of its 54 mm
+        window.DragPhotoTo(40, 0);
+        Check($"dragging 40 points right moves it 5.4 mm ({s.Adjust.Dx:0.00} mm)", Math.Abs(s.Adjust.Dx - 5.4) < 0.01 && s.Adjust.Dy == 0);
+        window.Window.Close();
+    }
+
+    private static void A_phone_photo_stored_sideways_is_stood_upright(string repo)
+    {
+        Console.WriteLine("A phone photo stored sideways is stood upright");
+        // a JPEG 40 wide and 20 high, marked "rotate 90 degrees to view"
+        var path = Path.Combine(TempFolder(), "sideways.jpg");
+        var plain = new RgbaImage(40, 20);
+        for (var i = 0; i < plain.Data.Length; i += 4) { plain.Data[i] = 200; plain.Data[i + 1] = 120; plain.Data[i + 2] = 40; plain.Data[i + 3] = 255; }
+        using (var picture = MacPictures.ToImage(plain))
+        using (var destination = CGImageDestination.Create(NSUrl.FromFilename(path), "public.jpeg", 1))
+        {
+            destination?.AddImage(picture, NSDictionary.FromObjectAndKey(NSNumber.FromInt32(6), CGImageProperties.Orientation));
+            Check("the sideways picture was written", destination is not null && destination.Close());
+        }
+        var (image, error) = MacPictures.Decode(path);
+        Check($"it opens upright, 20 wide and 40 high ({image?.Width} × {image?.Height}{error})", image is { Width: 20, Height: 40 });
+
+        var (none, why) = MacPictures.Decode(Path.Combine(repo, "README.md"));
+        Check($"a file that is not a picture is turned away in words (“{why}”)", none is null && why.Contains("couldn’t be opened"));
+    }
+
+    private static async Task The_driver_is_offered_once_and_the_one_xp_pen_serves_is_the_one_pinned()
+    {
+        Console.WriteLine("The pen tablet driver is offered once, and the one XP-Pen serves is the one pinned");
+        var folder = TempFolder();
+        var asked = 0;
+        var installs = 0;
+        var window = Open(folder, new Register(new FileStore(folder)) { Project = null });
+        window.Confirm = (_, _) => { asked++; return true; };
+        window.InstallDriver = () => { installs++; return Task.FromResult(""); };
+        window.OfferDriverOnStart = true;
+
+        if (PenDriver.Installed) Check("this Mac already has a tablet driver, so nothing is offered", true);
+        else
+        {
+            window.OfferDriver();
+            Check("on a Mac with no tablet driver the app offers XP-Pen’s", asked == 1);
+            Check($"saying yes opens the installer (“{window.DriverStatus}”)", await Until(() => installs == 1 && window.DriverStatus.Contains("Apple’s installer is open")));
+            window.OfferDriver();
+            Check("and it does not ask a second time", asked == 1);
+            Check("the signature step still has the button for later", !window.DriverButton.Hidden);
+        }
+
+        // XP-Pen's own file, fetched and unpacked as the app does it, but not opened: nothing is installed here.
+        var (package, error) = await PenDriver.Fetch();
+        Check($"XP-Pen still serves the pinned driver {PenDriver.Version}, and it unpacks to Apple’s installer ({(package is null ? error : Path.GetFileName(package))})",
+            package is not null && package.EndsWith(".pkg", StringComparison.OrdinalIgnoreCase) && File.Exists(package));
         window.Window.Close();
     }
 }
