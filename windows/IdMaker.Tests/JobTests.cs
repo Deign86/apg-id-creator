@@ -111,9 +111,38 @@ public class JobTests : IDisposable
 
         var saved = await s.SavePrint(path, JobOf(s), new List<Func<PdfPage>> { () => throw new InvalidOperationException("A page of the print could not be drawn.") });
 
-        Assert.Contains("(A page of the print could not be drawn)", saved.Error);
+        // said as what it is: the folder is not at fault, so there is no advice about the file being open elsewhere
+        Assert.Equal("A page of this print couldn’t be drawn (A page of the print could not be drawn). Nothing was saved. Try again; if it happens again, close the app and open it again.", saved.Error);
+        Assert.Equal(0, saved.Cards);
         Assert.Empty(register.All());
         Assert.Empty(Directory.GetFiles(_folder));
+    }
+
+    [Fact]
+    public async Task A_slip_in_page_drawing_is_not_reported_as_a_file_open_in_another_program()
+    {
+        var path = Path.Combine(_folder, "batch.pdf");
+        int? none = null;
+
+        // what a programming error in a renderer looks like from here: the same exception type a window uses to say "could not draw"
+        var error = await PrintFiles.Write(path, new List<Func<PdfPage>> { BlankPage, () => { _ = none!.Value; return BlankPage(); } }, "Batch", new DateTime(2026, 11, 17));
+
+        Assert.StartsWith("A page of this print couldn’t be drawn (", error);
+        Assert.DoesNotContain("another program", error);
+        Assert.DoesNotContain("different folder", error);
+        Assert.Empty(Directory.GetFiles(_folder));
+    }
+
+    [Fact]
+    public async Task A_failure_of_another_kind_in_page_drawing_is_not_caught_as_a_save_that_failed()
+    {
+        var path = Path.Combine(_folder, "batch.pdf");
+
+        // not something the operator can act on, so it is not turned into a message here: it reaches the app's own last-error report
+        await Assert.ThrowsAsync<FormatException>(() =>
+            PrintFiles.Write(path, new List<Func<PdfPage>> { () => throw new FormatException("Not a number.") }, "Batch", new DateTime(2026, 11, 17)));
+
+        Assert.False(File.Exists(path));
     }
 
     [Fact]

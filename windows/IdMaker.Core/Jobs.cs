@@ -53,28 +53,48 @@ public static class PrintFiles
     public static async Task<string> Write(string path, IReadOnlyList<Func<PdfPage>> pages, string title, DateTime created, Action<int, int>? progress = null)
     {
         var partial = path + ".part";
+        var drawn = pages.Select(Drawn).ToList();
         try
         {
             await Task.Run(() =>
             {
                 using (var stream = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
-                    PdfWriter.Write(stream, pages, title, created, progress);
+                    PdfWriter.Write(stream, drawn, title, created, progress);
                 }
                 File.Move(partial, path, overwrite: true);
             });
             return "";
         }
-        // InvalidOperationException is a page that could not be drawn (the window is closing, a picture is gone)
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or OutOfMemoryException or InvalidOperationException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or OutOfMemoryException or PageNotDrawnException)
         {
             try { File.Delete(partial); }
             catch (Exception d) when (d is IOException or UnauthorizedAccessException) { /* nothing more to be done about a file that will not go */ }
-            return e is OutOfMemoryException
-                ? "This print is too large for this computer’s memory. Print fewer cards at a time."
-                : $"The file couldn’t be saved there {Words.Why(e)}. If it is open in another program, close it, or choose a different folder.";
+            return e switch
+            {
+                OutOfMemoryException => "This print is too large for this computer’s memory. Print fewer cards at a time.",
+                // not the folder's fault, so no advice about the folder
+                PageNotDrawnException => $"A page of this print couldn’t be drawn {Words.Why(e)}. Nothing was saved. Try again; if it happens again, close the app and open it again.",
+                _ => $"The file couldn’t be saved there {Words.Why(e)}. If it is open in another program, close it, or choose a different folder.",
+            };
         }
     }
+
+    /// <summary>
+    /// A page the window could not draw (it is closing, a picture is gone).
+    /// A window's page function says so with InvalidOperationException, which
+    /// is also what a slip in the drawing code throws; only one that came out
+    /// of a page function becomes this, and Write catches this and no other
+    /// InvalidOperationException, so neither is taken for a file that is open
+    /// in another program.
+    /// </summary>
+    private sealed class PageNotDrawnException(InvalidOperationException cause) : Exception(cause.Message, cause);
+
+    private static Func<PdfPage> Drawn(Func<PdfPage> page) => () =>
+    {
+        try { return page(); }
+        catch (InvalidOperationException e) { throw new PageNotDrawnException(e); }
+    };
 
     /// <summary>Where the back goes when the front is saved as a picture: beside it, "-front" swapped for "-back".</summary>
     public static string BackPictureFor(string frontPath, string folderIfNone) =>
