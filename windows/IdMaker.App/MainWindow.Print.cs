@@ -18,57 +18,47 @@ public partial class MainWindow
 {
     /* ---- step 6: check and print ---------------------------------- */
 
-    private void RenderCheckStep(Dictionary<Field, string> p)
+    private void RenderCheckStep(CheckView v)
     {
         var s = _session;
         if (s.StepIndex != Session.LastStep) return;
-        var hasCurrent = s.Ready(p);
-        var cards = s.JobCards();
-        var plan = s.CurrentPlan();
 
-        Show(ReviewStage, !_saved);
-        Show(SavedStage, _saved);
-        SetText(StepCheckHeading, _saved ? (_savedCount > 1 ? $"{_savedCount} IDs ready to print" : "ID ready to print")
-            : hasCurrent ? "Is everything correct?" : "Ready to print");
-        Show(ReviewSub, !hasCurrent && !_saved);
-        SetText(ReviewSub, $"Printing the {cards.Count} card{(cards.Count == 1 ? "" : "s")} already in this print.");
+        Show(ReviewStage, !v.Saved);
+        Show(SavedStage, v.Saved);
+        SetText(StepCheckHeading, v.Heading);
+        Show(ReviewSub, v.SubShown);
+        SetText(ReviewSub, v.Sub);
 
         // a plain summary of the card on screen, each line one press from being edited
-        Show(Summary, hasCurrent);
-        if (hasCurrent && _art is not null && _renderer is not null)
+        Show(Summary, v.SummaryShown);
+        if (v.SummaryShown && _art is not null && _renderer is not null)
         {
-            var data = s.CardData();
-            SummaryImage.Source = _renderer.RenderFront(_art, s.Geometry, data, 132 * 2 / CardConfig.CardWidthMm);
-            SetText(SumName, Naming.CollapseSpaces(data.Name));
-            SetText(SumTitle, s.Geometry.Title.Uppercase ? Naming.Upper(data.Title) : data.Title);
-            SetText(SumNumber, Naming.EmployeeId(s.Year, data.Seq!.Value));
+            SummaryImage.Source = _renderer.RenderFront(_art, s.Geometry, s.CardData(), 132 * 2 / CardConfig.CardWidthMm);
+            SetText(SumName, v.SummaryName);
+            SetText(SumTitle, v.SummaryTitle);
+            SetText(SumNumber, v.SummaryNumber);
         }
-        var warnings = s.Photo?.Check.Warnings ?? Array.Empty<string>();
-        Show(ReviewWarning, hasCurrent && warnings.Count > 0);
-        SetText(ReviewWarning, string.Join(" ", warnings));
+        Show(ReviewWarning, v.WarningShown);
+        SetText(ReviewWarning, v.Warning);
 
         LayPairs.IsChecked = s.Layout == SheetMode.Pairs;
         LayDuplex.IsChecked = s.Layout == SheetMode.Duplex;
+        // SAFETY: CmbPaper's items are made in the constructor, each with its paper's key as a string Tag.
         foreach (var item in CmbPaper.Items.OfType<ComboBoxItem>()) if ((string)item.Tag == s.Paper && !item.IsSelected) item.IsSelected = true;
 
-        if (plan is not null)
+        if (v.HasPlan)
         {
-            var per = plan.PerSheet;
-            var copies = s.PrintCopies(plan);
-            var total = cards.Count * copies;
-            var sheets = (int)Math.Ceiling(total / (double)per);
-            if (!TxtCopies.IsKeyboardFocusWithin) SyncText(TxtCopies, copies.ToString(CultureInfo.InvariantCulture));
-            CopiesDown.IsEnabled = copies > 1;
-            CopiesUp.IsEnabled = copies < per * 20;
-            SetText(CopiesLabel, cards.Count > 1 ? "Copies of each card" : "Copies of this card");
-            // how many fit, and the sheet count only when it is more than one
-            SetText(PrintNote, $"{per} cards per {s.Paper} sheet" + (sheets > 1 ? $" · {total} cards, {sheets} sheets" : "") + ".");
+            if (!TxtCopies.IsKeyboardFocusWithin) SyncText(TxtCopies, v.CopiesText);
+            CopiesDown.IsEnabled = v.CopiesDownEnabled;
+            CopiesUp.IsEnabled = v.CopiesUpEnabled;
+            SetText(CopiesLabel, v.CopiesLabel);
+            SetText(PrintNote, v.PrintNote);
         }
-        SetText(ReviewFile, s.PrintFileLine());
-        BtnDownload.IsEnabled = cards.Count > 0 && !_saving;
-        BtnDownload.Content = _saving ? "Saving the PDF…" : "Save the PDF";
-        BtnPng.IsEnabled = hasCurrent && !_saving;
-        BtnAddAnother.IsEnabled = hasCurrent && !_saving;
+        SetText(ReviewFile, v.FileLine);
+        BtnDownload.IsEnabled = v.SaveEnabled;
+        BtnDownload.Content = v.SaveTitle;
+        BtnPng.IsEnabled = v.PicturesEnabled;
+        BtnAddAnother.IsEnabled = v.AddAnotherEnabled;
     }
 
     private bool _saving;
@@ -103,7 +93,7 @@ public partial class MainWindow
     {
         var from = _session.StepIndex;
         _session.AddAnother();
-        AfterMove(from, new MoveResult(true, null));
+        AfterMove(from);
     }
 
     private void BtnCancelAdd_Click(object sender, RoutedEventArgs e)
@@ -111,26 +101,21 @@ public partial class MainWindow
         if (_session.StartedCard && !Confirm("Discard the ID you have started? The cards already in this print are kept.", "Discard")) return;
         var from = _session.StepIndex;
         _session.CancelAdding();
-        AfterMove(from, new MoveResult(true, null));
+        AfterMove(from);
     }
 
-    private void RenderJob()
+    private void RenderJob(JobView v)
     {
-        var s = _session;
-        var cards = s.JobCards();
-        var onCheck = s.StepIndex == Session.LastStep;
-        // the strip is for knowing what is already waiting; it has nothing to say during the very first card
-        Show(QueueStrip, (s.Queue.Count > 0 || (onCheck && cards.Count > 0)) && !_saved);
+        Show(QueueStrip, v.Shown);
         if (QueueStrip.Visibility != Visibility.Visible) return;
 
-        var key = string.Join("|", cards.Select(c => c.Id + c.Label + c.Current));
-        if (key != _jobShown)
+        if (v.Key != _jobShown)
         {
-            _jobShown = key;
+            _jobShown = v.Key;
             JobList.Children.Clear();
-            for (var i = 0; i < cards.Count; i++)
+            for (var i = 0; i < v.Rows.Count; i++)
             {
-                var c = cards[i];
+                var c = v.Rows[i];
                 var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
                 if (c.Current)
                 {
@@ -143,27 +128,25 @@ public partial class MainWindow
                 {
                     var index = i;
                     var remove = new Button { Style = Theme.Style("Button.Ghost"), Content = "Remove", MinHeight = 32, Padding = new Thickness(10, 4, 10, 4), FontSize = 13 };
-                    System.Windows.Automation.AutomationProperties.SetName(remove, $"Take {c.Label} out of this print");
-                    remove.Click += (_, _) => { var from = _session.StepIndex; _session.RemoveFromQueue(index); AfterMove(from, new MoveResult(true, null)); };
+                    System.Windows.Automation.AutomationProperties.SetName(remove, c.RemoveSays);
+                    remove.Click += (_, _) => { var from = _session.StepIndex; _session.RemoveFromQueue(index); AfterMove(from); };
                     DockPanel.SetDock(remove, Dock.Right);
                     row.Children.Add(remove);
                 }
                 var who = new TextBlock
                 {
-                    Text = $"{i + 1}.  {c.Label} · {c.Id}", FontSize = 14,
-                    VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = $"{c.Label} · {c.Id}",
+                    Text = c.Text, FontSize = 14,
+                    VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = c.ToolTip,
                 };
                 Theme.Paint(who, TextBlock.ForegroundProperty, "Color.StageInk");
                 row.Children.Add(who);
                 JobList.Children.Add(row);
             }
         }
-        SetText(JobCount, $"{cards.Count} card{(cards.Count == 1 ? "" : "s")}");
-        SetText(JobNote, s.Queue.Count == 0 ? ""
-            : onCheck ? "All of these print together, and are issued when you save."
-            : "Finish this card and they all go on one sheet.");
-        Show(JobNote, s.Queue.Count > 0);
-        Show(BtnCancelAdd, s.Queue.Count > 0 && !onCheck);
+        SetText(JobCount, v.Count);
+        SetText(JobNote, v.Note);
+        Show(JobNote, v.NoteShown);
+        Show(BtnCancelAdd, v.CancelAddShown);
     }
 
     private string _jobShown = "";
@@ -282,7 +265,7 @@ public partial class MainWindow
         var from = _session.StepIndex;
         _saved = false;
         _session.NewId();
-        AfterMove(from, new MoveResult(true, null));
+        AfterMove(from);
     }
 
     private void BtnOpenFolder_Click(object sender, RoutedEventArgs e) => ShowInExplorer(_savedPath);
@@ -300,11 +283,6 @@ public partial class MainWindow
        occasional, and they belong beside the work rather than under it.
        One opens at a time.
        ---------------------------------------------------------------- */
-
-    private static readonly Dictionary<string, string> ToolTitles = new()
-    {
-        [ToolKey.Register] = "Issued IDs", [ToolKey.Batch] = "Batch from CSV", [ToolKey.Printer] = "Printer setting", [ToolKey.Design] = "Card design",
-    };
 
     private void Rail_Click(object sender, RoutedEventArgs e)
     {
@@ -326,12 +304,12 @@ public partial class MainWindow
         (was switch { ToolKey.Register => RailRegister, ToolKey.Batch => RailBatch, ToolKey.Printer => RailPrinter, ToolKey.Design => RailDesign, _ => null })?.Focus();
     }
 
-    private void RenderTools()
+    private void RenderTools(Screen m)
     {
-        // the design can only be changed before an ID is started
-        var designOk = _session.DesignAllowed;
-        Show(RailDesign, designOk);
-        if (!designOk && _tool == ToolKey.Design) _tool = null;
+        // the design can only be changed before an ID is started: Core takes
+        // its button away and shuts its drawer once one is
+        Show(RailDesign, m.Tools.DesignOffered);
+        _tool = m.Tools.Open;
 
         // Editing the map and having the Card design drawer open are the
         // same state, and this is where that is enforced rather than in each
@@ -342,8 +320,7 @@ public partial class MainWindow
         if (EditingMap && _tool != ToolKey.Design) StopAdjusting();
 
         Show(Drawer, _tool is not null);
-        var all = _register.All();
-        if (_tool is not null) SetText(DrawerTitle, _tool == ToolKey.Register && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
+        if (_tool is not null) SetText(DrawerTitle, m.Tools.DrawerTitle);
         Show(ToolRegister, _tool == ToolKey.Register);
         Show(ToolBatch, _tool == ToolKey.Batch);
         Show(ToolPrinter, _tool == ToolKey.Printer);
@@ -354,10 +331,10 @@ public partial class MainWindow
         RailDesign.IsChecked = _tool == ToolKey.Design;
 
         // a badge on the rail, and nothing at all when there is nothing to count
-        SetText(RailRegisterCount, all.Count.ToString(CultureInfo.InvariantCulture));
-        Show(RailRegisterBadge, all.Count > 0);
+        SetText(RailRegisterCount, m.Tools.Issued.ToString(CultureInfo.InvariantCulture));
+        Show(RailRegisterBadge, m.Tools.Issued > 0);
 
-        if (_tool == ToolKey.Register) RenderRegister(all);
+        if (m.Register is { } register) RenderRegister(register);
         if (_tool == ToolKey.Printer)
         {
             foreach (var item in CmbFlip.Items.OfType<ComboBoxItem>())
@@ -389,30 +366,32 @@ public partial class MainWindow
 
     private string _registerShown = "\u0000";
 
-    private void RenderRegister(IReadOnlyList<RegisterEntry> all)
+    /// <summary>The issued IDs, who is signed in to the shared register on this computer, and what the register has refused.</summary>
+    private void RenderRegister(RegisterView v)
     {
-        BtnRegisterCsv.IsEnabled = all.Count > 0;
-        RenderSignIn();
-        SetText(RegisterNote, all.Count > 0
-            ? "The most recent cards issued on this computer. Each one is also written to the shared register, which is what the duplicate check reads."
-            : "Nothing issued yet. Every card you save is listed here, and written to the shared register.");
-        var key = string.Join("|", all.Take(25).Select(e => e.Id + e.IssuedAt)) + all.Count;
-        if (key == _registerShown) return;
-        _registerShown = key;
+        BtnRegisterCsv.IsEnabled = v.ExportEnabled;
+        SetText(RegisterAccount, v.Account);
+        Show(SignInForm, v.SignInShown);
+        Show(SignedInActions, v.SignedInShown);
+        Show(RefusedPanel, v.RefusedShown);
+        SetText(RefusedNote, v.RefusedNote);
+        SetText(RegisterNote, v.Note);
+        if (v.Key == _registerShown) return;
+        _registerShown = v.Key;
         RegisterList.Children.Clear();
-        foreach (var e in all.Take(25))
+        foreach (var e in v.Rows)
         {
             var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
             var head = new DockPanel();
-            var when = new TextBlock { Text = e.IssuedOn, Style = Theme.Style("Text.Note") };
+            var when = new TextBlock { Text = e.When, Style = Theme.Style("Text.Note") };
             DockPanel.SetDock(when, Dock.Right);
             head.Children.Add(when);
-            head.Children.Add(new TextBlock { Text = e.Id + (e.Replacement ? " (replacement)" : ""), Style = Theme.Style("Text.Body"), FontWeight = FontWeights.SemiBold });
+            head.Children.Add(new TextBlock { Text = e.Head, Style = Theme.Style("Text.Body"), FontWeight = FontWeights.SemiBold });
             row.Children.Add(head);
-            row.Children.Add(new TextBlock { Text = $"{e.Name} · {e.Title}", Style = Theme.Style("Text.Note") });
+            row.Children.Add(new TextBlock { Text = e.Detail, Style = Theme.Style("Text.Note") });
             RegisterList.Children.Add(row);
         }
-        if (all.Count > 25) RegisterList.Children.Add(new TextBlock { Text = $"… and {all.Count - 25} more in the saved list.", Style = Theme.Style("Text.Note") });
+        if (v.More.Length > 0) RegisterList.Children.Add(new TextBlock { Text = v.More, Style = Theme.Style("Text.Note") });
     }
 
     private void BtnRegisterCsv_Click(object sender, RoutedEventArgs e)
@@ -449,28 +428,6 @@ public partial class MainWindow
         {
             RegisterUrlMsg.Text = $"That file couldn’t be read ({x.Message.TrimEnd('.')}).";
         }
-    }
-
-    /// <summary>Who is signed in to the shared register on this computer, and what the register has refused.</summary>
-    private void RenderSignIn()
-    {
-        var shared = _register.Shared;
-        var signedIn = _register.SignedIn;
-        var waiting = _register.WaitingForShared;
-        SetText(RegisterAccount, !shared ? "This copy of the app keeps its own list only."
-            : signedIn ? $"Signed in as {_register.SignedInAs}."
-                + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} still waiting to be written to it." : "")
-            : (_register.SignInProblem.Length > 0 ? _register.SignInProblem + " " : "")
-                + "Sign in with your Keystone account, once on this computer, so numbers are checked against every computer."
-                + (waiting > 0 ? $" {waiting} card{(waiting == 1 ? " is" : "s are")} waiting to be written to it." : ""));
-        Show(SignInForm, shared && !signedIn);
-        Show(SignedInActions, shared && signedIn);
-
-        var refused = _register.Refused;
-        Show(RefusedPanel, refused.Count > 0);
-        SetText(RefusedNote, refused.Count == 0 ? "" : string.Join("\n", refused.Select(r =>
-            $"{r.Card.Id} belongs to {r.Holder.Name}{(r.Holder.IssuedOn.Length > 0 ? $" (issued {r.Holder.IssuedOn})" : "")}. "
-            + $"The card made here for {r.Card.Name} is a duplicate: take it back, and make it again with a number that is free.")));
     }
 
     private void BtnRefusedDone_Click(object sender, RoutedEventArgs e)
@@ -560,9 +517,10 @@ public partial class MainWindow
     private void UpdateBatchButton()
     {
         BtnBatch.IsEnabled = !_batchRunning && _batchCsv is not null && _batchPhotos.Length > 0 && _art is not null;
-        SetText(CsvMsg, _batchCsv is null ? "Columns: last, first, title, seq, and optionally middle, suffix, title2, year, photo, signature, replacement." : Path.GetFileName(_batchCsv));
-        SetText(PhotosMsg, _batchPhotos.Length > 0 ? $"{_batchPhotos.Length} photo{(_batchPhotos.Length == 1 ? "" : "s")} chosen." : "Choose every photo. They are matched to the list by file name.");
-        SetText(SigsMsg, _batchSigs.Length > 0 ? $"{_batchSigs.Length} signature{(_batchSigs.Length == 1 ? "" : "s")} chosen." : "Photos or scans of signatures on white paper. Rows without one get a card with no signature.");
+        var chosen = Screen.BatchChosen(_batchCsv, _batchPhotos.Length, _batchSigs.Length);
+        SetText(CsvMsg, chosen.List);
+        SetText(PhotosMsg, chosen.Photos);
+        SetText(SigsMsg, chosen.Signatures);
     }
 
     private void BtnPickCsv_Click(object sender, RoutedEventArgs e)
@@ -601,9 +559,7 @@ public partial class MainWindow
         if (LayoutMsg is null || BatchPaperField is null || CmbBatchPaper is null) return;      // the markup is still loading
         var layout = BatchLayoutChoice;
         Show(BatchPaperField, layout != Batch.LayoutCards);
-        if (layout == Batch.LayoutCards) { LayoutMsg.Text = "Two pages per person, each the size of the card."; return; }
-        var plan = Sheets.Plan(BatchPaperChoice, layout == Batch.LayoutPairs ? SheetMode.Pairs : SheetMode.Duplex);
-        LayoutMsg.Text = plan is null ? "" : $"{plan.PerSheet} cards per sheet ({plan.Cols} × {plan.Rows}, {(plan.Landscape ? "landscape" : "portrait")}).";
+        LayoutMsg.Text = Screen.BatchLayoutLine(layout, BatchPaperChoice);
     }
 
     private void BtnBatch_Click(object sender, RoutedEventArgs e)
@@ -690,14 +646,11 @@ public partial class MainWindow
         BatchReport.Children.Clear();
         foreach (var r in results)
         {
-            var (style, note) = !r.Ok ? ("Text.Error", r.Problem)
-                : r.Warnings.Count > 0 || r.NoSignature
-                    ? ("Text.Warning", string.Join(" ", new[] { r.NoSignature ? "No signature on this card." : "" }.Concat(r.Warnings).Where(t => t.Length > 0)))
-                    : ("Text.Note", "Ready.");
+            var (tone, head, text) = Screen.BatchRow(r);
             var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
-            row.Children.Add(new TextBlock { Text = r.Ok ? $"{r.Id} · {r.Label}" : $"Line {r.Line} · {r.Label}", Style = Theme.Style("Text.Body"), FontWeight = FontWeights.SemiBold });
+            row.Children.Add(new TextBlock { Text = head, Style = Theme.Style("Text.Body"), FontWeight = FontWeights.SemiBold });
             // the words say which it is; the colour only agrees with them
-            row.Children.Add(new TextBlock { Text = (r.Ok ? "" : "Skipped: ") + note, Style = Theme.Style(style) });
+            row.Children.Add(new TextBlock { Text = text, Style = Theme.Style(TextStyle(tone)) });
             BatchReport.Children.Add(row);
         }
     }
@@ -790,19 +743,12 @@ public partial class MainWindow
     private void ShowContrastWarnings()
     {
         var warnings = _art is null ? Array.Empty<ContrastWarning>() : _templates.Warnings(CardRenderer.ToRgba(_art.Front));
-        Show(DesignWarn, warnings.Count > 0);
+        var (head, lines) = Screen.ContrastReport(warnings);
+        Show(DesignWarn, head.Length > 0);
         DesignWarnList.Children.Clear();
-        if (warnings.Count == 0) return;
-        var names = warnings.Select(w => w.Label).ToList();
-        var list = names.Count > 1 ? $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]}" : names[0];
-        DesignWarnHead.Text = $"The {list} would be hard to read on this artwork. Put a darker shape behind {(warnings.Count > 1 ? "those boxes" : "that box")}.";
-        foreach (var w in warnings)
-        {
-            DesignWarnList.Children.Add(new TextBlock
-            {
-                Text = $"{w.Label}: prints in {w.Ink}, contrast {w.Ratio:0.0}:1 against the artwork (needs {w.Need:0}:1).", Style = Theme.Style("Text.Note"),
-            });
-        }
+        if (head.Length == 0) return;
+        DesignWarnHead.Text = head;
+        foreach (var line in lines) DesignWarnList.Children.Add(new TextBlock { Text = line, Style = Theme.Style("Text.Note") });
     }
 
     private void BtnTplMap_Click(object sender, RoutedEventArgs e) => StartAdjusting();
