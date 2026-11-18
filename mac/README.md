@@ -54,11 +54,11 @@ cd mac && dotnet workload install macos --from-rollback-file workloads.json
 ```
 
 ```bash
-cd mac && dotnet build IdMaker.Mac -c Release -p:WindowTest=true
+cd mac && dotnet build IdMaker.Mac -c Release -r osx-arm64 -p:WindowTest=true
 ```
 
 ```bash
-app=$(find mac/IdMaker.Mac/bin/Release -maxdepth 4 -name '*.app' | head -1); "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest --repo "$PWD" && "$app/Contents/MacOS/AlphaPremierIdMaker" --windowtest --repo "$PWD"
+app=$(find mac/IdMaker.Mac/bin/Release -maxdepth 4 -path '*osx-arm64*' -name '*.app' | head -1); "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest --repo "$PWD" && "$app/Contents/MacOS/AlphaPremierIdMaker" --windowtest --repo "$PWD"
 ```
 
 ```bash

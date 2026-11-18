@@ -53,21 +53,21 @@ jobs:
       - name: Core tests, on a Mac
         run: dotnet test ../windows/IdMaker.Tests -c Release
       - name: Build, as it is released
-        run: dotnet build IdMaker.Mac -c Release
+        run: dotnet build IdMaker.Mac -c Release -r osx-arm64
       - name: Build, with the window tests in it
-        run: dotnet build IdMaker.Mac -c Release -p:WindowTest=true
+        run: dotnet build IdMaker.Mac -c Release -r osx-arm64 -p:WindowTest=true
       - name: Self-test
         env:
           IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
         run: |
-          app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -name '*.app' | head -1)
+          app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -path '*osx-arm64*' -name '*.app' | head -1)
           echo "$app"; ls "$app/Contents/MacOS" "$app/Contents/Resources"
           "$app/Contents/MacOS/AlphaPremierIdMaker" --selftest --repo "$GITHUB_WORKSPACE"
       - name: Window tests
         env:
           IDMAKER_REPORT_DIR: ${{ github.workspace }}/report
         run: |
-          app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -name '*.app' | head -1)
+          app=$(find IdMaker.Mac/bin/Release -maxdepth 4 -path '*osx-arm64*' -name '*.app' | head -1)
           "$app/Contents/MacOS/AlphaPremierIdMaker" --windowtest --repo "$GITHUB_WORKSPACE"
       # The pictures the window tests took, small, in the log itself: the
       # log can be read from anywhere, the artifact only by a signed-in person.

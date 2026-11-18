@@ -15,6 +15,9 @@
     <Version>2.0.4</Version>
     <ApplicationDisplayVersion>2.0.4</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
+    <!-- Nothing is trimmed out of the app: Core reads and writes its files and the register's answers by
+         reflection (System.Text.Json), and what was tested is what should ship. The cost is a larger download. -->
+    <LinkMode>None</LinkMode>
   </PropertyGroup>
 
   <ItemGroup>
