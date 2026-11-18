@@ -166,7 +166,7 @@ public partial class MainWindow : Window
             await _register.SendWaiting();
         }
         // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
-        if (_register.Refused.Count > 0) _tool = "register";
+        if (_register.Refused.Count > 0) _tool = ToolKey.Register;
         _session.RefreshDuplicate();
         Render();
     }

@@ -50,6 +50,18 @@ public sealed record JobCard(string Id, string Label, string Title, CardData Dat
 /// <summary>What pressing Next, or a step chip, led to.</summary>
 public sealed record MoveResult(bool Moved, Field? FocusField);
 
+/// <summary>
+/// The four tools beside the form, by the name each window keeps the open
+/// one under. The Windows markup carries the same words as its buttons' tags.
+/// </summary>
+public static class ToolKey
+{
+    public const string Register = "register";
+    public const string Batch = "batch";
+    public const string Printer = "printer";
+    public const string Design = "design";
+}
+
 public sealed partial class Session
 {
     public const int LastStep = (int)Step.Check;

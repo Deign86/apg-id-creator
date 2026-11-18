@@ -200,10 +200,10 @@ public sealed partial class MainWindow
         Confirm = AskYesNo;
 
         /* ---- rail ---- */
-        _railRegister = Ui.Button("Issued IDs", () => ToggleTool("register"));
-        _railBatch = Ui.Button("Batch from a list", () => ToggleTool("batch"));
-        _railPrinter = Ui.Button("Printer setting", () => ToggleTool("printer"));
-        _railDesign = Ui.Button("Card design", () => ToggleTool("design"));
+        _railRegister = Ui.Button("Issued IDs", () => ToggleTool(ToolKey.Register));
+        _railBatch = Ui.Button("Batch from a list", () => ToggleTool(ToolKey.Batch));
+        _railPrinter = Ui.Button("Printer setting", () => ToggleTool(ToolKey.Printer));
+        _railDesign = Ui.Button("Card design", () => ToggleTool(ToolKey.Design));
         var rail = Ui.Column(10,
             _logo,
             Ui.Label("Alpha Premier", 12, muted: true, maxWidth: 150),
@@ -538,7 +538,7 @@ public sealed partial class MainWindow
             await _register.SendWaiting();
         }
         // one of them may have been refused: somebody else took its number meanwhile. That cannot wait to be found.
-        if (_register.Refused.Count > 0) _tool = "register";
+        if (_register.Refused.Count > 0) _tool = ToolKey.Register;
         _session.RefreshDuplicate();
         Render();
     }
@@ -1313,7 +1313,7 @@ public sealed partial class MainWindow
 
     private static readonly Dictionary<string, string> ToolTitles = new()
     {
-        ["register"] = "Issued IDs", ["batch"] = "Batch from a list", ["printer"] = "Printer setting", ["design"] = "Card design",
+        [ToolKey.Register] = "Issued IDs", [ToolKey.Batch] = "Batch from a list", [ToolKey.Printer] = "Printer setting", [ToolKey.Design] = "Card design",
     };
 
     private void RenderTools()
@@ -1321,28 +1321,28 @@ public sealed partial class MainWindow
         // the design can only be changed before an ID is started
         var designOk = _session.DesignAllowed;
         Ui.Show(_railDesign, designOk);
-        if (!designOk && _tool == "design") _tool = null;
+        if (!designOk && _tool == ToolKey.Design) _tool = null;
 
         // Editing the map and having the Card design drawer open are the
         // same state, and this is where that is enforced rather than in each
         // of the handlers that can close it: the Keep button lives in that
         // drawer, so any route that closed the drawer without it would leave
         // the boxes on the card with no button anywhere to finish with.
-        if (EditingMap && _tool != "design") StopAdjusting();
+        if (EditingMap && _tool != ToolKey.Design) StopAdjusting();
 
         Ui.Show(_drawer, _tool is not null);
         var all = _register.All();
         _railRegister.Title = all.Count > 0 ? $"Issued IDs ({all.Count})" : "Issued IDs";
         if (_tool is null) return;
-        Ui.SetText(_drawerTitle, _tool == "register" && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
-        Ui.Show(_toolRegister, _tool == "register");
-        Ui.Show(_toolBatch, _tool == "batch");
-        Ui.Show(_toolPrinter, _tool == "printer");
-        Ui.Show(_toolDesign, _tool == "design");
-        if (_tool == "register") RenderRegister(all);
-        if (_tool == "batch") RenderBatch();
-        if (_tool == "design") RenderDesign();
-        if (_tool == "printer")
+        Ui.SetText(_drawerTitle, _tool == ToolKey.Register && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
+        Ui.Show(_toolRegister, _tool == ToolKey.Register);
+        Ui.Show(_toolBatch, _tool == ToolKey.Batch);
+        Ui.Show(_toolPrinter, _tool == ToolKey.Printer);
+        Ui.Show(_toolDesign, _tool == ToolKey.Design);
+        if (_tool == ToolKey.Register) RenderRegister(all);
+        if (_tool == ToolKey.Batch) RenderBatch();
+        if (_tool == ToolKey.Design) RenderDesign();
+        if (_tool == ToolKey.Printer)
         {
             _cmbFlip.SelectItem(_session.Flip == DuplexFlip.ShortEdge ? 1 : 0);
             _chkRotate.State = _session.RotateBack ? NSCellStateValue.On : NSCellStateValue.Off;

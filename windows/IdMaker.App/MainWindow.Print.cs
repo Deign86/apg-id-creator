@@ -303,7 +303,7 @@ public partial class MainWindow
 
     private static readonly Dictionary<string, string> ToolTitles = new()
     {
-        ["register"] = "Issued IDs", ["batch"] = "Batch from CSV", ["printer"] = "Printer setting", ["design"] = "Card design",
+        [ToolKey.Register] = "Issued IDs", [ToolKey.Batch] = "Batch from CSV", [ToolKey.Printer] = "Printer setting", [ToolKey.Design] = "Card design",
     };
 
     private void Rail_Click(object sender, RoutedEventArgs e)
@@ -311,7 +311,7 @@ public partial class MainWindow
         // SAFETY: the four rail buttons carry their tool's name as their Tag in the markup.
         var name = (string)((FrameworkElement)sender).Tag;
         _tool = _tool == name ? null : name;
-        if (_tool == "register") RegisterUrlMsg.Text = "";
+        if (_tool == ToolKey.Register) RegisterUrlMsg.Text = "";
         Render();
     }
 
@@ -323,7 +323,7 @@ public partial class MainWindow
         _tool = null;
         Render();
         // focus goes back to the button that opened the drawer
-        (was switch { "register" => RailRegister, "batch" => RailBatch, "printer" => RailPrinter, "design" => RailDesign, _ => null })?.Focus();
+        (was switch { ToolKey.Register => RailRegister, ToolKey.Batch => RailBatch, ToolKey.Printer => RailPrinter, ToolKey.Design => RailDesign, _ => null })?.Focus();
     }
 
     private void RenderTools()
@@ -331,7 +331,7 @@ public partial class MainWindow
         // the design can only be changed before an ID is started
         var designOk = _session.DesignAllowed;
         Show(RailDesign, designOk);
-        if (!designOk && _tool == "design") _tool = null;
+        if (!designOk && _tool == ToolKey.Design) _tool = null;
 
         // Editing the map and having the Card design drawer open are the
         // same state, and this is where that is enforced rather than in each
@@ -339,32 +339,32 @@ public partial class MainWindow
         // drawer, so any route that closed the drawer without going through
         // it — Close, Escape, another tool in the rail — would otherwise
         // leave the boxes on the card with no button anywhere to finish with.
-        if (EditingMap && _tool != "design") StopAdjusting();
+        if (EditingMap && _tool != ToolKey.Design) StopAdjusting();
 
         Show(Drawer, _tool is not null);
         var all = _register.All();
-        if (_tool is not null) SetText(DrawerTitle, _tool == "register" && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
-        Show(ToolRegister, _tool == "register");
-        Show(ToolBatch, _tool == "batch");
-        Show(ToolPrinter, _tool == "printer");
-        Show(ToolDesign, _tool == "design");
-        RailRegister.IsChecked = _tool == "register";
-        RailBatch.IsChecked = _tool == "batch";
-        RailPrinter.IsChecked = _tool == "printer";
-        RailDesign.IsChecked = _tool == "design";
+        if (_tool is not null) SetText(DrawerTitle, _tool == ToolKey.Register && all.Count > 0 ? $"Issued IDs ({all.Count})" : ToolTitles[_tool]);
+        Show(ToolRegister, _tool == ToolKey.Register);
+        Show(ToolBatch, _tool == ToolKey.Batch);
+        Show(ToolPrinter, _tool == ToolKey.Printer);
+        Show(ToolDesign, _tool == ToolKey.Design);
+        RailRegister.IsChecked = _tool == ToolKey.Register;
+        RailBatch.IsChecked = _tool == ToolKey.Batch;
+        RailPrinter.IsChecked = _tool == ToolKey.Printer;
+        RailDesign.IsChecked = _tool == ToolKey.Design;
 
         // a badge on the rail, and nothing at all when there is nothing to count
         SetText(RailRegisterCount, all.Count.ToString(CultureInfo.InvariantCulture));
         Show(RailRegisterBadge, all.Count > 0);
 
-        if (_tool == "register") RenderRegister(all);
-        if (_tool == "printer")
+        if (_tool == ToolKey.Register) RenderRegister(all);
+        if (_tool == ToolKey.Printer)
         {
             foreach (var item in CmbFlip.Items.OfType<ComboBoxItem>())
                 item.IsSelected = (string)item.Tag == (_session.Flip == DuplexFlip.ShortEdge ? "short" : "long");
             ChkRotate.IsChecked = _session.RotateBack;
         }
-        if (_tool == "design") RenderDesign();
+        if (_tool == ToolKey.Design) RenderDesign();
         // the form stands down while the boxes are being dragged
         FormPanel.IsEnabled = !EditingMap;
         FitColumns();
@@ -813,7 +813,7 @@ public partial class MainWindow
         // what Cancel puts back: the map as it was when the editor opened
         _editSnapshot = _templates.Snapshot();
         _front = true;
-        _tool = "design";
+        _tool = ToolKey.Design;
         MapOverlay.Visibility = Visibility.Visible;
         MapOverlay.Refresh();
         Render();

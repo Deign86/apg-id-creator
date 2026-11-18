@@ -357,7 +357,7 @@ public sealed partial class MainWindow
         // what Discard puts back: the map as it was when the editor opened
         _editSnapshot = _templates.Snapshot();
         _front = true;
-        _tool = "design";
+        _tool = ToolKey.Design;
         _map.Hidden = false;
         _map.Refresh();
         Render();
