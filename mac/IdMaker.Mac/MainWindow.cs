@@ -490,12 +490,12 @@ public sealed partial class MainWindow
         {
             var measurer = MacTextMeasurer.Load(InBundle("Fonts"));
             _renderer = new MacCardRenderer(measurer);
-            var front = MacPictures.Load(InBundle("Assets", "front-template.png"));
-            var back = MacPictures.Load(InBundle("Assets", "back.png"));
+            var front = MacPictures.Load(InBundle("Assets", CardConfig.FrontArtFile));
+            var back = MacPictures.Load(InBundle("Assets", CardConfig.BackArtFile));
             if (front is null || back is null) throw new IOException("the card artwork is missing.");
             _builtInArt = new CardArt(front, back);
             _art = _builtInArt;
-            using var logo = MacPictures.Load(InBundle("Assets", "logo.png"));
+            using var logo = MacPictures.Load(InBundle("Assets", CardConfig.LogoFile));
             if (logo is not null) _logo.Image = new NSImage(logo, new CGSize(56, 56));
 
             // a design put in earlier is still the one in use

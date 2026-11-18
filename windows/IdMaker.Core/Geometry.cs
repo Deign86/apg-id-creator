@@ -51,6 +51,9 @@ public sealed class TemplateStore
     private const double ShapeSlack = 0.02;           // how far off the card's proportions artwork may be
     private const double MinBoxMm = 2;                // a box smaller than this cannot be grabbed
 
+    /// <summary>The file a replaced design's picture is kept in, in the app's data folder. The side is "front" or "back".</summary>
+    public static string ArtworkFileName(string side) => $"template-{side}.png";
+
     private readonly IKeyValueStore _store;
 
     public TemplateStore(IKeyValueStore store) { _store = store; }

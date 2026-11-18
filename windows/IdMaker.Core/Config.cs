@@ -54,6 +54,12 @@ public static class CardConfig
     public const string AppName = "Alpha Premier ID Maker";
     public const string AppVersion = "2.0.4";          // stamped into every PDF's metadata
 
+    // The pictures the app is built with, by file name: in assets/ in the
+    // repository, and in Assets beside the program or inside the Mac bundle.
+    public const string FrontArtFile = "front-template.png";
+    public const string BackArtFile = "back.png";
+    public const string LogoFile = "logo.png";
+
     // CR80 (ISO/IEC 7810 ID-1): 85.60 x 53.98 mm
     public const double CardWidthMm = 54;
     public const double CardHeightMm = 85.6;

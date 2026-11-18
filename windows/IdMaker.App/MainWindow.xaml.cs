@@ -116,7 +116,7 @@ public partial class MainWindow : Window
 
     private static string BesideProgram(params string[] parts) => Path.Combine(new[] { AppContext.BaseDirectory }.Concat(parts).ToArray());
 
-    private string StoredArtwork(string side) => Path.Combine(_files.Directory, $"template-{side}.png");
+    private string StoredArtwork(string side) => Path.Combine(_files.Directory, TemplateStore.ArtworkFileName(side));
 
     private void Boot()
     {
@@ -124,8 +124,8 @@ public partial class MainWindow : Window
         {
             var measurer = WpfTextMeasurer.Load(BesideProgram("Fonts"));
             _renderer = new CardRenderer(measurer);
-            _builtInArt = new CardArt(ImageFiles.Load(BesideProgram("Assets", "front-template.png")), ImageFiles.Load(BesideProgram("Assets", "back.png")));
-            BrandLogo.Source = ImageFiles.Load(BesideProgram("Assets", "logo.png"));
+            _builtInArt = new CardArt(ImageFiles.Load(BesideProgram("Assets", CardConfig.FrontArtFile)), ImageFiles.Load(BesideProgram("Assets", CardConfig.BackArtFile)));
+            BrandLogo.Source = ImageFiles.Load(BesideProgram("Assets", CardConfig.LogoFile));
             _art = _builtInArt;
 
             // a design put in earlier is still the one in use

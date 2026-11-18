@@ -236,7 +236,7 @@ public sealed partial class MainWindow
 
     private bool EditingMap => !_map.Hidden;
 
-    private string StoredArtwork(string side) => Path.Combine(_files.Directory, $"template-{side}.png");
+    private string StoredArtwork(string side) => Path.Combine(_files.Directory, TemplateStore.ArtworkFileName(side));
 
     private void ApplyGeometry() => _session.Geometry = _templates.Geometry();
 
