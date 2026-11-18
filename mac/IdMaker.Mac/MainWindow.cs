@@ -886,7 +886,7 @@ public sealed partial class MainWindow
             }
             else if (signature is ScannedSignature scan)
             {
-                using var picture = MacCardRenderer.TintedScan(scan, "#1D1C1A");
+                using var picture = MacCardRenderer.TintedScan(scan, CardConfig.ScreenInk);
                 var scale = Math.Min((w - 40.0) / scan.Width, (h - 40.0) / scan.Height);
                 MacPictures.Draw(context, picture, new CGRect((w - scan.Width * scale) / 2, (h - scan.Height * scale) / 2, scan.Width * scale, scan.Height * scale));
             }

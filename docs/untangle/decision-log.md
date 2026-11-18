@@ -190,11 +190,34 @@ Left from root fix 1: H30 (strings fixed in XAML and typed again in the Mac wind
 ### 2. The register's fields and the card's rules (root fix 5)
 
 - `033b121` `WireFormatTests`: the document sent to Firestore, to the letter (names, types, order), written and passing before the code below changed.
-- (next commit) `RegisterFields.All` in `Core/Register.cs` is the one list of an issued ID's fields. The document sent (`Document`), the document read (`ParseEntry`), the CSV saved (`ToCsv`) and the CSV brought in (`ImportCsv`) are made from it (H61, five of its eleven places). `RegisterEntry.Issue` is the one constructor of an entry for the form and the batch, and `RegisterEntry.Stamp` the one spelling of the issue time (H61, H62). `CardRules` (`Core/Rules.cs`) holds which characters a name, a suffix and a title may have and what a number is (H46, H63); `Session.Problems` and `Batch.PrepareRow` both call it.
+- `5b4eb96` `RegisterFields.All` in `Core/Register.cs` is the one list of an issued ID's fields. The document sent (`Document`), the document read (`ParseEntry`), the CSV saved (`ToCsv`) and the CSV brought in (`ImportCsv`) are made from it (H61, five of its eleven places). `RegisterEntry.Issue` is the one constructor of an entry for the form and the batch, and `RegisterEntry.Stamp` the one spelling of the issue time (H61, H62). `CardRules` (`Core/Rules.cs`) holds which characters a name, a suffix and a title may have and what a number is (H46, H63); `Session.Problems` and `Batch.PrepareRow` both call it.
   - What is sent did not change: `WireFormatTests` passes unchanged, and a test holds the list to the table in `register/README.md`.
   - H61's other places are outside this app's code and unchanged: `FakeFirebase.cs` (kept as an independent stand-in on purpose: a fake that serialised with the app's own table could not catch the table being wrong), `register/migrate.mjs`, and `firestore.rules` in apg-keystone.
   - H62's second half (the replacement document's name in `migrate.mjs`) and H64 (the print file's name and title, which differ by design between a print and a batch) are left.
   - H65 (two limits called `MinHeadPx`) is left: a rename inside the photo pipeline, not a duplicated rule.
+
+### 3. The jobs (root fix 2)
+
+- `731bf1d` Core: `Core/Jobs.cs` with `JobTests` (18 tests, stand-ins only).
+  - `Session.SavePrint` writes the PDF (`PrintFiles.Write`: to `.part`, moved over when whole) and only then calls `MarkIssued`; the shared register is told after that. H16, H17. `An_id_is_issued_only_after_the_pdf_is_saved` watches the register's own list being written and finds the PDF whole on disk at that moment, and no card issued while the page was being drawn; `A_print_that_cannot_be_saved_issues_nothing` and `A_page_that_cannot_be_drawn…` hold the other side.
+  - `Session.WarmRegister`, `SignIn`, `SignOut`, `CheckRegister`, `ImportRegister`, `RegisterCsv`, `ClearRefused`: H13, H14, H72 (the window no longer has to remember `RefreshDuplicate`), N11.
+  - `Session.ReadSharedRegister`, `BatchServices`, `IssueBatch`: the batch's issue loop and its copy of the back-upside-down formula (H20).
+  - `Session.TakePhoto`, `TakeSignatureScan`, `CheckingPhoto`: H15, H74 (the "card it was for is gone" check is Core's), X7 (one place, with the reason it stays).
+  - `DesignDesk`: begin / end / keep / discard / reset boxes / adopt artwork / back to built-in, each followed by the form's map being brought up to date. H22 (part), H24, H70. `PrintFiles.BackPictureFor` and its two messages: H18.
+- `cc7c44a` The Windows window calls them; its `_register` field and its `WritePdf` are gone. `53ef927` The Mac window calls them; it keeps the `Register` it made only for its window test to read.
+
+Left in the windows, with the reason:
+
+- The batch's orchestration (read the list, check rows off the window's thread, draw pages, save, report) is still ~45 lines in each window (H20's larger half). Its steps are interleaved with status lines the two windows word and time differently ("Building the PDF: page 3 of 12…" on Windows, "Building the PDF…" on the Mac) and with each platform's renderer; moving it needs a host interface with seven members, which could not be compiled here for either window. The two Core rules it copied are gone from both.
+- `UseArtwork`'s loading, resizing and saving of the two pictures (H22's other half) is each platform's picture code.
+- H71 (`Session.Measurer` set by the window after the fonts load) and H73 (148 `Render()` calls; `Session.Changed` is raised by `TakePhoto` and the late register answer only) are as they were.
+- The state of a save (`_saving`, `_saved`, `_savedCount`, `_savedPath`) is still the window's, passed to Core through `ScreenInput`.
+
+### 4. One home, and a test that reads the files (root fix 4, remainder)
+
+- (this commit) `HomeTests` (9 tests) reads `MainWindow.xaml`, both `.csproj` files, `app.manifest`, `Info.plist`, `IdMaker.iss`, `selftest.ps1`, `portable.ps1`, `package.ps1`, `package.sh`, the two palettes, and three `.cs` files that spell a value as bytes or per cent, and holds each value to its Core home: the version (H44: five places, the manifest and `ApplicationDisplayVersion` included, which the release workflow does not check); the app's name, publisher and program name (H52, H53, N18); the data folder and `last-error.txt` (H54); the built-in pictures (H55); field lengths (H45, so S2's three constants now have a reader) and the number box (H46); the artwork size (H47); the zoom slider on both platforms (H48); the card surface (H49); the tool, layout, kind and step tags (H56, H57, H58, H67's three Edit tags); gold and screen ink (H50, H51).
+  - New Core homes for values that had none: `CardConfig.Publisher`, `ProgramName`, `LastErrorFile`, `BrandGold`, `ScreenInk`. No value changed.
+  - Not covered: the Mac's colours written as rounded fractions (0.83, 0.69, 0.22 and 0.11, 0.11, 0.10: not the same numbers as the hex, so a test would have to allow a tolerance or the colour would have to change); the printer-flip tags `long` / `short` (their Core home is two private constants of `Session`); H59 (the Windows file-dialog filter); H66 (the pen driver pinned twice).
 
 ## Differences preserved, for the owner to unify
 
@@ -228,3 +251,7 @@ The form and the batch (H63). They now ask the same `CardRules`, but not all the
 3. Root fix 1: every place the two windows differ was kept as it was and listed, none unified.
 4. Root fix 5: the batch keeps accepting exactly what it accepted (differences 14 to 17), rather than taking on the form's stricter rules. One input changed: an employee number written in digits other than 0 to 9 (for example Arabic-Indic) used to pass the "1 to 4 digits" pattern and then stop the whole batch with an unhandled error when it was turned into a number; it is now refused like any other bad number, row by row. The form never let such digits in.
 5. Root fix 5: `FakeFirebase` was not changed to use the app's field list. The audit suggested it; a fake built from the code under test cannot disagree with it.
+6. Root fix 2: `PrintFiles.Write` reports a page that could not be drawn (`InvalidOperationException`) as "The file couldn’t be saved there (…)", on both platforms. The Mac did; Windows did not catch it, so there a save could end with no message and the button left saying "Saving the PDF…". The Mac's behaviour was taken for both.
+7. Root fix 2: on signing in, the password box is emptied as soon as the password has been handed to Core, rather than after the first answer comes back. It is never held longer than before.
+8. Root fix 2: after a batch whose cards could not all reach the shared register, the number on the form is checked again inside `IssueBatch` (as both windows did); after an ordinary save it is not (as neither window did). Kept as found.
+9. Root fix 2: the batch's orchestration and the state of a save were left in the windows (see "Left in the windows" under fix 3) rather than moved without a compiler.

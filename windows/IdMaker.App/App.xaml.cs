@@ -23,7 +23,7 @@ public partial class App : Application
 
     private static void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        var log = Path.Combine(Core.FileStore.DefaultDirectory, "last-error.txt");
+        var log = Path.Combine(Core.FileStore.DefaultDirectory, Core.CardConfig.LastErrorFile);
         try
         {
             Directory.CreateDirectory(Core.FileStore.DefaultDirectory);
