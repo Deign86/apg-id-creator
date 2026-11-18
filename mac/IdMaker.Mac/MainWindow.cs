@@ -93,7 +93,7 @@ public sealed partial class MainWindow
     private readonly NSButton _chkRotate;
 
     private readonly NSSegmentedControl _sideTabs = new() { SegmentCount = 2, TranslatesAutoresizingMaskIntoConstraints = false };
-    private readonly NSImageView _cardImage = Ui.Picture(400, 634);
+    private readonly NSImageView _cardImage = Ui.Picture(CardPointsWide, 634);
     private readonly NSTextField _cardLoading = Ui.Note("Loading the card…");
     private readonly NSTextField _caption = Ui.Note();
     private readonly NSStackView _sheetNav;
@@ -1243,7 +1243,7 @@ public sealed partial class MainWindow
 
     /* ---- the preview ---------------------------------------------- */
 
-    private const double PreviewPpm = 800 / CardConfig.CardWidthMm;         // twice the points it is shown at, for a Retina screen
+    private const double PreviewPpm = 2 * CardPointsWide / CardConfig.CardWidthMm;         // twice the points it is shown at, for a Retina screen
     private const double SheetPreviewPpm = 96 / 25.4;
 
     private void DrawPreview()
