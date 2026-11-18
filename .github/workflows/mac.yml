@@ -64,8 +64,6 @@ jobs:
           dotnet workload list
       - name: Core tests, on a Mac
         run: dotnet test ../windows/IdMaker.Tests -c Release
-      - name: Build, as it is released
-        run: dotnet build IdMaker.Mac -c Release -r osx-arm64
       - name: Build, with the window tests in it
         run: dotnet build IdMaker.Mac -c Release -r osx-arm64 -p:WindowTest=true
       - name: Self-test
