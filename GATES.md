@@ -97,9 +97,9 @@ Scope: the ID Maker as a native Mac program (C# on AppKit, no web view) that sha
   CHECK: `AlphaPremierIdMaker --selftest`
   EVIDENCE: 6 checks passed on macos-26 (job 134508656319).
 
-- [ ] M3: The card drawn by the Mac app matches `test/golden-front.png`, zone by zone, as the Windows app's does.
-  CHECK: `AlphaPremierIdMaker --selftest` (renderer checks)
-  EVIDENCE: pending
+- [x] M3: The card drawn by the Mac app matches `test/golden-front.png`, zone by zone, as the Windows app's does, and the card fonts measure as they did in the web app.
+  CHECK: `AlphaPremierIdMaker --selftest --repo <repository>`
+  EVIDENCE: passed on macos-26 (Mac app workflow, commit after 037fd52). Fonts: cap heights and descents equal, worst width difference 0.0017 px at 100 px. Card 638 x 1011. Whole card mean difference 1.14 (limit 4.0); photo 1.28; name 5.99; job title 1.57; signature 0.50; QR 0.00 (identical). Ink boxes of the name, title and number within one pixel of the web app's. The employee number is the closest to its limit: 11.45% of pixels visibly different against 12% (11.71 mean against 14), as on Windows a matter of how a one-pixel stroke is smoothed. The drawn card is kept as the `mac-report` artifact. Not yet drawn on Mac: sheets of cards and the PDF pages (with M4).
 
 - [ ] M4: The real window takes a card from an empty form to a saved PDF, refuses to move on with the reason, issues nothing when the save fails, signs in to the register and shows a refused card. The Intern / Employee choice is there.
   EVIDENCE: pending
