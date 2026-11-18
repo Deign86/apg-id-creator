@@ -3,7 +3,11 @@ name: Mac app
 # Builds the native Mac app and runs its checks on a real Mac (the renderer
 # and the window need one).
 on:
+  # Every pull request, whatever it touches: these are the checks main requires, and a required check that
+  # never runs leaves its pull request waiting for ever.
+  pull_request:
   push:
+    branches: [main]
     paths:
       - 'mac/**'
       - 'windows/IdMaker.Core/**'
@@ -25,6 +29,7 @@ concurrency:
 
 jobs:
   test:
+    name: Mac tests
     runs-on: macos-26
     timeout-minutes: 30
     env:
@@ -94,6 +99,7 @@ jobs:
   # change that breaks packaging is seen here and not on release day. Kept
   # as a run artifact; nothing is released from here.
   package:
+    name: Mac package
     runs-on: macos-26
     timeout-minutes: 30
     env:

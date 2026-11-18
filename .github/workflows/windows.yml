@@ -3,7 +3,11 @@ name: Windows app
 # Builds the native app, runs every test on a real Windows machine (the
 # renderer and the window need one), and packages an installer.
 on:
+  # Every pull request, whatever it touches: these are the checks main requires, and a required check that
+  # never runs leaves its pull request waiting for ever.
+  pull_request:
   push:
+    branches: [main]
     paths:
       - 'windows/**'
       - 'assets/**'
@@ -21,6 +25,7 @@ concurrency:
 
 jobs:
   test:
+    name: Windows tests
     runs-on: windows-latest
     timeout-minutes: 25
     env:
@@ -91,6 +96,7 @@ jobs:
   # time, so the whole check takes as long as the slower one. What it builds
   # is only kept as a run artifact; nothing is released from here.
   package:
+    name: Windows package
     runs-on: windows-latest
     timeout-minutes: 25
     env:
