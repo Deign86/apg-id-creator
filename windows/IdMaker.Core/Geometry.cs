@@ -29,14 +29,6 @@ public sealed record CardGeometry(
         CardConfig.NameText, CardConfig.TitleText, CardConfig.EmployeeNoText,
         CardConfig.Photo, CardConfig.Qr, CardConfig.Signature,
         CardConfig.PhotoArea, CardConfig.FrontOutline);
-
-    public TextSpec Text(BoxKey key) => key switch
-    {
-        BoxKey.Name => Name,
-        BoxKey.Title => Title,
-        BoxKey.EmployeeNo => EmployeeNo,
-        _ => throw new ArgumentOutOfRangeException(nameof(key)),
-    };
 }
 
 /// <summary>A moved map and, optionally, replaced artwork: what is kept between runs.</summary>
