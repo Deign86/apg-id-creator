@@ -379,6 +379,21 @@ false).
 `End` does nothing when no stroke is open, which is what makes "exactly
 once" hold when an up and a lost-capture both arrive.
 
+**Around the pad: holding the pointer.** `SignWindow` (Windows, in
+`SignaturePad.cs`; Mac, `SignWindow.cs`) is *Free* or *Holding*
+(`_holding`). While Holding, the pointer is clipped to the pad (Windows
+only; the Mac cannot clip it), a click past the pad presses nothing, and
+only Enter, Backspace, Delete and Esc do anything.
+
+| From | Event | Guard | To | Side effects | Code |
+| --- | --- | --- | --- | --- | --- |
+| Free | stroke starts | | Holding | pointer clipped to the pad; ring shown; status says how to finish | `HoldOnPad` |
+| Holding | Enter | pad has ink | closed | signature kept | `KeysWhileHolding`, `Finish` |
+| Holding | Backspace or Delete | | Holding | strokes dropped | `KeysWhileHolding` |
+| Holding | Esc | | Free | pointer clipped to the window again; ring hidden | `LetGo` |
+| Holding | window loses focus | | Holding | pointer let go; taken again on return | `Deactivated`, `Activated` |
+| any | window closes | | closed | pointer let go | `Closed` |
+
 ---
 
 ## 10. The pen tablet context
