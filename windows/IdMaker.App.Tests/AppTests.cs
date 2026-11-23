@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -918,5 +919,49 @@ public class WindowTests
             Assert.NotEqual("", SignWindow.TabletStatus(null, sawPressure: false));
             Assert.Contains("Press harder", SignWindow.TabletStatus(null, sawPressure: true));
         });
+    }
+
+    [Fact]
+    public void Signing_holds_the_pointer_on_the_pad_until_a_key_lets_it_go()
+    {
+        Ui.Run(() =>
+        {
+            var sign = new SignWindow("Ana", null);
+            sign.Show();
+            sign.UpdateLayout();
+            Assert.False(sign.Holding);
+
+            // the pen comes down on the pad: the pointer is held there and the status says how to finish
+            Stroke(sign.Pad);
+            Assert.True(sign.Holding);
+            Assert.True(sign.Pad.HasInk);
+
+            // Backspace starts again, still held
+            Press(sign, Key.Back);
+            Assert.False(sign.Pad.HasInk);
+            Assert.True(sign.Holding);
+
+            // Esc lets the pointer go and stays on this screen
+            Press(sign, Key.Escape);
+            Assert.False(sign.Holding);
+            Assert.True(sign.IsVisible);
+            Assert.Null(sign.Result);
+
+            // Enter, once signed, uses the signature
+            Stroke(sign.Pad);
+            Press(sign, Key.Enter);
+            Assert.False(sign.IsVisible);
+            Assert.NotNull(sign.Result);
+        });
+
+        static void Stroke(SignaturePad pad)
+        {
+            var at = Environment.TickCount;
+            pad.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, at, MouseButton.Left) { RoutedEvent = Mouse.MouseDownEvent });
+            pad.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, at + 1, MouseButton.Left) { RoutedEvent = Mouse.MouseUpEvent });
+        }
+
+        static void Press(Window window, Key key) =>
+            window.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window)!, Environment.TickCount, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
     }
 }

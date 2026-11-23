@@ -58,12 +58,16 @@ internal sealed class SignaturePadView : NSView
         return new InkPoint(Math.Clamp(p.X, 0, Bounds.Width) / Scale, Math.Clamp(p.Y, 0, Bounds.Height) / Scale, PressureOf(e));
     }
 
+    /// <summary>Raised when a pen or the mouse comes down on the pad to draw.</summary>
+    public event Action? StrokeStarted;
+
     public override void MouseDown(NSEvent theEvent)
     {
         var first = ToPad(theEvent);
         _current = new List<InkPoint> { first };
         if (first.HasPressure) SawPressure = true;
         NeedsDisplay = true;
+        StrokeStarted?.Invoke();
     }
 
     public override void MouseDragged(NSEvent theEvent)
@@ -115,6 +119,11 @@ internal sealed class SignaturePadView : NSView
 /// <summary>The signing screen. `Ask` shows it and gives back the signature, or null when it was cancelled.</summary>
 internal static class SignWindow
 {
+    /// <summary>What the status line says once signing has started, as on Windows.</summary>
+    public const string HoldingStatus = "Signing. Press Enter when finished, Backspace to start again, or Esc to let the pointer go.";
+
+    private const string ReadyStatus = "Sign with the pen or the mouse. A pen tablet draws thicker where you press harder.";
+
     public static DrawnSignature? Ask(string firstName, DrawnSignature? existing)
     {
         var screen = NSScreen.MainScreen?.VisibleFrame ?? new CGRect(0, 0, 1280, 800);
@@ -124,7 +133,7 @@ internal static class SignWindow
         };
         var pad = new SignaturePadView { TranslatesAutoresizingMaskIntoConstraints = false, Value = existing };
         DrawnSignature? result = null;
-        var status = Ui.Note("Sign with the pen or the mouse. A pen tablet draws thicker where you press harder.");
+        var status = Ui.Note(ReadyStatus);
         var done = Ui.Button("Use this signature", () =>
         {
             result = pad.Value;
@@ -146,8 +155,59 @@ internal static class SignWindow
             buttons.LeadingAnchor.ConstraintEqualTo(content.LeadingAnchor, 24),
             buttons.BottomAnchor.ConstraintEqualTo(content.BottomAnchor, -20),
         });
+        // Once the pen comes down on the pad, signing has started: a pen that
+        // drifts off the pad mid-signature pressed Cancel or Start again with
+        // its next tap. Until a key lets go, only the pad answers the pointer
+        // and the keyboard finishes:
+        //   Enter      use this signature
+        //   Backspace  start again (Delete too)
+        //   Esc        let the pointer go, and stay on this screen
+        // shortcut: macOS has no way to hold the pointer inside a box as Windows' ClipCursor does, so the pointer
+        // can still leave the pad here, it just presses nothing; revisit if a Mac signing station is set up.
+        var holding = false;
+        pad.WantsLayer = true;
+        void Hold(bool on)
+        {
+            holding = on;
+            status.StringValue = on ? HoldingStatus : ReadyStatus;
+            if (pad.Layer is { } layer)
+            {
+                layer.BorderWidth = on ? 3 : 0;
+                layer.BorderColor = new CGColor(0.82f, 0.82f, 0.80f, 1);
+            }
+        }
+        pad.StrokeStarted += () => { if (!holding) Hold(true); };
+        var monitor = NSEvent.AddLocalMonitorForEventsMatchingMask(
+            NSEventMask.KeyDown | NSEventMask.LeftMouseDown | NSEventMask.RightMouseDown | NSEventMask.OtherMouseDown,
+            e =>
+            {
+                if (!holding || e.Window != window) return e;
+                if (e.Type == NSEventType.KeyDown)
+                {
+                    // the keys as the keyboard numbers them: Return and Enter, Delete and forward Delete, Escape
+                    switch (e.KeyCode)
+                    {
+                        case 36 or 76 when pad.Value is not null:
+                            result = pad.Value;
+                            NSApplication.SharedApplication.StopModal();
+                            break;
+                        case 51 or 117: pad.Clear(); break;
+                        case 53: Hold(false); break;
+                    }
+                    return null!;                                           // no other key does anything while signing
+                }
+                var at = pad.ConvertPointFromView(e.LocationInWindow, null);
+                return pad.Bounds.Contains(at) ? e : null!;                 // a click past the pad presses nothing
+            });
         window.MakeKeyAndOrderFront(null);
-        NSApplication.SharedApplication.RunModalForWindow(window);
+        try
+        {
+            NSApplication.SharedApplication.RunModalForWindow(window);
+        }
+        finally
+        {
+            if (monitor is not null) NSEvent.RemoveMonitor(monitor);
+        }
         window.OrderOut(null);
         return result;
     }

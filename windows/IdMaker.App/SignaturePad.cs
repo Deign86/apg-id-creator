@@ -3,7 +3,8 @@
 // SignaturePad is the surface: it captures strokes from a pen, a finger or
 // a mouse and draws them live with the same curve code the card uses.
 // SignWindow is where signing happens: the pad on its own, filling the
-// screen, with the pointer kept inside the window until the person is done.
+// screen, with the pointer kept inside the window until the person is done,
+// and on the pad itself once they start to sign.
 // A small tablet maps onto the whole screen, so on a pad tucked into a
 // corner of the form the pen kept running off the edge; filling the screen
 // gives the hand the whole tablet to sign on.
@@ -61,6 +62,9 @@ public sealed class SignaturePad : FrameworkElement
 
     /// <summary>Raised after every finished stroke, and after Clear.</summary>
     public event Action? InkChanged;
+
+    /// <summary>Raised when a pen, finger or mouse comes down on the pad to draw.</summary>
+    public event Action? StrokeStarted;
 
     /// <summary>True once any stroke was drawn with a device that reports pressure.</summary>
     public bool SawPressure { get; private set; }
@@ -146,6 +150,7 @@ public sealed class SignaturePad : FrameworkElement
         _current = new List<InkPoint> { ToPad(p, pressure) };
         if (pressure >= 0) SawPressure = true;
         InvalidateVisual();
+        StrokeStarted?.Invoke();
     }
 
     private void Extend(Point p, double pressure)
@@ -257,7 +262,17 @@ public sealed class SignWindow : Window
     private readonly TextBlock _status = new();
     private readonly Button _done;
     private readonly Button _clear;
+    private readonly Border _padFrame;
     private PenTablet? _tablet;
+    private bool _holding;                                    // signing has started: the pointer is held on the pad
+
+    /// <summary>What the status line says while the pointer is held on the pad.</summary>
+    public const string HoldingStatus = "Signing. Press Enter when finished, Backspace to start again, or Esc to let the pointer go.";
+
+    /// <summary>True while the pointer is held on the pad.</summary>
+    public bool Holding => _holding;
+
+    internal SignaturePad Pad => _pad;
 
     /// <summary>The signature, once Done was pressed. Null when signing was cancelled.</summary>
     public DrawnSignature? Result { get; private set; }
@@ -299,9 +314,11 @@ public sealed class SignWindow : Window
         buttons.Children.Add(cancel);
         buttons.Children.Add(_done);
 
-        var padFrame = new Border
+        // the ring shows while the pointer is held on the pad; it is always there, clear, so the pad does not move when it appears
+        _padFrame = new Border
         {
             Child = _pad, CornerRadius = new CornerRadius(14), Background = SignaturePad.PaperBrush,
+            BorderThickness = new Thickness(3), BorderBrush = Brushes.Transparent,
             Padding = new Thickness(0), ClipToBounds = true, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
         };
 
@@ -314,11 +331,14 @@ public sealed class SignWindow : Window
         DockPanel.SetDock(buttons, Dock.Bottom);
         root.Children.Add(top);
         root.Children.Add(buttons);
-        root.Children.Add(padFrame);
+        root.Children.Add(_padFrame);
         Content = root;
 
         _pad.Value = existing;
         _pad.InkChanged += Refresh;
+        _pad.StrokeStarted += HoldOnPad;
+        PreviewKeyDown += KeysWhileHolding;
+        PreviewMouseDown += ClicksWhileHolding;
         Refresh();
 
         SourceInitialized += (_, _) =>
@@ -331,6 +351,7 @@ public sealed class SignWindow : Window
         Deactivated += (_, _) => { _tablet?.SetActive(false); ReleaseCursor(IntPtr.Zero); };
         Closed += (_, _) => { ReleaseCursor(IntPtr.Zero); _tablet?.Dispose(); _tablet = null; };
         ContentRendered += (_, _) => KeepPointerInside();
+        SizeChanged += (_, _) => KeepPointerInside();
     }
 
     private static Button MakeButton(string text, string style, RoutedEventHandler click)
@@ -341,19 +362,83 @@ public sealed class SignWindow : Window
     }
 
     // The pointer stays on this screen while signing: a pen that slides off
-    // the pad cannot land on another window, or another monitor.
+    // the pad cannot land on another window, or another monitor. Once the
+    // pen has come down on the pad it stays on the pad itself: a tablet
+    // whose driver acts as a mouse drifted off it mid-signature, and the
+    // next tap pressed Cancel or Clear. The keyboard finishes from there.
     private void KeepPointerInside()
     {
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero || !IsActive) return;
+        if (_holding && PadOnScreen() is { } pad) { ClipCursor(ref pad); return; }
         if (GetWindowRect(handle, out var rect) && rect.Right > rect.Left && rect.Bottom > rect.Top) ClipCursor(ref rect);
+    }
+
+    // The pad's box in screen pixels, one pixel in from each edge so the pointer stays over it. Null when it has no size.
+    private NativeRect? PadOnScreen()
+    {
+        if (_pad.ActualWidth <= 0 || _pad.ActualHeight <= 0 || PresentationSource.FromVisual(_pad) is null) return null;
+        var from = _pad.PointToScreen(new Point(0, 0));                       // device pixels, whatever the scaling
+        var to = _pad.PointToScreen(new Point(_pad.ActualWidth, _pad.ActualHeight));
+        var rect = new NativeRect
+        {
+            // SAFETY: screen coordinates are a few thousand pixels at most, far inside int
+            Left = (int)Math.Ceiling(Math.Min(from.X, to.X)) + 1,
+            Top = (int)Math.Ceiling(Math.Min(from.Y, to.Y)) + 1,
+            Right = (int)Math.Floor(Math.Max(from.X, to.X)) - 1,
+            Bottom = (int)Math.Floor(Math.Max(from.Y, to.Y)) - 1,
+        };
+        return rect.Right > rect.Left && rect.Bottom > rect.Top ? rect : null;
+    }
+
+    private void HoldOnPad()
+    {
+        if (_holding) return;
+        _holding = true;
+        Theme.Paint(_padFrame, Border.BorderBrushProperty, "Color.TrayInk");
+        Keyboard.ClearFocus();                                // so Enter and Space cannot press a focused button
+        Refresh();
+        KeepPointerInside();
+    }
+
+    private void LetGo()
+    {
+        if (!_holding) return;
+        _holding = false;
+        _padFrame.BorderBrush = Brushes.Transparent;
+        Refresh();
+        KeepPointerInside();
+    }
+
+    // While the pointer is held, only these keys count:
+    //   Enter      use this signature
+    //   Backspace  start again (Delete too)
+    //   Esc        let the pointer go, and stay on this screen
+    private void KeysWhileHolding(object sender, KeyEventArgs e)
+    {
+        if (!_holding) return;
+        e.Handled = true;
+        switch (e.Key)
+        {
+            case Key.Enter when _pad.HasInk: Finish(); break;
+            case Key.Back or Key.Delete: _pad.Clear(); break;
+            case Key.Escape: LetGo(); break;
+        }
+    }
+
+    // A touch or a pen that reaches past the pad while it is held presses nothing.
+    private void ClicksWhileHolding(object sender, MouseButtonEventArgs e)
+    {
+        if (!_holding) return;
+        var p = e.GetPosition(_pad);
+        if (p.X < 0 || p.Y < 0 || p.X > _pad.ActualWidth || p.Y > _pad.ActualHeight) e.Handled = true;
     }
 
     private void Refresh()
     {
         _done.IsEnabled = _pad.HasInk;
         _clear.IsEnabled = _pad.HasInk;
-        _status.Text = TabletStatus(_tablet, _pad.SawPressure);
+        _status.Text = _holding ? HoldingStatus : TabletStatus(_tablet, _pad.SawPressure);
     }
 
     /// <summary>One line on what the pen tablet is doing, in words for the person holding it.</summary>
@@ -372,6 +457,7 @@ public sealed class SignWindow : Window
     private void Finish()
     {
         Result = _pad.Value;
+        _holding = false;
         Close();
     }
 }
